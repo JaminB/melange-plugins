@@ -51,7 +51,7 @@ EXECUTABLE_EXTENSIONS = {
 EXECUTABLE_MAGICS = (b"MZ", b"\x7fELF")
 
 FILE_TYPE_EXTENSIONS = {
-    ".lua", ".json", ".txt", ".md", ".glsl", ".vert", ".frag", ".fx", ".cg",
+    ".lua", ".json", ".txt", ".md", ".ini", ".glsl", ".vert", ".frag", ".fx", ".cg",
     ".png", ".tga", ".dds", ".jpg", ".jpeg", ".xom", ".lub", ".ergpatch",
     ".wav", ".ogg", ".html", ".css", ".js", ".svg", ".ttf", ".otf",
 }

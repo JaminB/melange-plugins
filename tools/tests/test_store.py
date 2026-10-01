@@ -80,6 +80,22 @@ class ValidateOversize(unittest.TestCase):
             self.assertTrue(any("larger than 4 bytes in total" in e for e in errors), errors)
 
 
+class FileTypeRules(unittest.TestCase):
+    def test_ini_file_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), "sample-plugin")
+            (root / "plugins" / "sample-plugin" / "mod" / "effect.ini").write_text("[effect]\n", encoding="utf-8")
+            errors = store.Validator(root).validate_plugin("sample-plugin")
+            self.assertEqual(errors, [])
+
+    def test_unknown_extension_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), "sample-plugin")
+            (root / "plugins" / "sample-plugin" / "mod" / "notes.xyz").write_text("hi", encoding="utf-8")
+            errors = store.Validator(root).validate_plugin("sample-plugin")
+            self.assertTrue(any("file type" in e and ".xyz" in e for e in errors), errors)
+
+
 class LayoutRules(unittest.TestCase):
     def test_good_layout_passes(self):
         errors = store.check_layout("sample-plugin", [
