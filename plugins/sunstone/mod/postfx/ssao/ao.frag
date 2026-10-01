@@ -57,9 +57,10 @@ void main() {
     float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     float angle = noise * 6.2831853;
     float r2 = p_radius * p_radius;
-    int taps = clamp(p_taps, 4, kMaxTaps);
+    int taps = p_taps < 4 ? 4 : p_taps > kMaxTaps ? kMaxTaps : p_taps;
     float occ = 0.0;
-    for (int i = 0; i < taps; ++i) {
+    for (int i = 0; i < kMaxTaps; ++i) {
+        if (i >= taps) break;
         float t = (float(i) + noise) / float(taps);
         float a = angle + float(i) * 2.3999632;
         vec2 suv = mg_uv + vec2(cos(a), sin(a)) * t * ruv;

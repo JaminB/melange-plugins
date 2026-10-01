@@ -17,8 +17,8 @@ local PRESETS = {
     },
     low = {
         ssao    = { enabled = false },
-        sky     = { enabled = true },
-        fog     = { enabled = true },
+        sky     = { enabled = true, glowIntensity = 0.6 },
+        fog     = { enabled = true, inscatterStrength = 0.5 },
         bloom   = { enabled = false },
         grade   = { enabled = true, lutAmount = 0.45, vignette = 0.2, grain = 0.01 },
         smaa    = { enabled = true },
