@@ -319,6 +319,8 @@ class Validator:
 
     def _check_spice(self, spice: dict, plugin_id: str) -> list[str]:
         errors = []
+        if spice.get("spiceVersion") != 1:
+            errors.append(f"mod/spice.json spiceVersion {spice.get('spiceVersion')!r} must be 1")
         spice_id = spice.get("id")
         if spice_id != plugin_id:
             errors.append(f"mod/spice.json id {spice_id!r} != folder name {plugin_id!r}")
@@ -519,7 +521,7 @@ def pack_plugin(root: Path, plugin_id: str, out_dir: Path) -> dict:
             info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.create_system = 3
-            info.external_attr = (0o644 << 16)
+            info.external_attr = (0o100644 << 16)
             info.flag_bits |= 0x800
             zf.writestr(info, data, compresslevel=9)
 

@@ -1,8 +1,10 @@
 import json
 import shutil
+import stat
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -38,6 +40,28 @@ class ValidateMissingLicence(unittest.TestCase):
             root = make_repo(Path(tmp), "bad-missing-licence")
             errors = store.Validator(root).validate_plugin("bad-missing-licence")
             self.assertTrue(any("LICENSE is missing" in e for e in errors), errors)
+
+
+class ValidateSpiceVersion(unittest.TestCase):
+    def test_missing_spice_version_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), "sample-plugin")
+            spice_path = root / "plugins" / "sample-plugin" / "mod" / "spice.json"
+            spice = json.loads(spice_path.read_text(encoding="utf-8"))
+            del spice["spiceVersion"]
+            spice_path.write_text(json.dumps(spice), encoding="utf-8")
+            errors = store.Validator(root).validate_plugin("sample-plugin")
+            self.assertTrue(any("spiceVersion" in e for e in errors), errors)
+
+    def test_wrong_spice_version_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), "sample-plugin")
+            spice_path = root / "plugins" / "sample-plugin" / "mod" / "spice.json"
+            spice = json.loads(spice_path.read_text(encoding="utf-8"))
+            spice["spiceVersion"] = 2
+            spice_path.write_text(json.dumps(spice), encoding="utf-8")
+            errors = store.Validator(root).validate_plugin("sample-plugin")
+            self.assertTrue(any("spiceVersion" in e for e in errors), errors)
 
 
 class ValidateOversize(unittest.TestCase):
@@ -147,6 +171,20 @@ class PackAndVerify(unittest.TestCase):
                 zip_path, "sample-plugin", "1.0.0", facts["sha256"], facts["size"] + 1
             )
             self.assertTrue(any("size mismatch" in e for e in errors), errors)
+
+    def test_pack_sets_regular_file_unix_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            root = make_repo(tmp, "sample-plugin")
+            out_dir = tmp / "dist"
+            store.pack_plugin(root, "sample-plugin", out_dir)
+            zip_path = out_dir / "sample-plugin-1.0.0.zip"
+            with zipfile.ZipFile(zip_path) as zf:
+                self.assertTrue(zf.infolist())
+                for info in zf.infolist():
+                    mode = info.external_attr >> 16
+                    self.assertTrue(stat.S_ISREG(mode), (info.filename, oct(mode)))
+                    self.assertEqual(mode & 0o777, 0o644)
 
 
 class IndexGeneration(unittest.TestCase):
