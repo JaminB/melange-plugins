@@ -1,0 +1,15 @@
+{
+  "id": "sample-plugin",
+  "version": "1.0.0",
+  "name": "Sample Plugin",
+  "authors": ["Someone"],
+  "description": "A tiny sample plugin used as a store test fixture.",
+  "website": "https://github.com/someone/sample-plugin",
+  "kind": "client-only",
+  "melange": { "range": ">=0.9.0 <0.10.0" },
+  "permissions": { "unsafe": false, "filesystem": "none" },
+  "dependencies": [],
+  "conflicts": [],
+  "entry": { "client": "client/init.lua" },
+  "settings": []
+}

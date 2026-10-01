@@ -1,0 +1,14 @@
+{
+  "id": "bad-missing-licence",
+  "version": "1.0.0",
+  "name": "Bad Missing Licence",
+  "authors": ["Someone"],
+  "description": "Fixture: no LICENSE file.",
+  "kind": "client-only",
+  "melange": { "range": ">=0.9.0 <0.10.0" },
+  "permissions": { "unsafe": false, "filesystem": "none" },
+  "dependencies": [],
+  "conflicts": [],
+  "entry": { "client": "client/init.lua" },
+  "settings": []
+}

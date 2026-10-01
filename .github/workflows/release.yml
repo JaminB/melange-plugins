@@ -1,0 +1,152 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: Plugin id
+        required: true
+      version:
+        description: Version to release (must be newer than any released version)
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate the plugin
+        run: python tools/store.py validate "${{ inputs.id }}"
+
+      - name: Refuse an existing tag or a non-newer version
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.id }}-v${{ inputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::tag $TAG already exists"
+            exit 1
+          fi
+          python - "$GITHUB_WORKSPACE" "${{ inputs.id }}" "${{ inputs.version }}" <<'PY'
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path(sys.argv[1]) / "tools"))
+          import store
+          root, plugin_id, version = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+          store_json = store.load_json(root / "plugins" / plugin_id / "store.json")
+          versions = store_json.get("versions", [])
+          if versions and not store._semver_lt(versions[0]["version"], version):
+              sys.exit(f"{version} is not newer than the newest released version {versions[0]['version']}")
+          PY
+
+      - name: Pack
+        id: pack
+        run: |
+          set -euo pipefail
+          python tools/store.py pack "${{ inputs.id }}" --out dist | tee facts.json
+          echo "sha256=$(python -c "import json;print(json.load(open('facts.json'))['sha256'])")" >> "$GITHUB_OUTPUT"
+          echo "size=$(python -c "import json;print(json.load(open('facts.json'))['size'])")" >> "$GITHUB_OUTPUT"
+          echo "unpacked=$(python -c "import json;print(json.load(open('facts.json'))['unpackedSize'])")" >> "$GITHUB_OUTPUT"
+          echo "files=$(python -c "import json;print(json.load(open('facts.json'))['files'])")" >> "$GITHUB_OUTPUT"
+          echo "url=$(python -c "import json;print(json.load(open('facts.json'))['url'])")" >> "$GITHUB_OUTPUT"
+
+      - name: Changelog section for this version
+        id: changelog
+        run: |
+          python - "${{ inputs.id }}" "${{ inputs.version }}" <<'PY' > changelog.txt
+          import re, sys
+          plugin_id, version = sys.argv[1], sys.argv[2]
+          text = open(f"plugins/{plugin_id}/CHANGELOG.md", encoding="utf-8").read()
+          sections = re.split(r"^##\s+(\S+)\s*$", text, flags=re.M)[1:]
+          pairs = dict(zip(sections[0::2], sections[1::2]))
+          print(pairs.get(version, "").strip())
+          PY
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.id }}-v${{ inputs.version }}" \
+            --target "${{ github.sha }}" \
+            --title "${{ inputs.id }} ${{ inputs.version }}" \
+            --notes-file changelog.txt \
+            "dist/${{ inputs.id }}-${{ inputs.version }}.zip"
+
+      - name: Re-download the asset and recheck its hash
+        run: |
+          python tools/store.py verify-release \
+            --id "${{ inputs.id }}" --version "${{ inputs.version }}" \
+            --sha256 "${{ steps.pack.outputs.sha256 }}" --size "${{ steps.pack.outputs.size }}" \
+            --changed --base "origin/main" || true
+          curl -fL -o downloaded.zip "${{ steps.pack.outputs.url }}"
+          python tools/store.py verify-release downloaded.zip \
+            --id "${{ inputs.id }}" --version "${{ inputs.version }}" \
+            --sha256 "${{ steps.pack.outputs.sha256 }}" --size "${{ steps.pack.outputs.size }}"
+
+      - name: Add the versions[] entry and regenerate the index
+        run: |
+          python - "${{ inputs.id }}" "${{ inputs.version }}" \
+            "${{ steps.pack.outputs.url }}" "${{ steps.pack.outputs.sha256 }}" \
+            "${{ steps.pack.outputs.size }}" "${{ steps.pack.outputs.unpacked }}" \
+            "${{ steps.pack.outputs.files }}" <<'PY'
+          import datetime, json, sys
+          from pathlib import Path
+          sys.path.insert(0, "tools")
+          import store
+
+          plugin_id, version, url, sha256, size, unpacked, files = sys.argv[1:8]
+          store_path = Path(f"plugins/{plugin_id}/store.json")
+          spice = store.load_json(Path(f"plugins/{plugin_id}/mod/spice.json"))
+          store_json = store.load_json(store_path)
+          changelog = Path("changelog.txt").read_text(encoding="utf-8").strip()
+
+          entry = {
+              "version": version,
+              "released": datetime.date.today().isoformat(),
+              "melange": spice["melange"]["range"],
+              "kind": spice["kind"],
+              "permissions": {
+                  "unsafe": spice.get("permissions", {}).get("unsafe", False),
+                  "filesystem": spice.get("permissions", {}).get("filesystem", "none"),
+              },
+              "dependencies": spice.get("dependencies", []),
+              "conflicts": spice.get("conflicts", []),
+              "url": url,
+              "sha256": sha256,
+              "size": int(size),
+              "unpackedSize": int(unpacked),
+              "files": int(files),
+              "changelog": changelog,
+          }
+          store_json.setdefault("versions", []).insert(0, entry)
+          store_path.write_text(json.dumps(store_json, indent=2) + "\n", encoding="utf-8")
+          PY
+          python tools/store.py index
+
+      - name: Open the release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BRANCH="release/${{ inputs.id }}-v${{ inputs.version }}"
+          git config user.name "melange-plugins release bot"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add "plugins/${{ inputs.id }}/store.json" index.json
+          git commit -m "Release ${{ inputs.id }} ${{ inputs.version }}"
+          git push origin "$BRANCH"
+          gh pr create --base main --head "$BRANCH" \
+            --title "Release ${{ inputs.id }} ${{ inputs.version }}" \
+            --body "Adds the \`versions[]\` entry for the release published at ${{ steps.pack.outputs.url }} and regenerates \`index.json\`."

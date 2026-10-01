@@ -1,0 +1,8 @@
+{
+  "storeVersion": 1,
+  "licence": "MIT",
+  "homepage": "https://github.com/someone/sample-plugin",
+  "categories": ["interface"],
+  "gameBuilds": ["1077"],
+  "screenshots": []
+}

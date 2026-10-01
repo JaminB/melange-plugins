@@ -1,0 +1,15 @@
+# One id per line. Ids starting with "melange-" are reserved except for
+# listings by the repo owner (checked separately by tools/store.py).
+melange
+thumper
+mirage
+oasis
+erg
+store
+core
+vanilla
+mods
+deep-desert
+handshake
+levels
+weapons

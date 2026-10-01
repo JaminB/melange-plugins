@@ -1,0 +1,2 @@
+# Names of stock game files. A plugin file matching one of these (case-
+# insensitive, any directory) fails the game-content heuristic check.
