@@ -1,0 +1,3 @@
+-- Sunstone L1 (texture clarity) is declared entirely in spice.json's "graphics" block and applied by Melange's
+-- MirageTextures framework component; there is nothing for this mod's own code to do yet. Later layers (grading,
+-- atmosphere, shadows, lighting, water) will add their post-FX passes and shader assets under this mod folder.

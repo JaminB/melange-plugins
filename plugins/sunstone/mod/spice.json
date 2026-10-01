@@ -1,0 +1,17 @@
+{
+  "spiceVersion": 1,
+  "id": "sunstone",
+  "version": "1.0.0",
+  "name": "Sunstone",
+  "authors": ["Melange"],
+  "description": "Sharper textures: anisotropic filtering and trilinear filtering. Client-only, no effect on the simulation.",
+  "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/sunstone",
+  "kind": "client-only",
+  "melange": { "range": ">=0.2.0 <0.3.0" },
+  "permissions": { "unsafe": false, "filesystem": "none" },
+  "dependencies": [],
+  "conflicts": [],
+  "entry": { "client": "client/init.lua" },
+  "graphics": { "anisotropy": 16, "trilinearFilter": true },
+  "settings": []
+}
