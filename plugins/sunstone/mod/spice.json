@@ -12,7 +12,7 @@
   "dependencies": [],
   "conflicts": [],
   "entry": { "client": "client/init.lua" },
-  "graphics": { "anisotropy": 16, "trilinearFilter": true },
+  "graphics": { "anisotropy": 16, "trilinearFilter": true, "shadowMapSize": 2048 },
   "settings": [
     {
       "key": "quality",
