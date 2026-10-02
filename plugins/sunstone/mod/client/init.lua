@@ -169,7 +169,9 @@ local function apply()
         water = wum.config.get("water") ~= false,
     }
     local same = true
-    for k, v in pairs(state) do if last[k] ~= v then same = false end end
+    for _, k in ipairs({ "quality", "look", "theme", "lighting", "water" }) do
+        if last[k] ~= state[k] then same = false end
+    end
     if same then return end
     last = state
 
