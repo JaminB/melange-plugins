@@ -1,3 +1,14 @@
+## 1.6.1
+
+- Bold water is a deep, saturated version of the game's own sea colour: a calmer reflection, no teal cast, and
+  crisp white glints that cover the water below them instead of turning cream over sandy shallows.
+- The grade no longer turns bright blue teal: a cool colour that leaves the range is scaled back instead of having
+  its blue channel clipped.
+- Sharpening and local contrast fade out on surfaces right in front of the camera, and sharpening leaves faint
+  steps alone, so magnified textures no longer turn blocky.
+- Measured at 1920x1080 on an RX 7800 XT, paused frame, Off and Bold alternated: Bold adds about 0.08 ms of
+  render-thread CPU time with Melange's cheaper GLSL parameter feed (0.14 ms before).
+
 ## 1.6.0
 
 - A new default **Bold** quality: a clearly visible remastered look at normal camera distance. Harder sun and deeper

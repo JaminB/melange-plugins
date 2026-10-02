@@ -1,5 +1,6 @@
 #version 120
-// Contrast Adaptive Sharpening, the no-scaling path of CasFilter() in ffx_cas.h, ported to GLSL 1.20.
+// Contrast Adaptive Sharpening, the no-scaling path of CasFilter() in ffx_cas.h, ported to GLSL 1.20, with a fade near
+// the camera and a floor below which faint steps are left alone (both Sunstone additions).
 //
 // Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved.
 //
@@ -19,6 +20,10 @@
 uniform sampler2D mg_scene;
 uniform vec4 mg_resolution;
 uniform float p_sharpness;
+uniform float p_nearFade;
+uniform float p_floor;
+uniform sampler2D mg_depth;
+uniform mat4 mg_invProj;
 varying vec2 mg_uv;
 
 vec3 Load(vec2 o) { return texture2D(mg_scene, mg_uv + o * mg_resolution.zw).rgb; }
@@ -52,7 +57,13 @@ void main() {
 
     // Filter shape:  0 w 0 / w 1 w / 0 w 0
     float peak = -1.0 / mix(8.0, 5.0, clamp(p_sharpness, 0.0, 1.0));
-    vec3 w = amp * peak;
+    // Magnified textures right in front of the camera, and the faint steps between their texels, stay unsharpened.
+    float depth = texture2D(mg_depth, mg_uv).r;
+    vec4 vp = mg_invProj * vec4(vec3(mg_uv, depth) * 2.0 - 1.0, 1.0);
+    float near = p_nearFade > 0.0 ? smoothstep(p_nearFade * 0.3, p_nearFade, length(vp.xyz / vp.w)) : 1.0;
+    float edge = abs(dot(b + d + f + h - 4.0 * e, vec3(0.2126, 0.7152, 0.0722)));
+    float strong = p_floor > 0.0 ? smoothstep(p_floor, p_floor * 3.0, edge) : 1.0;
+    vec3 w = amp * peak * near * strong;
     vec3 rcpWeight = 1.0 / (1.0 + 4.0 * w);
     vec3 pix = clamp((b * w + d * w + f * w + h * w + e) * rcpWeight, 0.0, 1.0);
     gl_FragColor = vec4(pix, e4.a);

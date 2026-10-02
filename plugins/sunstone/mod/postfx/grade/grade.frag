@@ -18,11 +18,25 @@ uniform float p_look;
 uniform float p_vignette;
 uniform float p_huePreserve;
 uniform float p_skyGrade;
+uniform float p_nearFade;
 varying vec2 mg_uv;
 
 vec3 Filmic(vec3 x) {
     const float A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30;
     return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
+}
+
+// Brings a colour back into range. Clipping only its blue channel would turn bright blue water teal, so cool
+// colours are scaled down instead, or pulled toward white when they are as bright as a glint. Warm ones clip as
+// before, which keeps sunlit sand pale.
+vec3 Fit(vec3 c, float y) {
+    vec3 clipped = clamp(c, 0.0, 1.0);
+    float hi = max(max(c.r, c.g), c.b);
+    if (hi <= 1.0) return clipped;
+    y = clamp(y, 0.0, 1.0);
+    vec3 white = mix(c, vec3(y), clamp((hi - 1.0) / max(hi - y, 1e-4), 0.0, 1.0));
+    vec3 fit = mix(c / hi, white, smoothstep(0.75, 1.0, y));
+    return mix(clipped, clamp(fit, 0.0, 1.0), smoothstep(0.0, 0.08, c.b - c.r));
 }
 
 vec3 SampleLut(sampler2D lut, vec3 c) {
@@ -52,7 +66,12 @@ void main() {
     // Local contrast: luminance against a wide blur of itself, strongest in the mid-tones and capped so edges
     // against the sky do not ring.
     float y0 = dot(src.rgb, vec3(0.2126, 0.7152, 0.0722));
-    float detail = clamp(y0 - texture2D(mg_pass_blurv, mg_uv).r, -0.1, 0.1);
+    float depth = texture2D(mg_depth, mg_uv).r;
+    vec4 vp = mg_invProj * vec4(vec3(mg_uv, depth) * 2.0 - 1.0, 1.0);
+    float dist = length(vp.xyz / vp.w);
+    // Textures right in front of the camera are magnified; local contrast would only outline their texels.
+    float near = p_nearFade > 0.0 ? smoothstep(p_nearFade * 0.3, p_nearFade, dist) : 1.0;
+    float detail = clamp(y0 - texture2D(mg_pass_blurv, mg_uv).r, -0.1, 0.1) * near;
     vec3 pre = clamp(src.rgb + detail * p_clarity * (1.0 - 0.7 * abs(y0 * 2.0 - 1.0)), 0.0, 1.0);
 
     vec3 lin = pow(pre, vec3(2.2)) * exp2(p_exposure);
@@ -60,7 +79,7 @@ void main() {
     float y = max(dot(lin, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
     float fy = Filmic(vec3(y * 2.0)).x / Filmic(vec3(2.0)).x;
     lin *= mix(1.0, fy / y, p_strength);
-    vec3 c = pow(clamp(lin, 0.0, 1.0), vec3(1.0 / 2.2));
+    vec3 c = pow(Fit(lin, dot(lin, vec3(0.2126, 0.7152, 0.0722))), vec3(1.0 / 2.2));
     c = (c - 0.5) * p_contrast + 0.5;
 
     // Vibrance lifts muted colours more than saturated ones; bright warm colours (sand, stone) keep their own
@@ -72,15 +91,13 @@ void main() {
     float sat = mix(p_saturation + p_vibrance * (1.0 - smoothstep(0.1, 0.6, chroma)), 1.0, pale);
     // The curve deepens shadows without greying them, which over-saturates them; they give some of it back.
     sat *= 1.0 - 0.3 * p_paleHighlights * (1.0 - smoothstep(0.08, 0.3, luma));
-    c = clamp(mix(vec3(luma), c, sat), 0.0, 1.0);
+    c = Fit(mix(vec3(luma), c, sat), luma);
 
     vec3 graded = mix(SampleLut(t_golden, c), SampleLut(t_dusk, c), clamp(p_look, 0.0, 1.0));
     c = mix(c, graded, p_lutAmount * (1.0 - p_huePreserve * Cool(c)) * (1.0 - 0.6 * pale));
 
     // The sky dome sits beyond half the far plane; the grade fades out on the way there so the far sea has no seam.
-    float depth = texture2D(mg_depth, mg_uv).r;
-    vec4 vp = mg_invProj * vec4(vec3(mg_uv, depth) * 2.0 - 1.0, 1.0);
-    float sky = depth >= 1.0 ? 1.0 : smoothstep(0.3, 0.5, length(vp.xyz / vp.w) / mg_nearFar.y);
+    float sky = depth >= 1.0 ? 1.0 : smoothstep(0.3, 0.5, dist / mg_nearFar.y);
     c = mix(c, mix(src.rgb, c, p_skyGrade), sky);
 
     vec2 v = mg_uv * 2.0 - 1.0;

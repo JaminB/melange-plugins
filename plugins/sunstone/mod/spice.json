@@ -1,7 +1,7 @@
 {
   "spiceVersion": 1,
   "id": "sunstone",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "name": "Sunstone",
   "authors": ["Melange"],
   "description": "A dramatic, client-only graphics overhaul: sharper textures, anti-aliasing and sharpening, grading, atmosphere (SSAO, aerial perspective, bloom), soft shadows, per-pixel lighting and water. No effect on the simulation.",

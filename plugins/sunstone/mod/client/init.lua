@@ -11,9 +11,9 @@ local BASE = {
     fog     = { maxHaze = 0.45, desaturate = 0.35, flatHaze = 1 },
     bloom   = { threshold = 0.85, intensity = 1.2 },
     grade   = { exposure = 0, strength = 0.6, contrast = 1.05, saturation = 1.1, vibrance = 0, clarity = 0,
-                paleHighlights = 0, lutAmount = 0.35, vignette = 0.15 },
+                paleHighlights = 0, lutAmount = 0.35, vignette = 0.15, nearFade = 60 },
     smaa    = {},
-    sharpen = { sharpness = 0.5 },
+    sharpen = { sharpness = 0.5, nearFade = 60, floor = 0.015 },
 }
 
 local PRESETS = {
@@ -42,7 +42,7 @@ local PRESETS = {
         lighting = { light = 1, relief = 1, rim = 0.3, modelRim = 0.45, shadows = true },
         water   = { enabled = true, waves = 0.35, glint = 1, foam = 0.8 },
     },
-    -- The remastered look: harder sun, deeper shadows and contact shading, a confident grade and bright water.
+    -- The remastered look: harder sun, deeper shadows and contact shading, a confident grade and a deep, rich sea.
     bold = {
         ssao    = { enabled = true, taps = 12, radius = 18, intensity = 1.9, maxDistance = 2500, nearFade = 50 },
         fog     = { enabled = true, maxHaze = 0.55, desaturate = 0.3, flatHaze = 0.3 },
@@ -55,7 +55,7 @@ local PRESETS = {
         lighting = { light = 1, relief = 1.25, rim = 0.5, modelRim = 0.9, shadows = true, sunGain = 1.18,
                      ambientGain = 0.92, shadowAmbient = 0.3, modelSunGain = 1.12, modelAmbientGain = 0.9,
                      hemisphere = 1.4 },
-        water   = { enabled = true, waves = 0.45, glint = 1.4, foam = 0.9 },
+        water   = { enabled = true, waves = 0.45, glint = 1.4, foam = 0.9, rich = 1 },
     },
 }
 -- Settings saved by Sunstone 1.5 and earlier.
@@ -152,6 +152,7 @@ local function applyWater(w, on)
         waterParam("sunstoneWaterWaves", w.waves)
         waterParam("sunstoneWaterGlint", w.glint)
         waterParam("sunstoneWaterFoam", w.foam)
+        waterParam("sunstoneWaterRich", w.rich or 0)
     end
     pcall(wum.shaders.enableGlsl, "Water.cg", "WaterFragmentMain", enabled == true)
 end
