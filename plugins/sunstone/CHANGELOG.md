@@ -3,8 +3,9 @@
 - Lighting: new GLSL lighting for the landscape and for lit models (worms, props, weapons). Ambient light now comes
   from a sky/ground hemisphere tinted per theme, specular is energy-conserving Blinn-Phong (a sheen on helmets and
   barrels, a faint one on terrain), a sun-side rim lights back-lit edges, and terrain gets fine relief from its
-  texture. Bright colours roll off instead of clipping to pale yellow. A per-theme material table in
-  `client/init.lua` sets reflectance, gloss, relief depth and the hemisphere tints.
+  texture (faded out where the texture is magnified, so close-ups show no texel grid). Bright colours roll off
+  instead of clipping to pale yellow. A per-theme material table in `client/init.lua` sets reflectance, gloss,
+  relief depth and the hemisphere tints.
 - A **Lighting** setting turns it off on its own; Low drops the relief, Off hands every program back to the game.
 - Needs a Melange 0.3 build with `wum.shaders.enableGlsl`; on older builds Off keeps Sunstone's shaders with the
   game's own lighting terms.

@@ -1,4 +1,4 @@
-#version 120
+#version 130
 // Sunstone landscape lighting (heightmap variant: the vertex colour only carries alpha). Hemispheric ambient,
 // energy-conserving Blinn-Phong, a rim light and texture relief over contact-hardening soft shadows.
 uniform sampler2D texture0;
@@ -199,6 +199,9 @@ vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
         vec3 p = -gl_TexCoord[1].xyz;
         float fade = 1.0 - smoothstep(0.25, 1.0, length(p) / max(sunstoneReliefFade, 1.0));
         fade *= smoothstep(0.04, 0.2, dot(n, v));
+        // Where a texel spans several pixels the relief would only emboss the texel grid, so it fades out.
+        vec2 texels = vec2(textureSize(texture0, 0));
+        fade *= smoothstep(0.5, 1.0, max(length(dFdx(uv) * texels), length(dFdy(uv) * texels)));
         vec3 nb = Relief(n, p, uv, h0, sunstoneRelief * fade);
         lit = Shadow(gl_TexCoord[4], shadowMode, dot(n, l));
         c = Shoulder(SunstoneLight(nb, v, l, up, lit, albedo, 0.5 + h0));
