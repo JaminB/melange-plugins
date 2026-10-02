@@ -1,8 +1,8 @@
 -- Texture clarity is declared in spice.json's "graphics" block and applied by Melange itself.
 --
--- The post-FX effects live under postfx/ and the lighting under shaders/; this script maps the "quality", "look"
--- and "lighting" settings onto their enable and param calls. Each effect keeps its own ini/overlay toggle, so a manual
--- tweak in the overlay survives until the next quality or theme change.
+-- The post-FX effects live under postfx/ and the lighting and water under shaders/; this script maps the "quality",
+-- "look", "lighting" and "water" settings onto their enable and param calls. Each effect keeps its own ini/overlay
+-- toggle, so a manual tweak in the overlay survives until the next quality or theme change.
 
 local PRESETS = {
     off = {
@@ -15,6 +15,7 @@ local PRESETS = {
         sharpen = { enabled = false },
         shadows = { size = 0, mode = 0 },
         lighting = { light = 0, relief = 0, rim = 0, modelRim = 0, shadows = false },
+        water   = { enabled = false },
     },
     low = {
         ssao    = { enabled = false },
@@ -26,6 +27,7 @@ local PRESETS = {
         sharpen = { enabled = true, sharpness = 0.4 },
         shadows = { size = 2048, mode = 1 },
         lighting = { light = 1, relief = 0, rim = 0.2, modelRim = 0.3, shadows = true },
+        water   = { enabled = true, waves = 0.3, glint = 0.8, foam = 0 },
     },
     medium = {
         ssao    = { enabled = true, taps = 10, radius = 16, intensity = 1.5, maxDistance = 1500 },
@@ -37,6 +39,7 @@ local PRESETS = {
         sharpen = { enabled = true, sharpness = 0.5 },
         shadows = { size = 2048, mode = 2 },
         lighting = { light = 1, relief = 1, rim = 0.3, modelRim = 0.45, shadows = true },
+        water   = { enabled = true, waves = 0.35, glint = 1, foam = 0.8 },
     },
     high = {
         ssao    = { enabled = true, taps = 16, radius = 20, intensity = 1.8, maxDistance = 2500 },
@@ -48,6 +51,7 @@ local PRESETS = {
         sharpen = { enabled = true, sharpness = 0.6 },
         shadows = { size = 4096, mode = 2 },
         lighting = { light = 1, relief = 1.25, rim = 0.35, modelRim = 0.5, shadows = true },
+        water   = { enabled = true, waves = 0.4, glint = 1.2, foam = 0.9 },
     },
 }
 
@@ -120,21 +124,37 @@ local function applyLighting(l, theme, on)
     for _, e in ipairs(MODELS) do pcall(wum.shaders.enableGlsl, "FixedFunction.cg", e, lit > 0) end
 end
 
-local lastQuality, lastLook, lastTheme, lastLighting = nil, nil, nil, nil
+
+-- Sunstone's water (shaders/); paused, the game's own water draws again.
+local function applyWater(w, on)
+    if not wum.shaders then return end
+    local enabled = on and w.enabled
+    if enabled then
+        local function waterParam(name, value)
+            pcall(wum.shaders.setParam, "Water.cg", "WaterFragmentMain", name, value)
+        end
+        waterParam("sunstoneWaterWaves", w.waves)
+        waterParam("sunstoneWaterGlint", w.glint)
+        waterParam("sunstoneWaterFoam", w.foam)
+    end
+    pcall(wum.shaders.enableGlsl, "Water.cg", "WaterFragmentMain", enabled == true)
+end
+local lastQuality, lastLook, lastTheme, lastLighting, lastWater = nil, nil, nil, nil, nil
 
 local function apply()
     local quality = wum.config.get("quality")
     local look = wum.config.get("look")
     local theme = themeKey()
     local lighting = wum.config.get("lighting") ~= false
-    if quality == lastQuality and look == lastLook and theme == lastTheme and lighting == lastLighting then
+    local water = wum.config.get("water") ~= false
+    if quality == lastQuality and look == lastLook and theme == lastTheme and lighting == lastLighting and water == lastWater then
         return
     end
-    lastQuality, lastLook, lastTheme, lastLighting = quality, look, theme, lighting
+    lastQuality, lastLook, lastTheme, lastLighting, lastWater = quality, look, theme, lighting, water
 
     local preset = PRESETS[quality] or PRESETS.medium
     for effect, params in pairs(preset) do
-        if effect ~= "shadows" and effect ~= "lighting" then
+        if effect ~= "shadows" and effect ~= "lighting" and effect ~= "water" then
             local id = "sunstone/" .. effect
             wum.postfx.enable(id, params.enabled)
             for name, value in pairs(params) do
@@ -146,6 +166,7 @@ local function apply()
     end
     applyShadows(preset.shadows)
     applyLighting(preset.lighting, theme, lighting)
+    applyWater(preset.water, water)
     if preset.grade.enabled then
         wum.postfx.setParam("sunstone/grade", "look", look == "dusk" and 1.0 or 0.0)
         if theme and NEUTRAL_THEMES[theme] then

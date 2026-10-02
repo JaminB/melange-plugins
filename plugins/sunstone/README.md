@@ -8,16 +8,16 @@ ever shipped.
 
 A **Quality** setting (Off / Low / Medium / High) on the Mods page turns Sunstone's effects on together with
 sensible parameters; a **Look** setting (Golden / Dusk) picks which of the two colour-grading LUTs the Grade
-effect leans toward, and **Sunstone lighting** turns the lighting below on or off on its own. All apply live, no
-restart. Every effect still has its own toggle and parameters in the
+effect leans toward, and **Sunstone lighting** and **Sunstone water** turn the lighting and the water below on or
+off on their own. All apply live, no restart. Every effect still has its own toggle and parameters in the
 overlay's *Mirage/Post-FX* panel (and in `Melange.ini [MiragePostFX]`) if you want to go off the preset — a manual
 change there survives until you next change Quality or a match with a different theme starts.
 
 | Quality | Effects on | Notes |
 |---|---|---|
 | Off | none | vanilla rendering: the game's own shaders and shadow map |
-| Low | SMAA, Sharpen, Grade, soft shadows, lighting without relief | anti-aliasing, sharpening, a world grade, 2048² shadow map |
-| Medium (default) | + SSAO (10 taps), Aerial perspective, Bloom, contact-hardening shadows, texture relief | 2048² shadow map |
+| Low | SMAA, Sharpen, Grade, soft shadows, lighting without relief, water without foam | anti-aliasing, sharpening, a world grade, 2048² shadow map |
+| Medium (default) | + SSAO (10 taps), Aerial perspective, Bloom, contact-hardening shadows, texture relief, shore foam | 2048² shadow map |
 | High | SSAO at 16 taps with a larger radius, stronger bloom and grade, deeper relief and rim | 4096² shadow map |
 
 Measured GPU cost on an RX 7800 XT at 1280x720 (Mirage's per-effect timers, live match): **0.28-0.40 ms** for the
@@ -126,6 +126,31 @@ runs with Sunstone lighting, 4.3 ms with the game's lighting in the same shaders
 shaders (noise ±0.4 ms), so the cost is below what the timer can resolve. Mirroring the game's shader
 parameters into the GLSL programs costs under 0.1 ms of CPU per frame.
 
+## Water
+
+The game's sea is one textured quad: scrolling normal maps, a colour ramp and a fake environment lookup, drawn
+half-transparent, with no sense of depth and a lot of shimmer at grazing angles. Sunstone replaces its pixel shader
+(`Water.WaterFragmentMain`) with original GLSL that reads copies of the scene's depth and colour taken just before
+the water draws:
+
+- **Depth and refraction**: the water's thickness along each view ray comes from the depth behind it. Shallow water
+  shows the sand and rocks below, gently bent by the waves; the light is absorbed with depth toward the theme's own
+  water colour, which is read from the game's water texture at run time, so every theme keeps its sea.
+- **Reflection**: a Fresnel blend toward the game's own sky, looked up on screen where the reflected ray meets it,
+  else at the horizon above the pixel.
+- **Sun glint and flecks**: a highlight path from the level's own sun, and ripple crests that catch bright flecks.
+- **Shore foam**: broken, slowly drifting foam where the water is shallow, from procedural noise computed in the
+  shader (no texture is shipped).
+- **No shimmer**: each wave layer fades out where its texels shrink below a pixel.
+
+Sliders in the *Mirage/Shaders* panel (`shaders/params.ini`): deep and shallow tints, clarity, reflection, waves,
+refraction, glint and foam; `sunstoneWater` 10, 11 and 12 show the water depth, the foam and the glints alone. The
+**Sunstone water** setting and Off hand the water back to the game; Low drops the foam.
+
+Measured on an RX 7800 XT at 1080p, paused frames, median of 20 samples: frame GPU time with and without it is
+within the timer's noise (±0.1 ms) both with the sea covering a third of the screen and with little water in view,
+and the CPU time spent feeding GLSL programs does not change.
+
 ## Client-only
 
 `"kind": "client-only"` in `spice.json`. Mirage only touches GL state and shaders; no sim data, Tweak or
@@ -133,5 +158,6 @@ CRC-listed file is touched by any of the above.
 
 ## What's next
 
-Water and supersampling each need framework work in Melange first, and will ship in later releases. Worms and
-props receiving shadows needs Melange to hand them the shadow map.
+Supersampling needs framework work in Melange first and will ship in a later release, as may screen-space
+reflections of the scenery in the water. Worms and props receiving shadows needs Melange to hand them the shadow
+map.

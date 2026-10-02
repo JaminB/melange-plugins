@@ -1,3 +1,13 @@
+## 1.5.0
+
+- Water: a new GLSL water shader. The scene below shows through shallow water with refraction and depth-based
+  absorption, so beaches get turquoise shallows that deepen to the theme's own water colour; a Fresnel blend
+  reflects the game's own sky; the sun leaves a glint path; ripple crests catch bright flecks; and broken foam
+  lines the shore. Wave layers fade out where their texels shrink below a pixel, so distant water no longer
+  shimmers. The water colour comes from each theme's own water texture at run time, so every theme keeps its look.
+- A **Sunstone water** setting turns it off on its own; Off hands the water back to the game.
+- Needs a Melange 0.3 build that gives GLSL replacements the scene's depth and colour (`mg_depth`, `mg_scene`).
+
 ## 1.4.0
 
 - Lighting: new GLSL lighting for the landscape and for lit models (worms, props, weapons). Ambient light now comes
