@@ -6,6 +6,9 @@
   lines the shore. Wave layers fade out where their texels shrink below a pixel, so distant water no longer
   shimmers. The water colour comes from each theme's own water texture at run time, so every theme keeps its look.
 - A **Sunstone water** setting turns it off on its own; Off hands the water back to the game.
+- Seen from above, the water keeps the swell's shape and no longer shows large pale streaks.
+- The far sea no longer ends in a darker band under the horizon: the haze and the grade now fade out on the way to
+  the sky's distance instead of stopping there.
 - Needs a Melange 0.3 build that gives GLSL replacements the scene's depth and colour (`mg_depth`, `mg_scene`).
 
 ## 1.4.0

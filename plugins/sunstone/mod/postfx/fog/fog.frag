@@ -42,7 +42,8 @@ void main() {
     float k = rise / p_heightFalloff;
     float along = abs(k) < 1e-3 ? 1.0 : min((1.0 - exp(-k)) / k, 4.0);
     float od = dist / p_distance * along;
-    float haze = p_maxHaze * (1.0 - exp(-od)) * horizon.a;
+    // Fades out toward the sky's distance, so the far sea does not end in a seam where the sky test starts.
+    float haze = p_maxHaze * (1.0 - exp(-od)) * horizon.a * (1.0 - smoothstep(0.3, 0.5, dist / mg_nearFar.y));
     float luma = dot(scene.rgb, vec3(0.2126, 0.7152, 0.0722));
     vec3 c = mix(scene.rgb, vec3(luma), haze * p_desaturate);
     gl_FragColor = vec4(mix(c, horizon.rgb, haze), scene.a);

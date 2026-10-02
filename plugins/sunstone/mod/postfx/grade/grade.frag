@@ -58,10 +58,11 @@ void main() {
     vec3 graded = mix(SampleLut(t_golden, c), SampleLut(t_dusk, c), clamp(p_look, 0.0, 1.0));
     c = mix(c, graded, p_lutAmount * (1.0 - p_huePreserve * Cool(c)));
 
-    // The sky dome sits beyond half the far plane.
+    // The sky dome sits beyond half the far plane; the grade fades out on the way there so the far sea has no seam.
     float depth = texture2D(mg_depth, mg_uv).r;
     vec4 vp = mg_invProj * vec4(vec3(mg_uv, depth) * 2.0 - 1.0, 1.0);
-    if (depth >= 1.0 || length(vp.xyz / vp.w) > 0.5 * mg_nearFar.y) c = mix(src.rgb, c, p_skyGrade);
+    float sky = depth >= 1.0 ? 1.0 : smoothstep(0.3, 0.5, length(vp.xyz / vp.w) / mg_nearFar.y);
+    c = mix(c, mix(src.rgb, c, p_skyGrade), sky);
 
     vec2 v = mg_uv * 2.0 - 1.0;
     c *= clamp(1.0 - p_vignette * dot(v, v) * 0.5, 0.0, 1.0);

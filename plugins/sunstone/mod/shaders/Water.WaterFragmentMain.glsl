@@ -95,8 +95,9 @@ void main() {
     vec2 uv = gl_FragCoord.xy / size;
     float zWater = Linear(gl_FragCoord.z);
     float raw = texture2D(mg_depth, uv).r;
-    // Distance the view ray travels through the water before it hits the ground.
-    float through = (raw >= 0.99999 || raw <= 0.0) ? 1e5 : max(Linear(raw) - zWater, 0.0) * dist / zWater;
+    // Distance the view ray travels through the water before it hits the ground; past the sky dome it is open sea.
+    float sceneZ = Linear(raw);
+    float through = (raw >= 0.99999 || raw <= 0.0 || sceneZ > mg_nearFar.y * 0.4) ? 1e5 : max(sceneZ - zWater, 0.0) * dist / zWater;
     float depth = through * max(v.y, 0.08);
 
     vec2 offset = n.xz * sunstoneWaterRefract * clamp(through / 40.0, 0.0, 1.0) * (1.0 - far);
@@ -127,6 +128,8 @@ void main() {
     // Scenes without landscape (the menu) have no sun; a high one stands in.
     vec3 l = dot(globalLightDir, globalLightDir) > 0.01 ? normalize(transpose(mat3(mg_view)) * globalLightDir)
                                                         : normalize(vec3(0.3, 0.6, 0.5));
+    // Facets facing the sun read a little lighter, so the swell keeps its shape seen from above.
+    col *= 1.0 + clamp(dot(n.xz, l.xz) * 0.5, -0.07, 0.07) * (1.0 - far);
     vec3 h = normalize(l + v);
     float nh = max(dot(n, h), 0.0);
     float glint = (pow(nh, 600.0) * 6.0 + pow(nh, 80.0) * 0.25) * fres * 4.0 * step(0.0, l.y);
@@ -134,7 +137,8 @@ void main() {
     // Ripple crests tilted toward the camera catch the sky as small bright flecks.
     float crest = dot(chop * 0.8 + ripple * 0.6 * detail, normalize(v.xz + l.xz + vec2(1e-4)));
     float patchy = smoothstep(0.35, 0.7, Fbm(uv0 * 0.6 + t * vec2(0.013, -0.009)));
-    float fleck = smoothstep(0.35, 0.6, crest) * patchy * mid * (0.7 + fres);
+    // Glancing views only, where the ripples are small on screen; from above they smear into pale streaks.
+    float fleck = smoothstep(0.35, 0.6, crest) * patchy * mid * (0.7 + fres) * smoothstep(0.85, 0.45, v.y) * smoothstep(0.4, 1.0, texels);
     col += mix(sky, vec3(1.0), 0.75) * fleck * 0.8 * sunstoneWaterGlint;
 
     vec2 wp = gl_TexCoord[0].xy;
