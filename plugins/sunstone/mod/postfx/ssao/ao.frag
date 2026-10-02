@@ -8,6 +8,7 @@ uniform float p_radius;
 uniform float p_intensity;
 uniform float p_bias;
 uniform float p_maxDistance;
+uniform float p_nearFade;
 uniform int p_taps;
 varying vec2 mg_uv;
 
@@ -24,8 +25,10 @@ bool Sky(vec3 p) { return -p.z > 0.45 * mg_nearFar.y; }
 void main() {
     vec3 P = ViewPos(mg_uv);
     float dist = -P.z;
-    float farFade = 1.0 - smoothstep(p_maxDistance * 0.6, p_maxDistance, dist);
-    if (Sky(P) || farFade <= 0.0) {
+    // Close to the camera the depth-derived normals are too coarse for a full radius: the radius shrinks to what
+    // fits on screen and the term fades out, so steep sand under a low camera does not smear dark.
+    float fade = (1.0 - smoothstep(p_maxDistance * 0.6, p_maxDistance, dist)) * smoothstep(p_nearFade * 0.4, p_nearFade, dist);
+    if (Sky(P) || fade <= 0.0) {
         gl_FragColor = vec4(1.0);
         return;
     }
@@ -39,11 +42,11 @@ void main() {
     vec3 N = normalize(cross(hx, hy));
     if (dot(N, P) > 0.0) N = -N;
 
-    vec2 ruv = p_radius * 0.5 * vec2(mg_proj[0][0], mg_proj[1][1]) / dist;
-    ruv = min(ruv, vec2(0.12));
+    float rad = min(p_radius, 0.24 * dist / max(mg_proj[0][0], mg_proj[1][1]));
+    vec2 ruv = rad * 0.5 * vec2(mg_proj[0][0], mg_proj[1][1]) / dist;
     float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     int taps = p_taps < 4 ? 4 : p_taps > kMaxTaps ? kMaxTaps : p_taps;
-    float r2 = p_radius * p_radius;
+    float r2 = rad * rad;
     float occ = 0.0;
     for (int i = 0; i < kMaxTaps; ++i) {
         if (i >= taps) break;
@@ -56,5 +59,5 @@ void main() {
         occ += max(0.0, dot(v, N) * inversesqrt(vv + 1e-4) - p_bias) * range;
     }
     float ao = clamp(1.0 - p_intensity * 1.5 * occ / float(taps), 0.0, 1.0);
-    gl_FragColor = vec4(vec3(mix(1.0, ao, farFade)), 1.0);
+    gl_FragColor = vec4(vec3(mix(1.0, ao, fade)), 1.0);
 }

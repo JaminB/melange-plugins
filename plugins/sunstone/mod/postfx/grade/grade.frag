@@ -1,5 +1,8 @@
 #version 120
 uniform sampler2D mg_scene;
+uniform sampler2D mg_depth;
+uniform mat4 mg_invProj;
+uniform vec2 mg_nearFar;
 uniform sampler2D t_golden;
 uniform sampler2D t_dusk;
 uniform float p_exposure;
@@ -10,6 +13,7 @@ uniform float p_lutAmount;
 uniform float p_look;
 uniform float p_vignette;
 uniform float p_huePreserve;
+uniform float p_skyGrade;
 varying vec2 mg_uv;
 
 vec3 Filmic(vec3 x) {
@@ -53,6 +57,11 @@ void main() {
 
     vec3 graded = mix(SampleLut(t_golden, c), SampleLut(t_dusk, c), clamp(p_look, 0.0, 1.0));
     c = mix(c, graded, p_lutAmount * (1.0 - p_huePreserve * Cool(c)));
+
+    // The sky dome sits beyond half the far plane.
+    float depth = texture2D(mg_depth, mg_uv).r;
+    vec4 vp = mg_invProj * vec4(vec3(mg_uv, depth) * 2.0 - 1.0, 1.0);
+    if (depth >= 1.0 || length(vp.xyz / vp.w) > 0.5 * mg_nearFar.y) c = mix(src.rgb, c, p_skyGrade);
 
     vec2 v = mg_uv * 2.0 - 1.0;
     c *= clamp(1.0 - p_vignette * dot(v, v) * 0.5, 0.0, 1.0);
