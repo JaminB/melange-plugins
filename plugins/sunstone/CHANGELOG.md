@@ -6,6 +6,7 @@
 - The grade no longer touches the sky dome, so pale skies stay clean instead of turning milky and teal.
 - SSAO fades out close to the camera and keeps its radius within what fits on screen, so low cameras over sand
   slopes no longer get dark smears.
+- SMAA and sharpening run on the world only, before the HUD, so menus, labels and HUD text are left untouched.
 
 ## 1.2.0
 
