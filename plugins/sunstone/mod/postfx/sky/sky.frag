@@ -1,11 +1,12 @@
 #version 120
-// Sky pixels only (depth >= kSkyDepth): a soft vertical gradient tint over the game's own sky dome, plus an
-// analytic sun disc and glow built from the view ray and a fixed world-space sun direction. The dome texture
-// itself is never replaced or sampled into anything shipped; this only tints and adds light on top of it.
+// Sky pixels only (beyond half the far plane; the game's dome sits at about 0.6 of it): a soft vertical gradient
+// tint over the game's own sky dome, plus an analytic sun disc and glow from the view ray and a fixed world-space
+// sun direction. The dome texture itself is never replaced; this only tints and adds light on top of it.
 uniform sampler2D mg_scene;
 uniform sampler2D mg_depth;
 uniform mat4 mg_invProj;
 uniform mat4 mg_view;
+uniform vec2 mg_nearFar;
 uniform vec3 p_sunDir;
 uniform vec3 p_sunColor;
 uniform float p_sunSize;
@@ -16,8 +17,6 @@ uniform vec3 p_zenithColor;
 uniform float p_gradientStrength;
 varying vec2 mg_uv;
 
-const float kSkyDepth = 0.9999;
-
 vec3 ViewRay(vec2 uv) {
     vec4 p = mg_invProj * vec4(uv * 2.0 - 1.0, 1.0, 1.0);
     return normalize(p.xyz / p.w);
@@ -26,7 +25,8 @@ vec3 ViewRay(vec2 uv) {
 void main() {
     vec4 scene = texture2D(mg_scene, mg_uv);
     float depth = texture2D(mg_depth, mg_uv).r;
-    if (depth < kSkyDepth) {
+    vec4 vp = mg_invProj * vec4(vec3(mg_uv, depth) * 2.0 - 1.0, 1.0);
+    if (depth < 1.0 && length(vp.xyz / vp.w) < 0.5 * mg_nearFar.y) {
         gl_FragColor = scene;
         return;
     }

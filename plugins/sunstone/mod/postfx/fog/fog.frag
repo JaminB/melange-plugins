@@ -1,45 +1,49 @@
 #version 120
-// Height and distance fog with sun-tinted in-scatter. Sky pixels are left to the sky effect; this only shades
-// world geometry, so labels and the HUD (drawn after PostWorld) are never touched.
+// Exponential height haze integrated along the view ray, relative to the camera's height, toward the horizon
+// colour of the sky (pass.horizon). Sky pixels are left alone; labels and the HUD come after PostWorld.
 uniform sampler2D mg_scene;
 uniform sampler2D mg_depth;
+uniform sampler2D mg_pass_horizon;
 uniform mat4 mg_invProj;
 uniform mat4 mg_view;
-uniform float p_density;
-uniform float p_fogHeight;
+uniform vec2 mg_nearFar;
+uniform float p_distance;
 uniform float p_heightFalloff;
-uniform float p_maxFog;
-uniform vec3 p_fogColor;
-uniform vec3 p_sunColor;
-uniform vec3 p_sunDir;
-uniform float p_inscatterStrength;
-uniform float p_inscatterSharpness;
+uniform float p_maxHaze;
+uniform float p_desaturate;
 varying vec2 mg_uv;
 
-const float kSkyDepth = 0.9999;
+vec4 HorizonColour(float x) {
+    vec3 sum = vec3(0.0);
+    float wsum = 0.0, cover = 0.0;
+    for (int i = 0; i < 8; ++i) {
+        float u = (float(i) + 0.5) / 8.0;
+        vec4 h = texture2D(mg_pass_horizon, vec2(u, 0.5));
+        float w = h.a * exp(-(u - x) * (u - x) * 8.0);
+        sum += h.rgb * w;
+        wsum += w;
+        cover += h.a;
+    }
+    return wsum > 1e-4 ? vec4(sum / wsum, clamp(cover / 4.0, 0.0, 1.0)) : vec4(0.0);
+}
 
 void main() {
     vec4 scene = texture2D(mg_scene, mg_uv);
     float depth = texture2D(mg_depth, mg_uv).r;
-    if (depth >= kSkyDepth) {
+    vec4 vp = mg_invProj * vec4(vec3(mg_uv, depth) * 2.0 - 1.0, 1.0);
+    vec3 P = vp.xyz / vp.w;
+    float dist = length(P);
+    if (depth >= 1.0 || dist > 0.5 * mg_nearFar.y) {
         gl_FragColor = scene;
         return;
     }
-
-    vec4 clip = vec4(mg_uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-    vec4 viewP = mg_invProj * clip;
-    vec3 P = viewP.xyz / viewP.w;
-    float dist = length(P);
-    vec3 worldPos = (P - mg_view[3].xyz) * mat3(mg_view);
-
-    float distFog = 1.0 - exp(-dist * p_density);
-    float heightAtten = exp(-max(worldPos.y - p_fogHeight, 0.0) * p_heightFalloff);
-    float fogAmount = clamp(distFog * heightAtten, 0.0, p_maxFog);
-
-    vec3 viewRay = normalize(P);
-    vec3 sunView = normalize((mg_view * vec4(normalize(p_sunDir), 0.0)).xyz);
-    float sunAlign = clamp(dot(viewRay, sunView), 0.0, 1.0);
-    vec3 fogColor = mix(p_fogColor, p_sunColor, pow(sunAlign, p_inscatterSharpness) * p_inscatterStrength);
-
-    gl_FragColor = vec4(mix(scene.rgb, fogColor, fogAmount), scene.a);
+    vec4 horizon = HorizonColour(mg_uv.x);
+    float rise = (P * mat3(mg_view)).y;
+    float k = rise / p_heightFalloff;
+    float along = abs(k) < 1e-3 ? 1.0 : min((1.0 - exp(-k)) / k, 4.0);
+    float od = dist / p_distance * along;
+    float haze = p_maxHaze * (1.0 - exp(-od)) * horizon.a;
+    float luma = dot(scene.rgb, vec3(0.2126, 0.7152, 0.0722));
+    vec3 c = mix(scene.rgb, vec3(luma), haze * p_desaturate);
+    gl_FragColor = vec4(mix(c, horizon.rgb, haze), scene.a);
 }
