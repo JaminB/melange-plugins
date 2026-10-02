@@ -2,7 +2,7 @@
 """melange-plugins store tooling. Python 3.10+, standard library only.
 
 Commands:
-  validate <id>... | --all   run every check in docs/store-design.md section 2.4
+  validate <id>... | --all   run every store check on the given plugins
   pack <id> --out DIR        build the release zip for the newest CHANGELOG version
   index [--check]            (re)generate index.json, or check it is up to date
   verify-release ZIP --id ID --version V --sha256 HASH --size N
@@ -770,7 +770,7 @@ def main(argv=None) -> int:
     parser.add_argument("--root", default=str(ROOT), help="repo root (default: this script's parent)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_validate = sub.add_parser("validate", help="run the checks of docs/store-design.md 2.4")
+    p_validate = sub.add_parser("validate", help="run the store checks")
     p_validate.add_argument("ids", nargs="*", help="plugin ids, e.g. plugins/<id>")
     p_validate.add_argument("--all", action="store_true", help="validate every plugin in plugins/")
     p_validate.set_defaults(func=cmd_validate)
