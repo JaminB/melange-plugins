@@ -8,16 +8,17 @@ ever shipped.
 
 A **Quality** setting (Off / Low / Medium / High) on the Mods page turns Sunstone's effects on together with
 sensible parameters; a **Look** setting (Golden / Dusk) picks which of the two colour-grading LUTs the Grade
-effect leans toward. Both apply live, no restart. Every effect still has its own toggle and parameters in the
+effect leans toward, and **Sunstone lighting** turns the lighting below on or off on its own. All apply live, no
+restart. Every effect still has its own toggle and parameters in the
 overlay's *Mirage/Post-FX* panel (and in `Melange.ini [MiragePostFX]`) if you want to go off the preset — a manual
 change there survives until you next change Quality or a match with a different theme starts.
 
 | Quality | Effects on | Notes |
 |---|---|---|
-| Off | none | vanilla rendering |
-| Low | SMAA, Sharpen, Grade, soft shadows | anti-aliasing, sharpening, a world grade, 2048² shadow map |
-| Medium (default) | + SSAO (10 taps), Aerial perspective, Bloom, contact-hardening shadows | 2048² shadow map |
-| High | SSAO at 16 taps with a larger radius, stronger bloom and grade | 4096² shadow map |
+| Off | none | vanilla rendering: the game's own shaders and shadow map |
+| Low | SMAA, Sharpen, Grade, soft shadows, lighting without relief | anti-aliasing, sharpening, a world grade, 2048² shadow map |
+| Medium (default) | + SSAO (10 taps), Aerial perspective, Bloom, contact-hardening shadows, texture relief | 2048² shadow map |
+| High | SSAO at 16 taps with a larger radius, stronger bloom and grade, deeper relief and rim | 4096² shadow map |
 
 Measured GPU cost on an RX 7800 XT at 1280x720 (Mirage's per-effect timers, live match): **0.28-0.40 ms** for the
 whole Medium stack (SSAO about 0.09, SMAA 0.06, bloom 0.05, fog 0.04, sharpen 0.03, grade 0.02). Re-measure with
@@ -74,7 +75,7 @@ Sky pixels are found by that distance, so no effect darkens, fogs or blooms the 
 The game draws one shadow map for the whole level at 1024², filtered with a 3x3 average, so shadow edges are
 blocky and worm shadows are blobs. Sunstone asks Melange for a larger map (`graphics.shadowMapSize` in
 `spice.json`, 2048; the Quality preset changes it live) and replaces the landscape pixel shaders with GLSL versions
-(`mod/shaders/`) that keep the game's own lighting and change only the shadow lookup:
+(`mod/shaders/`) with their own shadow lookup (and their own lighting, below):
 
 - **Soft** (Low): a wide, smooth tent filter made of bilinear depth-compare taps. No noise, so nothing shimmers.
 - **Contact-hardening** (Medium, High): a blocker estimate picks between a sharp and a soft kernel, so shadows are
@@ -94,6 +95,37 @@ No measurable GPU cost on an RX 7800 XT at 720p (frame GPU time 4.1 ms with the 
 4096² contact-hardening; noise ±0.3 ms). A 4096² map uses 64 MB of VRAM. Worms and props still cast shadows but
 do not receive them; that needs Melange work.
 
+## Lighting
+
+The game lights everything with one flat ambient colour plus the sun, and clips the result per channel, so large
+sunlit surfaces wash out to pale cream and anything in shadow loses its shape. Sunstone replaces the pixel shaders
+of the landscape (`Landscape.LandscapeFragmentMain`, `Landscape.HeightMapFragmentMain`) and of the game's lit models
+(`FixedFunction.FFFragmentMain*Lit*`: worms, props, weapons) with original GLSL written against the same inputs:
+
+- **Hemispheric ambient**: surfaces facing up get the sky's light, surfaces facing down the bounce light off the
+  ground, so shaded sides of worms, rocks and cliffs keep their form. The tints come from a per-theme table.
+- **Energy-conserving Blinn-Phong**: a normalised highlight (narrow and bright on glossy surfaces, wide and faint on
+  rough ones), with a Schlick-style rise at grazing angles. Models use the game's own specular colour and gloss per
+  material; the landscape uses the theme's reflectance and gloss.
+- **Rim light**: back-lit edges catch the sun.
+- **Texture relief** (landscape, Medium and High): fine bumps taken from the texture's brightness, built from
+  screen-space derivatives so no extra geometry or tangents are needed. It fades out with distance and at grazing
+  angles, where it would shimmer.
+- **Highlight roll-off**: bright colours roll off instead of clipping per channel, so sand stays golden rather than
+  pale yellow.
+
+The per-theme materials (reflectance, gloss, relief depth, sky and ground tints) are the `MATERIALS` table in
+`mod/client/init.lua`. The sliders in the *Mirage/Shaders* panel (`shaders/params.ini`) cover the same terms, plus
+`sunstoneLight` (0 is the game's lighting) and `sunstoneSplit`, which keeps the game's lighting left of a screen x
+for side-by-side comparisons. Off and the **Sunstone lighting** setting hand the programs back to the game.
+
+The landscape still gets the soft shadows above. Worms and props do not receive shadows yet.
+
+Measured on an RX 7800 XT at 1080p, same paused frame, median of 8 samples: frame GPU time 4.2 and 4.5 ms in two
+runs with Sunstone lighting, 4.3 ms with the game's lighting in the same shaders and 4.2 ms with the game's own
+shaders (noise ±0.4 ms), so the cost is below what the timer can resolve. Mirroring the game's shader
+parameters into the GLSL programs costs under 0.1 ms of CPU per frame.
+
 ## Client-only
 
 `"kind": "client-only"` in `spice.json`. Mirage only touches GL state and shaders; no sim data, Tweak or
@@ -101,5 +133,5 @@ CRC-listed file is touched by any of the above.
 
 ## What's next
 
-Lighting, water and supersampling each need framework work in Melange first, and will ship in later
-releases.
+Water and supersampling each need framework work in Melange first, and will ship in later releases. Worms and
+props receiving shadows needs Melange to hand them the shadow map.
