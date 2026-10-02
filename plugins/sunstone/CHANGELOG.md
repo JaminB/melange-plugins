@@ -1,3 +1,19 @@
+## 1.6.0
+
+- A new default **Bold** quality: a clearly visible remastered look at normal camera distance. Harder sun and deeper
+  shadows (4096² map), a strong rim light on worms and props, richer sky/ground ambient, clear SSAO contact shading,
+  a confident filmic grade with vibrance and local contrast, aerial perspective that gives distant islands depth
+  while leaving the sea alone, brighter bloom on highlights and glints. Quality is now Off / Low / Subtle / Bold;
+  **Subtle** keeps the near-neutral look of 1.5, and settings saved as Medium or High read as Bold.
+- Sand keeps the game's pale yellow: bright colours roll off toward white instead of turning orange, the grade
+  leaves bright warm colours at their own chroma, and shadows no longer over-saturate.
+- Horror is no longer darker than the game: its own exposure, contrast and neutral ambient in the theme table.
+- Water is built on the game's own water terms, so every theme keeps its colour (Horror's murky sea no longer turns
+  pale) and the game's white wave glints are back, with a sharper sun sparkle. Flecks are smaller and rarer on pale
+  water, the reflected sky takes on the water's hue, and a slow rotated swell hides the far-sea tiling.
+- `sunstoneSplit` on the water shows the game's own water left of a screen x, so a whole frame can be compared.
+- Measured at 1920x1080 on an RX 7800 XT: the Bold post-FX stack costs about 0.7 ms.
+
 ## 1.5.0
 
 - Water: a new GLSL water shader. The scene below shows through shallow water with refraction and depth-based

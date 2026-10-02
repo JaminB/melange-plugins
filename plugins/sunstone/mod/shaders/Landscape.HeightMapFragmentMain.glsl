@@ -166,13 +166,14 @@ vec3 SunstoneLight(vec3 n, vec3 v, vec3 l, vec3 up, float lit, vec3 albedo, floa
     return (diffuse + ambient + rim) * albedo + globalSpecular * spec;
 }
 
-// Brightness above the knee rolls off instead of clipping per channel, so bright colours keep some of their hue
-// (mostly the game's plain clip, with a share of hue-preserving roll-off).
+// Brightness above the knee rolls off toward white, as film does, so bright sand and stone stay pale rather than
+// clipping per channel or turning orange.
 vec3 Shoulder(vec3 c) {
     float m = max(c.r, max(c.g, c.b));
     if (m <= 0.9) return c;
-    vec3 rolled = c * ((0.9 + 0.1 * (1.0 - exp((0.9 - m) / 0.1))) / m);
-    return mix(rolled, min(c, vec3(1.0)), 0.65);
+    float r = 0.9 + 0.1 * (1.0 - exp((0.9 - m) / 0.1));
+    vec3 rolled = mix(c * (r / m), vec3(r), clamp((m - 0.9) / m * 1.5, 0.0, 1.0));
+    return mix(rolled, min(c, vec3(1.0)), 0.5);
 }
 
 vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {

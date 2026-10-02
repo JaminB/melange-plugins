@@ -11,6 +11,7 @@ uniform float p_distance;
 uniform float p_heightFalloff;
 uniform float p_maxHaze;
 uniform float p_desaturate;
+uniform float p_flatHaze;
 varying vec2 mg_uv;
 
 vec4 HorizonColour(float x) {
@@ -33,6 +34,10 @@ void main() {
     vec4 vp = mg_invProj * vec4(vec3(mg_uv, depth) * 2.0 - 1.0, 1.0);
     vec3 P = vp.xyz / vp.w;
     float dist = length(P);
+    // Level surfaces (the sea, mostly) keep more of their colour than the cliffs and slopes that give the islands
+    // their depth. Taken before any branch, where derivatives are defined.
+    vec3 Nw = normalize(cross(dFdx(P), dFdy(P))) * mat3(mg_view);
+    float level = smoothstep(0.92, 0.995, abs(Nw.y));
     if (depth >= 1.0 || dist > 0.5 * mg_nearFar.y) {
         gl_FragColor = scene;
         return;
@@ -44,6 +49,7 @@ void main() {
     float od = dist / p_distance * along;
     // Fades out toward the sky's distance, so the far sea does not end in a seam where the sky test starts.
     float haze = p_maxHaze * (1.0 - exp(-od)) * horizon.a * (1.0 - smoothstep(0.3, 0.5, dist / mg_nearFar.y));
+    haze *= mix(1.0, p_flatHaze, level);
     float luma = dot(scene.rgb, vec3(0.2126, 0.7152, 0.0722));
     vec3 c = mix(scene.rgb, vec3(luma), haze * p_desaturate);
     gl_FragColor = vec4(mix(c, horizon.rgb, haze), scene.a);

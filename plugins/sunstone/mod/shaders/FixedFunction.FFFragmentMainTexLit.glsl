@@ -23,14 +23,15 @@ bool GameTerms() {
     return gl_FragCoord.x < sunstoneSplit || sunstoneLight < 0.5 || (sunstoneLight > 9.5 && sunstoneLight < 10.5);
 }
 
-// Brightness above the knee rolls off instead of clipping per channel, so bright colours keep some of their hue
-// (mostly the game's plain clip, with a share of hue-preserving roll-off).
+// Brightness above the knee rolls off toward white, as film does, so bright sand and stone stay pale rather than
+// clipping per channel or turning orange.
 vec3 Shoulder(vec3 c) {
     if (GameTerms()) return c;
     float m = max(c.r, max(c.g, c.b));
     if (m <= 0.9) return c;
-    vec3 rolled = c * ((0.9 + 0.1 * (1.0 - exp((0.9 - m) / 0.1))) / m);
-    return mix(rolled, min(c, vec3(1.0)), 0.65);
+    float r = 0.9 + 0.1 * (1.0 - exp((0.9 - m) / 0.1));
+    vec3 rolled = mix(c * (r / m), vec3(r), clamp((m - 0.9) / m * 1.5, 0.0, 1.0));
+    return mix(rolled, min(c, vec3(1.0)), 0.5);
 }
 
 void Light(out vec3 base, out vec3 add) {
@@ -65,9 +66,9 @@ void Light(out vec3 base, out vec3 add) {
     float f = 1.0 + 3.0 * pow(1.0 - clamp(dot(l, h), 0.0, 1.0), 5.0);
     vec3 spec = lightSpecularCol * specCol * sunstoneSpecular * f * shine;
 
-    float edge = pow(1.0 - ndv, 3.0);
+    float edge = pow(1.0 - ndv, 2.5);
     float back = clamp(0.35 - 0.65 * dot(v, l), 0.0, 1.0);
-    vec3 rim = sunstoneRim * edge * (lightAmbientCol * sunstoneSky * 0.5 + lightDiffuseCol * back) * (0.4 + 0.6 * sky);
+    vec3 rim = sunstoneRim * edge * (lightAmbientCol * sunstoneSky * 0.6 + lightDiffuseCol * (0.2 + back)) * (0.4 + 0.6 * sky);
 
     float keep = 1.0 - clamp(dot(specCol, vec3(0.333)) * sunstoneSpecular * 0.5, 0.0, 0.5);
     base = lightDiffuseCol * sunstoneSunGain * diffuse * keep + ambient + emissive;

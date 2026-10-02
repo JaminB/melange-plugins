@@ -1,9 +1,11 @@
 #version 130
-// Sunstone water: refraction of the scene below with depth-based absorption, a Fresnel blend toward a sky-tinted
-// reflection, a sun glint and broken foam where the water is shallow. Reads copies of the scene taken just before
-// the water draws.
+// Sunstone water, built on the game's own water terms: refraction of the scene below with depth-based absorption,
+// a Fresnel blend toward a sky-tinted reflection, the game's glints with a sun sparkle, and broken foam where the
+// water is shallow. Reads copies of the scene taken just before the water draws.
 uniform sampler2D texture0;   // the theme's water colour ramp
 uniform sampler2D texture1;   // wave normals
+uniform sampler2D texture2;   // the theme's environment map
+uniform mat4 combinedWaterParams;
 uniform float pausedTime;
 uniform mat4 mg_view;
 uniform mat4 mg_proj;
@@ -24,6 +26,7 @@ uniform float sunstoneWaterRefract;   // refraction offset (fraction of the scre
 uniform float sunstoneWaterGlint;     // sun glint strength
 uniform float sunstoneWaterFoam;      // shore foam strength
 uniform float sunstoneWaterFoamWidth; // water depth (world units) the foam reaches
+uniform float sunstoneSplit;          // pixels left of this x draw the game's own water (comparisons)
 
 float Hash(vec2 p) {
     p = fract(p * vec2(0.1031, 0.1030));
@@ -71,11 +74,38 @@ vec2 Slope(vec2 uv) {
     return s.xy / max(s.z, 0.2);
 }
 
+// The game's own water, as its Cg program draws it: the colour ramp under its normals, the environment
+// reflection and the white glints.
+vec3 MapNormal(vec2 uv) { return normalize(texture2D(texture1, uv).rgb * 2.0 - 1.0); }
+
+vec3 Env(vec3 c) {
+    c = normalize(c);
+    float m = max(max(c.x, c.y), c.z);
+    vec2 f = m == c.x ? c.yz : (m == c.y ? c.xz : c.xy);
+    return texture2D(texture2, f * 0.5 + 0.5).rgb;
+}
+
+vec3 GameWater(vec2 uv, float t, out float spec) {
+    float st = t * 0.5;
+    vec3 nm = normalize(MapNormal(uv * 5.0 + st * vec2(-0.3, 0.6)) * vec3(0.2, 0.2, 0.0) +
+                        MapNormal(uv * -0.2 + st * vec2(0.0, 0.2)) + MapNormal(uv * -0.75 + st * vec2(-0.1, -0.2)));
+    mat4 p = combinedWaterParams;
+    vec3 diffuse = texture2D(texture0, nm.gg * 0.25).rgb - texture2D(texture0, nm.bb * 2.0).rrr * p[3].w;
+    vec3 refl = pow(Env(nm * p[2].xyz), vec3(p[0].x)) * p[0].y;
+    spec = clamp(pow(Env(nm * p[1].xyz).r, p[0].z) * p[3].x, 0.0, 1.0);
+    return diffuse + refl;
+}
+
 void main() {
     vec3 eye = gl_TexCoord[1].xyz;
     float dist = length(eye);
     vec3 v = -eye / dist;
     float t = pausedTime;
+    if (gl_FragCoord.x < sunstoneSplit) {
+        float s;
+        gl_FragColor = vec4(GameWater(gl_TexCoord[0].xy, t, s) + s, combinedWaterParams[3].z);
+        return;
+    }
 
     // Swell and fine ripples. Each layer fades out where its texels shrink below a pixel, where it would only
     // shimmer; distant water also calms down.
@@ -88,6 +118,11 @@ void main() {
     vec2 ripple = Slope(uv0 * 3.1 + t * vec2(0.05, -0.035)) + Slope(uv0 * -5.3 + t * vec2(-0.04, -0.06)) * 0.5;
     vec2 chop = Slope(uv0 * 1.4 + t * vec2(-0.03, 0.04));
     float mid = 1.0 - smoothstep(2.0, 8.0, texels * 1.4);
+    // A slow, rotated long swell and a noise that varies the wave height across the sea, so the far water does
+    // not show the normal map's repeat.
+    float macro = Fbm(uv0 * 0.045 + t * vec2(0.0021, -0.0017));
+    vec2 lazy = Slope(mat2(0.8, -0.6, 0.6, 0.8) * uv0 * 0.17 + t * vec2(0.006, 0.009));
+    swell = swell * (0.45 + 1.1 * macro) + lazy * 0.6;
     vec2 slope = (swell * mix(0.25, 1.0, broad) + chop * 0.35 * mid + ripple * 0.45 * detail) * sunstoneWaterWaves;
     vec3 n = normalize(vec3(slope.x, 1.0, slope.y));
 
@@ -108,7 +143,9 @@ void main() {
 
     // The theme's own water colour (the ramp's average) keeps each theme's character.
     vec3 themeCol = texture2D(texture0, vec2(0.125), 8.0).rgb;
-    vec3 deep = themeCol * sunstoneWaterDeep;
+    float gameSpec;
+    vec3 game = max(GameWater(uv0, t, gameSpec), 0.0);
+    vec3 deep = game * sunstoneWaterDeep;
     vec3 absorb = (1.0 - clamp(themeCol, 0.05, 0.95)) * 1.5 + 0.4;
     vec3 trans = exp(-absorb * through / sunstoneWaterClarity) * (1.0 - smoothstep(sunstoneWaterClarity * 0.5, sunstoneWaterClarity * 1.5, depth));
     vec3 body = mix(deep, below * sunstoneWaterShallow, trans);
@@ -123,7 +160,9 @@ void main() {
     vec2 mir = ScreenOf(r);
     sky = mix(sky, texture2D(mg_scene, mir).rgb, SkyWeight(mir) * (1.0 - far * 0.5));
     float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
-    vec3 col = mix(body, sky * mix(vec3(1.0), themeCol * 1.6, 0.35), clamp(fres * sunstoneWaterReflect, 0.0, 0.5));
+    // The reflected sky takes on the water's own hue, so a pale horizon does not turn the sea cyan.
+    vec3 hue = clamp(deep / max(dot(deep, vec3(0.299, 0.587, 0.114)), 0.05), 0.0, 2.0);
+    vec3 col = mix(body, sky * mix(vec3(1.0), hue, 0.5), clamp(fres * sunstoneWaterReflect, 0.0, 0.35 - 0.12 * far));
 
     // Scenes without landscape (the menu) have no sun; a high one stands in.
     vec3 l = dot(globalLightDir, globalLightDir) > 0.01 ? normalize(transpose(mat3(mg_view)) * globalLightDir)
@@ -132,14 +171,22 @@ void main() {
     col *= 1.0 + clamp(dot(n.xz, l.xz) * 0.5, -0.07, 0.07) * (1.0 - far);
     vec3 h = normalize(l + v);
     float nh = max(dot(n, h), 0.0);
-    float glint = (pow(nh, 600.0) * 6.0 + pow(nh, 80.0) * 0.25) * fres * 4.0 * step(0.0, l.y);
-    col += globalDiffuse * glint * sunstoneWaterGlint * (1.0 - far * 0.6);
-    // Ripple crests tilted toward the camera catch the sky as small bright flecks.
-    float crest = dot(chop * 0.8 + ripple * 0.6 * detail, normalize(v.xz + l.xz + vec2(1e-4)));
-    float patchy = smoothstep(0.35, 0.7, Fbm(uv0 * 0.6 + t * vec2(0.013, -0.009)));
-    // Glancing views only, where the ripples are small on screen; from above they smear into pale streaks.
-    float fleck = smoothstep(0.35, 0.6, crest) * patchy * mid * (0.7 + fres) * smoothstep(0.85, 0.45, v.y) * smoothstep(0.4, 1.0, texels);
-    col += mix(sky, vec3(1.0), 0.75) * fleck * 0.8 * sunstoneWaterGlint;
+    // A sharp sun sparkle on every facet that catches the sun, over a broader sheen along the sun path.
+    float glint = (pow(nh, 700.0) * 14.0 + pow(nh, 120.0) * 0.5) * (0.3 + 3.0 * fres) * step(0.0, l.y);
+    col += mix(globalDiffuse, vec3(1.0), 0.5) * glint * sunstoneWaterGlint * (1.0 - far * 0.6);
+    // Ripple crests tilted toward the camera catch the sky as small white flecks. Each comes from the finest
+    // layer that is still above a pixel, so they stay small at every distance, and they are rarer on pale water
+    // where they would read as blotches.
+    vec2 fine = ripple * detail + chop * 0.7 * (mid - detail);
+    float crest = dot(fine, normalize(v.xz + l.xz + vec2(1e-4)));
+    float patchy = smoothstep(0.3, 0.65, Fbm(uv0 * 1.3 + t * vec2(0.013, -0.009)));
+    float pale = smoothstep(0.45, 0.8, dot(game, vec3(0.299, 0.587, 0.114)));
+    // Mostly glancing views; from straight above they would smear into pale streaks.
+    float fleck = smoothstep(0.45 + 0.15 * pale, 0.7 + 0.1 * pale, crest) * patchy * mid * (0.8 + fres) *
+                  smoothstep(0.95, 0.5, v.y) * smoothstep(0.3, 0.9, texels) * (1.0 - 0.5 * pale);
+    col += mix(sky, vec3(1.0), 0.85) * fleck * 0.35 * sunstoneWaterGlint;
+    // The game's own white glints.
+    col += vec3(gameSpec) * sunstoneWaterGlint * 0.8 * (1.0 - 0.5 * pale) * (1.0 - far * 0.5);
 
     vec2 wp = gl_TexCoord[0].xy;
     float shore = 1.0 - smoothstep(0.0, sunstoneWaterFoamWidth, depth);

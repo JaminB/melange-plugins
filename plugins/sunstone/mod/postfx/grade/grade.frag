@@ -1,6 +1,7 @@
 #version 120
 uniform sampler2D mg_scene;
 uniform sampler2D mg_depth;
+uniform sampler2D mg_pass_blurv;
 uniform mat4 mg_invProj;
 uniform vec2 mg_nearFar;
 uniform sampler2D t_golden;
@@ -9,6 +10,9 @@ uniform float p_exposure;
 uniform float p_strength;
 uniform float p_contrast;
 uniform float p_saturation;
+uniform float p_vibrance;
+uniform float p_clarity;
+uniform float p_paleHighlights;
 uniform float p_lutAmount;
 uniform float p_look;
 uniform float p_vignette;
@@ -45,18 +49,33 @@ float Cool(vec3 c) {
 
 void main() {
     vec4 src = texture2D(mg_scene, mg_uv);
-    vec3 lin = pow(src.rgb, vec3(2.2)) * exp2(p_exposure);
+    // Local contrast: luminance against a wide blur of itself, strongest in the mid-tones and capped so edges
+    // against the sky do not ring.
+    float y0 = dot(src.rgb, vec3(0.2126, 0.7152, 0.0722));
+    float detail = clamp(y0 - texture2D(mg_pass_blurv, mg_uv).r, -0.1, 0.1);
+    vec3 pre = clamp(src.rgb + detail * p_clarity * (1.0 - 0.7 * abs(y0 * 2.0 - 1.0)), 0.0, 1.0);
+
+    vec3 lin = pow(pre, vec3(2.2)) * exp2(p_exposure);
     // The curve runs on luminance and scales RGB, so it shapes contrast without washing out saturated colours.
     float y = max(dot(lin, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
     float fy = Filmic(vec3(y * 2.0)).x / Filmic(vec3(2.0)).x;
     lin *= mix(1.0, fy / y, p_strength);
     vec3 c = pow(clamp(lin, 0.0, 1.0), vec3(1.0 / 2.2));
     c = (c - 0.5) * p_contrast + 0.5;
+
+    // Vibrance lifts muted colours more than saturated ones; bright warm colours (sand, stone) keep their own
+    // chroma, so pale yellow does not turn orange.
     float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    c = clamp(mix(vec3(luma), c, p_saturation), 0.0, 1.0);
+    float hi = max(max(c.r, c.g), c.b), lo = min(min(c.r, c.g), c.b);
+    float chroma = (hi - lo) / max(hi, 1e-3);
+    float pale = p_paleHighlights * smoothstep(0.0, 0.1, c.r - c.b) * smoothstep(0.5, 0.8, luma);
+    float sat = mix(p_saturation + p_vibrance * (1.0 - smoothstep(0.1, 0.6, chroma)), 1.0, pale);
+    // The curve deepens shadows without greying them, which over-saturates them; they give some of it back.
+    sat *= 1.0 - 0.3 * p_paleHighlights * (1.0 - smoothstep(0.08, 0.3, luma));
+    c = clamp(mix(vec3(luma), c, sat), 0.0, 1.0);
 
     vec3 graded = mix(SampleLut(t_golden, c), SampleLut(t_dusk, c), clamp(p_look, 0.0, 1.0));
-    c = mix(c, graded, p_lutAmount * (1.0 - p_huePreserve * Cool(c)));
+    c = mix(c, graded, p_lutAmount * (1.0 - p_huePreserve * Cool(c)) * (1.0 - 0.6 * pale));
 
     // The sky dome sits beyond half the far plane; the grade fades out on the way there so the far sea has no seam.
     float depth = texture2D(mg_depth, mg_uv).r;
