@@ -1,3 +1,12 @@
+## 1.3.0
+
+- Soft shadows: a 2048² shadow map (4096² on High) instead of the game's 1024², and GLSL landscape shaders with a
+  smooth soft filter (Low) or contact-hardening shadows (Medium, High). A slope-scaled bias removes the game's
+  shadow acne on grazing slopes. Without Melange's shadow support the game's own shadows are kept.
+- The grade no longer touches the sky dome, so pale skies stay clean instead of turning milky and teal.
+- SSAO fades out close to the camera and keeps its radius within what fits on screen, so low cameras over sand
+  slopes no longer get dark smears.
+
 ## 1.2.0
 
 Atmosphere reworked against measured scene scale (a worm is about 30 units tall, the sky dome about 9400 away):
