@@ -71,7 +71,8 @@ Sky pixels are found by that distance, so no effect darkens, fogs or blooms the 
 - **`fog`** (PostWorld, "Aerial perspective"): distant geometry fades a little toward the sky's own horizon colour,
   read from the frame each time so it follows the theme, and loses some saturation. Height-aware (thinner looking
   up, denser looking down); on Bold, level surfaces (the sea) take less of it than the cliffs and slopes, so
-  islands gain depth while the sea keeps its colour. Capped, so the sea always stays water.
+  islands gain depth while the sea keeps its colour. Level surfaces haze toward the horizon's brightness in their
+  own hue, so a tinted sky does not shift the sea's hue. Capped, so the sea always stays water.
 - **`bloom`** (PostWorld): highlights — sun glints on water, explosions, specular hits — glow softly. A soft-knee
   bright-pass on luminance at quarter resolution, two blur widths, and a screen blend that never clips. The sky
   counts for a fifth, so bright clouds don't haze it.
@@ -153,7 +154,9 @@ the water draws:
   ripple crests (fewer on pale water, so they never read as blotches). A slow rotated swell and a noise that varies
   the wave height across the sea hide the normal map's repeat far out.
 - **Rich sea** (Bold): a deeper, more saturated version of the game's own water hue, with a calmer reflection and
-  crisp white glints that cover the water below them, so they stay white over sandy shallows.
+  crisp white glints that cover the water below them, so they stay white over sandy shallows. The colour keeps the
+  hue the game's own water would have at each pixel, so the shallow tint, sky and seabed never pull an olive or
+  pale cyan sea toward green or teal.
 - **Shore foam**: broken, slowly drifting foam where the water is shallow, from procedural noise computed in the
   shader (no texture is shipped).
 - **No shimmer**: each wave layer fades out where its texels shrink below a pixel.

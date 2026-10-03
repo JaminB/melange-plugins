@@ -1,3 +1,9 @@
+## 1.7.0
+
+- Bold water keeps the hue of the game's own sea on every theme, only deeper and more saturated: Horror's olive
+  sea no longer turns green, and Pirate's pale cyan stays cyan rather than drifting blue.
+- Aerial perspective hazes the sea and other level surfaces in their own hue, so a tinted sky no longer shifts it.
+
 ## 1.6.1
 
 - Bold water is a deep, saturated version of the game's own sea colour: a calmer reflection, no teal cast, and

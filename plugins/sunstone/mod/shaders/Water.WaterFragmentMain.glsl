@@ -93,6 +93,15 @@ vec3 Glint(vec3 col, vec3 add) {
     return col * (1.0 - cover) + add;
 }
 
+// c with the hue of ref: c's luma and chroma, ref's chroma direction. Near-grey refs have no hue to keep.
+vec3 KeepHue(vec3 c, vec3 ref) {
+    const vec3 w = vec3(0.299, 0.587, 0.114);
+    vec3 dr = ref - dot(ref, w);
+    float lr = length(dr);
+    vec3 kept = max(dot(c, w) + dr * (length(c - dot(c, w)) / max(lr, 1e-4)), 0.0);
+    return mix(c, kept, smoothstep(0.004, 0.02, lr));
+}
+
 vec3 GameWater(vec2 uv, float t, out float spec) {
     float st = t * 0.5;
     vec3 nm = normalize(MapNormal(uv * 5.0 + st * vec2(-0.3, 0.6)) * vec3(0.2, 0.2, 0.0) +
@@ -183,6 +192,10 @@ void main() {
                                                         : normalize(vec3(0.3, 0.6, 0.5));
     // Facets facing the sun read a little lighter, so the swell keeps its shape seen from above.
     col *= 1.0 + clamp(dot(n.xz, l.xz) * 0.5, -0.07, 0.07) * (1.0 - far);
+    // The shallow tint, the sky and the seabed would pull an olive or violet sea off its hue; a rich sea keeps the
+    // hue of the game's own water here and only deepens it.
+    vec3 gameHere = mix(texture2D(mg_scene, uv).rgb, game, combinedWaterParams[3].z);
+    col = mix(col, KeepHue(col, gameHere), sunstoneWaterRich);
     vec3 h = normalize(l + v);
     float nh = max(dot(n, h), 0.0);
     // A sharp sun sparkle on every facet that catches the sun, over a broader sheen along the sun path.

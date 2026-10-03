@@ -52,5 +52,9 @@ void main() {
     haze *= mix(1.0, p_flatHaze, level);
     float luma = dot(scene.rgb, vec3(0.2126, 0.7152, 0.0722));
     vec3 c = mix(scene.rgb, vec3(luma), haze * p_desaturate);
-    gl_FragColor = vec4(mix(c, horizon.rgb, haze), scene.a);
+    // Level surfaces haze toward the horizon's brightness in their own hue, so a tinted sky does not shift the sea.
+    float cy = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    vec3 own = clamp(c * (dot(horizon.rgb, vec3(0.2126, 0.7152, 0.0722)) / max(cy, 1e-3)), 0.0, 1.0);
+    vec3 target = mix(horizon.rgb, cy > 0.02 ? own : horizon.rgb, level);
+    gl_FragColor = vec4(mix(c, target, haze), scene.a);
 }
