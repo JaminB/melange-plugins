@@ -58,6 +58,9 @@ local PRESETS = {
         water   = { enabled = true, waves = 0.45, glint = 1.4, foam = 0.9, rich = 1 },
     },
 }
+-- Bold rendered at twice the resolution each way and scaled down (2x2 supersampling): the cleanest edges and
+-- textures, for a GPU with room to spare. Supersampling already smooths the edges SMAA would find.
+PRESETS.ultra = setmetatable({ supersample = 4, smaa = {} }, { __index = PRESETS.bold })
 -- Settings saved by Sunstone 1.5 and earlier.
 local LEGACY = { medium = "bold", high = "bold" }
 
@@ -157,6 +160,13 @@ local function applyWater(w, on)
     pcall(wum.shaders.enableGlsl, "Water.cg", "WaterFragmentMain", enabled == true)
 end
 
+-- A request to Melange; one without wum.graphics.setSupersample renders Ultra as Bold.
+local function applySupersample(samples)
+    if wum.graphics and wum.graphics.setSupersample then
+        pcall(wum.graphics.setSupersample, samples or 0)
+    end
+end
+
 local last = {}
 
 local function apply()
@@ -201,6 +211,7 @@ local function apply()
         end
     end
     applyShadows(preset.shadows)
+    applySupersample(preset.supersample)
     applyLighting(preset.lighting, theme, state.lighting)
     applyWater(preset.water, state.water)
 end

@@ -12,6 +12,7 @@ uniform mat4 mg_proj;
 uniform sampler2D mg_depth;
 uniform sampler2D mg_scene;
 uniform vec2 mg_nearFar;
+uniform vec2 mg_renderScale;
 // The landscape's sun (eye space) and colour, fed from the landscape programs.
 uniform vec3 globalLightDir;
 uniform vec3 globalDiffuse;
@@ -127,7 +128,7 @@ void main() {
     // Swell and fine ripples. Each layer fades out where its texels shrink below a pixel, where it would only
     // shimmer; distant water also calms down.
     vec2 uv0 = gl_TexCoord[0].xy;
-    float texels = length(fwidth(uv0)) * 256.0;
+    float texels = length(fwidth(uv0)) * 256.0 * max(mg_renderScale.x, 1.0);
     float far = smoothstep(800.0, 6000.0, dist);
     float detail = 1.0 - smoothstep(2.0, 8.0, texels * 3.1);
     float broad = 1.0 - smoothstep(3.0, 12.0, texels * 0.5);

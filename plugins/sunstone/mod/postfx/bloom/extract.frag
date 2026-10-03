@@ -5,6 +5,7 @@ uniform sampler2D mg_depth;
 uniform mat4 mg_invProj;
 uniform vec2 mg_nearFar;
 uniform vec4 mg_sceneResolution;
+uniform vec2 mg_renderScale;
 uniform float p_threshold;
 uniform float p_skyWeight;
 varying vec2 mg_uv;
@@ -23,7 +24,7 @@ vec3 Bright(vec2 uv) {
 }
 
 void main() {
-    vec2 o = mg_sceneResolution.zw;
+    vec2 o = mg_sceneResolution.zw * max(mg_renderScale, vec2(1.0));
     vec3 s = Bright(mg_uv + vec2(-o.x, -o.y)) + Bright(mg_uv + vec2(o.x, -o.y)) + Bright(mg_uv + vec2(-o.x, o.y)) +
              Bright(mg_uv + vec2(o.x, o.y));
     gl_FragColor = vec4(s * 0.25, 1.0);

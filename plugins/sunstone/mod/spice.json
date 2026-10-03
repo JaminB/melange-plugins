@@ -17,7 +17,7 @@
     {
       "key": "quality",
       "type": "enum",
-      "options": ["off", "low", "subtle", "bold"],
+      "options": ["off", "low", "subtle", "bold", "ultra"],
       "default": "bold",
       "label": "Quality"
     },

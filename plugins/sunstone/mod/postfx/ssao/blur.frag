@@ -4,6 +4,7 @@ uniform sampler2D mg_prev;
 uniform sampler2D mg_depth;
 uniform mat4 mg_invProj;
 uniform vec4 mg_resolution;
+uniform vec2 mg_renderScale;
 uniform vec2 mg_nearFar;
 varying vec2 mg_uv;
 
@@ -19,6 +20,7 @@ void main() {
 #else
     vec2 dir = vec2(0.0, mg_resolution.w);
 #endif
+    dir *= max(mg_renderScale, vec2(1.0));
     float sky = 0.45 * mg_nearFar.y;
     float z0 = ViewDist(mg_uv);
     if (z0 > sky) {

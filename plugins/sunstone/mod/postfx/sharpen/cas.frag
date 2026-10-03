@@ -19,6 +19,7 @@
 
 uniform sampler2D mg_scene;
 uniform vec4 mg_resolution;
+uniform vec2 mg_renderScale;
 uniform float p_sharpness;
 uniform float p_nearFade;
 uniform float p_floor;
@@ -26,7 +27,7 @@ uniform sampler2D mg_depth;
 uniform mat4 mg_invProj;
 varying vec2 mg_uv;
 
-vec3 Load(vec2 o) { return texture2D(mg_scene, mg_uv + o * mg_resolution.zw).rgb; }
+vec3 Load(vec2 o) { return texture2D(mg_scene, mg_uv + o * mg_resolution.zw * max(mg_renderScale, vec2(1.0))).rgb; }
 
 void main() {
     // a b c

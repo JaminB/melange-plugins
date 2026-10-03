@@ -4,6 +4,7 @@
 uniform sampler2D mg_scene;
 uniform sampler2D mg_depth;
 uniform vec4 mg_sceneResolution;
+uniform vec2 mg_renderScale;
 varying vec2 mg_uv;
 
 float Y(vec2 uv) {
@@ -12,7 +13,7 @@ float Y(vec2 uv) {
 }
 
 void main() {
-    vec2 o = mg_sceneResolution.zw;
+    vec2 o = mg_sceneResolution.zw * max(mg_renderScale, vec2(1.0));
     float y = Y(mg_uv + vec2(-o.x, -o.y)) + Y(mg_uv + vec2(o.x, -o.y)) + Y(mg_uv + vec2(-o.x, o.y)) + Y(mg_uv + vec2(o.x, o.y));
     gl_FragColor = vec4(vec3(y * 0.25), 1.0);
 }

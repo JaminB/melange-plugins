@@ -6,7 +6,7 @@ ever shipped.
 
 ## Quality and look
 
-A **Quality** setting (Off / Low / Subtle / Bold) on the Mods page turns Sunstone's effects on together with
+A **Quality** setting (Off / Low / Subtle / Bold / Ultra) on the Mods page turns Sunstone's effects on together with
 sensible parameters; a **Look** setting (Golden / Dusk) picks which of the two colour-grading LUTs the Grade
 effect leans toward, and **Sunstone lighting** and **Sunstone water** turn the lighting and the water below on or
 off on their own. All apply live, no restart. Every effect still has its own toggle and parameters in the
@@ -19,12 +19,20 @@ change there survives until you next change Quality or a match with a different 
 | Low | SMAA, Sharpen, Grade, soft shadows, lighting without relief, water without foam | anti-aliasing, sharpening, a world grade, 2048² shadow map |
 | Subtle | + SSAO, Aerial perspective, Bloom, contact-hardening shadows, texture relief, shore foam | the near-neutral look of Sunstone 1.5; 2048² shadow map |
 | Bold (default) | the same effects, tuned to be seen | a remastered look: harder sun and deeper shadows, a strong rim on worms and props, clear contact shading, a confident grade with local contrast, haze that leaves the sea alone, a deep sea with crisp white glints; 4096² shadow map |
+| Ultra (opt-in) | Bold without SMAA, plus 2x2 supersampling | Bold rendered at twice the resolution each way and scaled down: the cleanest edges and the steadiest textures and water, for a GPU with room to spare |
 
 Settings saved as Medium or High by earlier versions read as Bold.
 
 Measured on a mid-range desktop GPU at 1920x1080 (Mirage's per-effect timers, live match): **0.7 ms** for the whole Bold
 post-FX stack (SSAO 0.27, SMAA 0.13, bloom 0.10, grade 0.09, fog 0.07, sharpen 0.06). Re-measure with the
 *Mirage/Post-FX* panel or `gltrace.gpu` on your own machine.
+
+Ultra asks Melange for 2x2 supersampling (`wum.graphics.setSupersample`), so the game renders a 3840x2160 scene for a
+1920x1080 window. Same GPU, same paused frame: the whole frame takes about **7.5 ms** of GPU time against 3.9 ms on
+Bold and 3.3 ms on Off, the post-FX stack about 2.3 ms, and the scene and effect targets about 350 MB more video
+memory. Pixel-sized blurs, sharpening and fades follow the render scale, so Ultra keeps Bold's look. The HUD and text
+render at the higher resolution too. Switching back to another preset restores the game's own `/SSAA` and FXAA
+settings. A Melange without `wum.graphics.setSupersample` renders Ultra as Bold.
 
 ## Texture clarity
 

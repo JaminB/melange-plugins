@@ -3,6 +3,12 @@
 - Bold water keeps the hue of the game's own sea on every theme, only deeper and more saturated: Horror's olive
   sea no longer turns green, and Pirate's pale cyan stays cyan rather than drifting blue.
 - Aerial perspective hazes the sea and other level surfaces in their own hue, so a tinted sky no longer shifts it.
+- A new opt-in **Ultra** quality: Bold with 2x2 supersampling, the scene rendered at twice the resolution each way and
+  scaled down. SMAA is off there, since supersampling already smooths those edges. Measured at 1920x1080 on a
+  mid-range desktop GPU, paused frame: about 7.5 ms of frame GPU time (Bold 3.9 ms) and about 350 MB more video
+  memory. Needs a Melange with `wum.graphics.setSupersample`; an older one renders Ultra as Bold.
+- Blurs, sharpening, bloom, the grade's local contrast and the texture-relief and ripple fades scale with
+  Melange's render scale, so they look the same with supersampling.
 
 ## 1.6.1
 

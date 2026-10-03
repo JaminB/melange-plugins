@@ -2,6 +2,7 @@
 // 9-tap Gaussian in 5 bilinear fetches; HORIZONTAL picks the direction.
 uniform sampler2D mg_prev;
 uniform vec4 mg_resolution;
+uniform vec2 mg_renderScale;
 uniform float p_clarityRadius;
 varying vec2 mg_uv;
 
@@ -11,6 +12,7 @@ void main() {
 #else
     vec2 dir = vec2(0.0, mg_resolution.w) * p_clarityRadius;
 #endif
+    dir *= max(mg_renderScale, vec2(1.0));
     float s = texture2D(mg_prev, mg_uv).r * 0.2270270270;
     s += (texture2D(mg_prev, mg_uv + dir * 1.3846153846).r + texture2D(mg_prev, mg_uv - dir * 1.3846153846).r) * 0.3162162162;
     s += (texture2D(mg_prev, mg_uv + dir * 3.2307692308).r + texture2D(mg_prev, mg_uv - dir * 3.2307692308).r) * 0.0702702703;
