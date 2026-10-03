@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 2,
+  "serial": 3,
   "plugins": [
     {
       "id": "sunstone",
@@ -19,6 +19,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.7.0",
+          "released": "2026-10-03",
+          "melange": ">=0.3.0 <0.4.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/sunstone-v1.7.0/sunstone-1.7.0.zip",
+          "sha256": "7d06d52b7c2f1ff119cd9b56399e5b0d048e2deb6d246ac9218491686dbfbe03",
+          "size": 125533,
+          "unpackedSize": 220624,
+          "files": 42,
+          "changelog": "- Bold water keeps the hue of the game's own sea on every theme, only deeper and more saturated: Horror's olive\n  sea no longer turns green, and Pirate's pale cyan stays cyan rather than drifting blue.\n- Aerial perspective hazes the sea and other level surfaces in their own hue, so a tinted sky no longer shifts it.\n- A new opt-in **Ultra** quality: Bold with 2x2 supersampling, the scene rendered at twice the resolution each way and\n  scaled down. SMAA is off there, since supersampling already smooths those edges. Measured at 1920x1080 on a\n  mid-range desktop GPU, paused frame: about 7.5 ms of frame GPU time (Bold 3.9 ms) and about 350 MB more video\n  memory. Needs a Melange with `wum.graphics.setSupersample`; an older one renders Ultra as Bold.\n- Blurs, sharpening, bloom, the grade's local contrast and the texture-relief and ripple fades scale with\n  Melange's render scale, so they look the same with supersampling."
+        },
         {
           "version": "1.6.1",
           "released": "2026-10-03",
