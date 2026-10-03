@@ -22,7 +22,7 @@ change there survives until you next change Quality or a match with a different 
 
 Settings saved as Medium or High by earlier versions read as Bold.
 
-Measured on an RX 7800 XT at 1920x1080 (Mirage's per-effect timers, live match): **0.7 ms** for the whole Bold
+Measured on a mid-range desktop GPU at 1920x1080 (Mirage's per-effect timers, live match): **0.7 ms** for the whole Bold
 post-FX stack (SSAO 0.27, SMAA 0.13, bloom 0.10, grade 0.09, fog 0.07, sharpen 0.06). Re-measure with the
 *Mirage/Post-FX* panel or `gltrace.gpu` on your own machine.
 
@@ -99,7 +99,7 @@ Both add a slope-scaled bias, and surfaces facing away from the sun shade themse
 ShadowMapSize=auto   ; auto | vanilla | 512 | 1024 | 2048 | 4096
 ```
 
-No measurable GPU cost on an RX 7800 XT at 720p (frame GPU time 4.1 ms with the game's 1024² filter and with
+No measurable GPU cost on a mid-range desktop GPU at 720p (frame GPU time 4.1 ms with the game's 1024² filter and with
 4096² contact-hardening; noise ±0.3 ms). A 4096² map uses 64 MB of VRAM. Worms and props still cast shadows but
 do not receive them; that needs Melange work.
 
@@ -131,7 +131,7 @@ for side-by-side comparisons. Off and the **Sunstone lighting** setting hand the
 
 The landscape still gets the soft shadows above. Worms and props do not receive shadows yet.
 
-Measured on an RX 7800 XT at 1080p, same paused frame, median of 8 samples: frame GPU time 4.2 and 4.5 ms in two
+Measured on a mid-range desktop GPU at 1080p, same paused frame, median of 8 samples: frame GPU time 4.2 and 4.5 ms in two
 runs with Sunstone lighting, 4.3 ms with the game's lighting in the same shaders and 4.2 ms with the game's own
 shaders (noise ±0.4 ms), so the cost is below what the timer can resolve. Mirroring the game's shader
 parameters into the GLSL programs costs under 0.1 ms of CPU per frame.
@@ -162,7 +162,7 @@ Sliders in the *Mirage/Shaders* panel (`shaders/params.ini`): deep and shallow t
 refraction, glint, foam and rich sea; `sunstoneWater` 10, 11 and 12 show the water depth, the foam and the glints alone,
 and `sunstoneSplit` draws the game's own water left of a screen x for comparisons. The **Sunstone water** setting and Off hand the water back to the game; Low drops the foam.
 
-Measured on an RX 7800 XT at 1080p, paused frames, median of 20 samples: frame GPU time with and without it is
+Measured on a mid-range desktop GPU at 1080p, paused frames, median of 20 samples: frame GPU time with and without it is
 within the timer's noise (±0.1 ms) both with the sea covering a third of the screen and with little water in view,
 and the CPU time spent feeding GLSL programs does not change.
 

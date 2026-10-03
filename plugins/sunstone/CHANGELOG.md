@@ -6,7 +6,7 @@
   its blue channel clipped.
 - Sharpening and local contrast fade out on surfaces right in front of the camera, and sharpening leaves faint
   steps alone, so magnified textures no longer turn blocky.
-- Measured at 1920x1080 on an RX 7800 XT, paused frame, Off and Bold alternated: Bold adds about 0.08 ms of
+- Measured at 1920x1080 on a mid-range desktop GPU, paused frame, Off and Bold alternated: Bold adds about 0.08 ms of
   render-thread CPU time with Melange's cheaper GLSL parameter feed (0.14 ms before).
 
 ## 1.6.0
@@ -23,7 +23,7 @@
   pale) and the game's white wave glints are back, with a sharper sun sparkle. Flecks are smaller and rarer on pale
   water, the reflected sky takes on the water's hue, and a slow rotated swell hides the far-sea tiling.
 - `sunstoneSplit` on the water shows the game's own water left of a screen x, so a whole frame can be compared.
-- Measured at 1920x1080 on an RX 7800 XT: the Bold post-FX stack costs about 0.7 ms.
+- Measured at 1920x1080 on a mid-range desktop GPU: the Bold post-FX stack costs about 0.7 ms.
 
 ## 1.5.0
 
