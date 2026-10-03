@@ -2,7 +2,31 @@
   "storeVersion": 1,
   "licence": "MIT",
   "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/sunstone",
-  "categories": ["graphics"],
-  "gameBuilds": ["1077"],
-  "screenshots": []
+  "categories": [
+    "graphics"
+  ],
+  "gameBuilds": [
+    "1077"
+  ],
+  "screenshots": [],
+  "versions": [
+    {
+      "version": "1.6.1",
+      "released": "2026-10-03",
+      "melange": ">=0.3.0 <0.4.0",
+      "kind": "client-only",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/sunstone-v1.6.1/sunstone-1.6.1.zip",
+      "sha256": "9389ae9bcde145e21eca9bf6464c00746605d176fd190d248ddc9ccf55ee3c11",
+      "size": 124676,
+      "unpackedSize": 218261,
+      "files": 42,
+      "changelog": "- Bold water is a deep, saturated version of the game's own sea colour: a calmer reflection, no teal cast, and\n  crisp white glints that cover the water below them instead of turning cream over sandy shallows.\n- The grade no longer turns bright blue teal: a cool colour that leaves the range is scaled back instead of having\n  its blue channel clipped.\n- Sharpening and local contrast fade out on surfaces right in front of the camera, and sharpening leaves faint\n  steps alone, so magnified textures no longer turn blocky.\n- Measured at 1920x1080 on an RX 7800 XT, paused frame, Off and Bold alternated: Bold adds about 0.08 ms of\n  render-thread CPU time with Melange's cheaper GLSL parameter feed (0.14 ms before)."
+    }
+  ]
 }
