@@ -35,7 +35,7 @@
           "size": 124676,
           "unpackedSize": 218261,
           "files": 42,
-          "changelog": "- Bold water is a deep, saturated version of the game's own sea colour: a calmer reflection, no teal cast, and\n  crisp white glints that cover the water below them instead of turning cream over sandy shallows.\n- The grade no longer turns bright blue teal: a cool colour that leaves the range is scaled back instead of having\n  its blue channel clipped.\n- Sharpening and local contrast fade out on surfaces right in front of the camera, and sharpening leaves faint\n  steps alone, so magnified textures no longer turn blocky.\n- Measured at 1920x1080 on an RX 7800 XT, paused frame, Off and Bold alternated: Bold adds about 0.08 ms of\n  render-thread CPU time with Melange's cheaper GLSL parameter feed (0.14 ms before)."
+          "changelog": "- Bold water is a deep, saturated version of the game's own sea colour: a calmer reflection, no teal cast, and\n  crisp white glints that cover the water below them instead of turning cream over sandy shallows.\n- The grade no longer turns bright blue teal: a cool colour that leaves the range is scaled back instead of having\n  its blue channel clipped.\n- Sharpening and local contrast fade out on surfaces right in front of the camera, and sharpening leaves faint\n  steps alone, so magnified textures no longer turn blocky.\n- Measured at 1920x1080 on a mid-range desktop GPU, paused frame, Off and Bold alternated: Bold adds about 0.08 ms of\n  render-thread CPU time with Melange's cheaper GLSL parameter feed (0.14 ms before)."
         }
       ]
     }
