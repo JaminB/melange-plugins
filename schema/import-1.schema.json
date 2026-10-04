@@ -6,7 +6,7 @@
   "type": "object",
   "required": [
     "importVersion", "format", "id", "name", "content", "sources",
-    "reader", "select", "categories", "transform", "output"
+    "reader", "select", "categories", "groups", "transform", "output"
   ],
   "additionalProperties": false,
   "properties": {
@@ -19,10 +19,10 @@
       "required": ["title", "publisher", "termsUrl", "credit"],
       "additionalProperties": false,
       "properties": {
-        "title": { "type": "string", "minLength": 1, "maxLength": 400 },
-        "publisher": { "type": "string", "minLength": 1, "maxLength": 400 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "publisher": { "type": "string", "minLength": 1, "maxLength": 64 },
         "termsUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
-        "credit": { "type": "string", "minLength": 1, "maxLength": 400 }
+        "credit": { "type": "string", "minLength": 1, "maxLength": 300 }
       }
     },
     "sources": {
@@ -124,6 +124,8 @@
     },
     "groups": {
       "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
       "items": {
         "type": "object",
         "required": ["id", "label"],
@@ -139,7 +141,7 @@
     },
     "transform": {
       "type": "object",
-      "required": ["textures", "scripts", "descriptor"],
+      "required": ["stem", "textures", "scripts", "descriptor"],
       "additionalProperties": false,
       "properties": {
         "stem": {
@@ -177,15 +179,15 @@
     },
     "output": {
       "type": "object",
-      "required": ["packPrefix", "version", "perPack", "order"],
+      "required": ["packPrefix", "version", "perPack", "packName", "packDescription"],
       "additionalProperties": false,
       "properties": {
         "packPrefix": { "type": "string" },
         "version": { "type": "string" },
         "perPack": { "type": "integer", "minimum": 1, "maximum": 32 },
-        "order": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "order": { "const": ["category", "fileName"] },
         "newPackBefore": { "type": "array", "items": { "type": "string" } },
-        "packName": { "type": "string" },
+        "packName": { "type": "string", "maxLength": 70, "pattern": "[{]n[}]" },
         "packDescription": { "type": "string" }
       }
     }

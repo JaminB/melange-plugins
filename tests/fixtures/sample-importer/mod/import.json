@@ -33,7 +33,11 @@
   "categories": [
     { "id": "play", "label": "Plays as designed", "default": true }
   ],
+  "groups": [
+    { "id": "all", "label": "All maps", "default": true }
+  ],
   "transform": {
+    "stem": { "slugMax": 24, "hashKeep": 18, "hashHex": 6 },
     "textures": "vanilla",
     "scripts": "drop",
     "descriptor": "rebuild"
@@ -42,6 +46,8 @@
     "packPrefix": "sample-importer",
     "version": "1.0.0",
     "perPack": 32,
-    "order": ["category", "fileName"]
+    "order": ["category", "fileName"],
+    "packName": "Sample maps {n}",
+    "packDescription": "Sample maps imported on this PC."
   }
 }

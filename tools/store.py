@@ -91,7 +91,7 @@ IMPORT_READER_MAX_SEGMENTS = 8
 IMPORT_TEXTURES_FORMAT1 = {"vanilla"}
 IMPORT_SCRIPTS_FORMAT1 = {"drop"}
 IMPORT_DESCRIPTOR_FORMAT1 = {"rebuild"}
-IMPORT_CREDENTIAL_QUERY_WORDS = ("user", "pass", "token", "secret", "key", "auth", "credential")
+IMPORT_CREDENTIAL_QUERY_WORDS = ("user", "pass", "token", "secret", "key", "auth", "credential", "sig")
 
 IMPORT_TOP_KEYS = {
     "importVersion", "format", "id", "name", "content", "sources",
@@ -99,8 +99,10 @@ IMPORT_TOP_KEYS = {
 }
 IMPORT_TOP_REQUIRED = {
     "importVersion", "format", "id", "name", "content", "sources",
-    "reader", "select", "categories", "transform", "output",
+    "reader", "select", "categories", "groups", "transform", "output",
 }
+IMPORT_CONTENT_MAX = {"title": 64, "publisher": 64, "credit": 300}
+IMPORT_STORE_TEXT_MAX = 80                   # store::index ReadPlugin imports title/publisher
 IMPORT_CONTENT_KEYS = {"title", "publisher", "termsUrl", "credit"}
 IMPORT_SOURCE_KEYS = {"id", "name", "urls", "fileName", "size", "sha256"}
 IMPORT_READER_KEYS = {"type", "root", "registry", "titles", "descriptors", "maps", "previews"}
@@ -117,7 +119,8 @@ IMPORT_TRANSFORM_KEYS = {
 IMPORT_OUTPUT_KEYS = {
     "packPrefix", "version", "perPack", "order", "newPackBefore", "packName", "packDescription",
 }
-IMPORT_OUTPUT_REQUIRED = {"packPrefix", "version", "perPack", "order"}
+IMPORT_OUTPUT_REQUIRED = {"packPrefix", "version", "perPack", "packName", "packDescription"}
+IMPORT_TRANSFORM_REQUIRED = {"stem", "descriptor", "textures", "scripts"}
 
 
 # --------------------------------------------------------------------------
@@ -284,6 +287,10 @@ def validate_import_url(url, hosts: set[str]) -> str | None:
         return "is not a valid URL"
     if parsed.scheme != "https":
         return "must be https://"
+    if not parsed.path.startswith("/"):
+        return "must have a path after the host"
+    if any(ord(c) <= 0x20 or ord(c) >= 0x7F or c == "\\" for c in url):
+        return "must not contain spaces, backslashes or non-ASCII characters"
     if "@" in parsed.netloc:
         return "must not contain userinfo"
     host = parsed.hostname or ""
@@ -347,10 +354,10 @@ def validate_import_recipe(recipe, plugin_id: str, hosts: set[str], recipe_rel: 
             err = validate_import_url(terms, hosts)
             if err:
                 add([f"content.termsUrl {err}"])
-        for key in ("title", "publisher", "credit"):
+        for key, most in IMPORT_CONTENT_MAX.items():
             val = content.get(key)
-            if not isinstance(val, str) or not (1 <= len(val) <= 400):
-                add([f"content.{key} must be 1-400 characters"])
+            if not isinstance(val, str) or not (1 <= len(val) <= most):
+                add([f"content.{key} must be 1-{most} characters"])
     else:
         add(["content must be an object"])
 
@@ -423,6 +430,8 @@ def validate_import_recipe(recipe, plugin_id: str, hosts: set[str], recipe_rel: 
         require = select.get("require", [])
         if not isinstance(require, list) or not all(isinstance(r, str) for r in require):
             add(["select.require must be a list of strings"])
+        elif require and sorted(require) != ["descriptor", "xan"]:
+            add(["select.require must be empty or both 'descriptor' and 'xan'"])
         exclude = select.get("exclude", [])
         if not isinstance(exclude, list) or len(exclude) > 64 or not all(isinstance(e, str) for e in exclude):
             add(["select.exclude must be a list of at most 64 names"])
@@ -456,6 +465,8 @@ def validate_import_recipe(recipe, plugin_id: str, hosts: set[str], recipe_rel: 
             add(["select.expect must have integer maps, fromArchive, fromGame"])
         elif expect["maps"] > IMPORT_MAX_TOTAL:
             add([f"select.expect.maps ({expect['maps']}) exceeds the engine cap of {IMPORT_MAX_TOTAL}"])
+        elif expect["maps"] < 1 or expect["fromArchive"] + expect["fromGame"] != expect["maps"]:
+            add(["select.expect: maps must be at least 1 and equal fromArchive + fromGame"])
     else:
         add(["select must be an object"])
 
@@ -477,17 +488,23 @@ def validate_import_recipe(recipe, plugin_id: str, hosts: set[str], recipe_rel: 
         add(["categories must have 1-8 entries"])
 
     groups = recipe.get("groups")
-    if groups is not None:
-        if isinstance(groups, list):
-            for i, g in enumerate(groups):
-                where = f"groups[{i}]"
-                if not isinstance(g, dict):
-                    add([f"{where} must be an object"])
-                    continue
-                add(_unknown_keys(g, IMPORT_GROUP_KEYS, where))
-                add(_missing_keys(g, IMPORT_GROUP_REQUIRED, where))
-        else:
-            add(["groups must be a list"])
+    if isinstance(groups, list) and 1 <= len(groups) <= 8:
+        defaults = 0
+        for i, g in enumerate(groups):
+            where = f"groups[{i}]"
+            if not isinstance(g, dict):
+                add([f"{where} must be an object"])
+                continue
+            add(_unknown_keys(g, IMPORT_GROUP_KEYS, where))
+            add(_missing_keys(g, IMPORT_GROUP_REQUIRED, where))
+            rules = bool(g.get("match")) + (g.get("vanilla") is True) + (g.get("default") is True)
+            if rules != 1:
+                add([f"{where} needs exactly one of match, vanilla or default"])
+            defaults += g.get("default") is True
+        if defaults != 1:
+            add([f"groups must have exactly one 'default: true' (found {defaults})"])
+    elif groups is not None:
+        add(["groups must have 1-8 entries"])
 
     modes = recipe.get("modes")
     if modes is not None and not isinstance(modes, dict):
@@ -496,6 +513,7 @@ def validate_import_recipe(recipe, plugin_id: str, hosts: set[str], recipe_rel: 
     transform = recipe.get("transform")
     if isinstance(transform, dict):
         add(_unknown_keys(transform, IMPORT_TRANSFORM_KEYS, "transform"))
+        add(_missing_keys(transform, IMPORT_TRANSFORM_REQUIRED, "transform"))
         if transform.get("textures") not in IMPORT_TEXTURES_FORMAT1:
             add([f"transform.textures must be one of {sorted(IMPORT_TEXTURES_FORMAT1)} in format 1"])
         if transform.get("scripts") not in IMPORT_SCRIPTS_FORMAT1:
@@ -519,8 +537,11 @@ def validate_import_recipe(recipe, plugin_id: str, hosts: set[str], recipe_rel: 
         if not isinstance(version, str) or not SEMVER_RE.match(version):
             add(["output.version must be valid semver"])
         order = output.get("order")
-        if not isinstance(order, list) or not order:
-            add(["output.order must be a non-empty list"])
+        if order is not None and order != ["category", "fileName"]:
+            add(['output.order must be ["category", "fileName"] in format 1'])
+        pack_name = output.get("packName")
+        if pack_name is not None and (not isinstance(pack_name, str) or "{n}" not in pack_name or len(pack_name) > 70):
+            add(["output.packName must be at most 70 characters and contain {n}"])
     else:
         add(["output must be an object"])
 
@@ -667,8 +688,8 @@ class Validator:
                         errors.append(f"{where} must be an object with exactly title, publisher, host, size")
                         continue
                     for key in ("title", "publisher"):
-                        if not isinstance(entry.get(key), str) or not (1 <= len(entry[key]) <= 400):
-                            errors.append(f"{where}.{key} must be 1-400 characters")
+                        if not isinstance(entry.get(key), str) or not (1 <= len(entry[key]) <= IMPORT_STORE_TEXT_MAX):
+                            errors.append(f"{where}.{key} must be 1-{IMPORT_STORE_TEXT_MAX} characters")
                     host = entry.get("host")
                     if not isinstance(host, str) or host not in self.import_hosts:
                         errors.append(f"{where}.host {host!r} is not in policy/import-hosts.json")

@@ -385,6 +385,26 @@ class ImporterRecipe(unittest.TestCase):
             errors = store.Validator(root).validate_plugin("sample-importer")
             self.assertTrue(any("exceeds the engine cap of 256" in e for e in errors), errors)
 
+    def test_engine_rules_fail(self):
+        cases = [
+            (lambda r: r["select"].__setitem__("require", ["xan"]), "select.require"),
+            (lambda r: r.pop("groups"), "missing required key 'groups'"),
+            (lambda r: r["groups"][0].pop("default"), "groups must have exactly one"),
+            (lambda r: r["output"].pop("packName"), "missing required key 'packName'"),
+            (lambda r: r["output"].__setitem__("packName", "Sample maps"), "output.packName"),
+            (lambda r: r["transform"].pop("stem"), "missing required key 'stem'"),
+            (lambda r: r["select"]["expect"].__setitem__("fromGame", 1), "select.expect"),
+            (lambda r: r["content"].__setitem__("title", "x" * 65), "content.title"),
+            (lambda r: r["sources"][0].__setitem__("urls", ["https://mod.worms.pro/a.zip?sig=1"]), "credentials"),
+        ]
+        for mutate, want in cases:
+            with tempfile.TemporaryDirectory() as tmp:
+                root, recipe_path, recipe = self._load_recipe(tmp)
+                mutate(recipe)
+                recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
+                errors = store.Validator(root).validate_plugin("sample-importer")
+                self.assertTrue(any(want in e for e in errors), (want, errors))
+
     def test_caravan_plugin_recipe_is_valid(self):
         """The real Caravan recipe, validated against the repo's own policy/schema."""
         root = Path(__file__).resolve().parents[2]
