@@ -303,6 +303,22 @@ class ImporterRecipe(unittest.TestCase):
             errors = store.Validator(root).validate_plugin("sample-importer")
             self.assertTrue(any("must be https://" in e for e in errors), errors)
 
+    def test_level_type_list_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, recipe_path, recipe = self._load_recipe(tmp)
+            recipe["select"]["levelType"] = [3, 7, 8, 11, 16]
+            recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
+            self.assertEqual(store.Validator(root).validate_plugin("sample-importer"), [])
+
+    def test_bad_level_type_fails(self):
+        for bad in ([], [3] * 9, [65], "3", True, [3, "7"]):
+            with tempfile.TemporaryDirectory() as tmp:
+                root, recipe_path, recipe = self._load_recipe(tmp)
+                recipe["select"]["levelType"] = bad
+                recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
+                errors = store.Validator(root).validate_plugin("sample-importer")
+                self.assertTrue(any("select.levelType" in e for e in errors), (bad, errors))
+
     def test_unknown_host_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, recipe_path, recipe = self._load_recipe(tmp)

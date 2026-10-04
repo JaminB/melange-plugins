@@ -413,8 +413,11 @@ def validate_import_recipe(recipe, plugin_id: str, hosts: set[str], recipe_rel: 
     if isinstance(select, dict):
         add(_unknown_keys(select, IMPORT_SELECT_KEYS, "select"))
         add(_missing_keys(select, IMPORT_SELECT_REQUIRED, "select"))
-        if not isinstance(select.get("levelType"), int) or isinstance(select.get("levelType"), bool):
-            add(["select.levelType must be an integer"])
+        lt = select.get("levelType")
+        def _lt_ok(v):
+            return isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 64
+        if not (_lt_ok(lt) or (isinstance(lt, list) and 1 <= len(lt) <= 8 and all(_lt_ok(v) for v in lt))):
+            add(["select.levelType must be an integer 0-64 or a list of 1-8 such integers"])
         if select.get("skipKeySuffix") is not None and not isinstance(select["skipKeySuffix"], str):
             add(["select.skipKeySuffix must be a string"])
         require = select.get("require", [])

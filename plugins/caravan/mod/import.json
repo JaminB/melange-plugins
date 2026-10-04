@@ -29,7 +29,7 @@
     "previews": "Frontend/Levels/*.tga"
   },
   "select": {
-    "levelType": 3,
+    "levelType": [3, 7, 8, 11, 16],
     "skipKeySuffix": ".S",
     "require": ["descriptor", "xan"],
     "exclude": ["usermap", "re_usermap", "RANDOMBUILDING", "RANDOMWILDWEST"],
@@ -99,8 +99,8 @@
   ],
   "modes": {
     "PRO": "Pro", "RR": "Rope race", "MissionRR": "Rope race mission", "HL": "Homelands", "BOX": "Box",
-    "Boss*": "Boss mission", "BB": "Bridge builder", "BnA": "Build and attack", "CS": "Castle siege",
-    "ND": "Naval duel", "TF2": "Team fortress", "Challenge*": "Challenge"
+    "MissionBoss*": "Boss mission", "BB": "Bridge builder", "BnA": "Build and attack", "CS": "Castle siege",
+    "ND": "Naval duel", "tf2*": "Team fortress", "*Challenge*": "Challenge"
   },
   "groups": [
     { "id": "w3d",        "label": "Worms 3D ports",  "match": ["W3D_*", "*-w3d"] },
