@@ -16,6 +16,7 @@ import json
 import re
 import stat
 import sys
+import urllib.parse
 import zipfile
 from pathlib import Path
 
@@ -76,6 +77,48 @@ INDEX_MAX_BYTES = 1024 * 1024
 INDEX_MAX_PLUGINS = 500
 INDEX_MAX_VERSIONS = 50
 
+# --------------------------------------------------------------------------
+# import-1 recipe rules (docs/importers.md in the Melange repo; schema/import-1.schema.json)
+
+IMPORT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,47}$")
+IMPORT_FORMATS = {1}
+IMPORT_FILENAME_RE = re.compile(r"^[A-Za-z0-9._ -]{1,64}\.zip$")
+IMPORT_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._*-]+$")
+IMPORT_SIZE_MAX = 512 * 1024 * 1024          # 512 MiB
+IMPORT_MAX_TOTAL = 256                       # manifest::kMaxTotal
+IMPORT_MAX_PER_PACK = 32                     # manifest::kMaxPerMod
+IMPORT_READER_MAX_SEGMENTS = 8
+IMPORT_TEXTURES_FORMAT1 = {"vanilla"}
+IMPORT_SCRIPTS_FORMAT1 = {"drop"}
+IMPORT_DESCRIPTOR_FORMAT1 = {"rebuild"}
+IMPORT_CREDENTIAL_QUERY_WORDS = ("user", "pass", "token", "secret", "key", "auth", "credential")
+
+IMPORT_TOP_KEYS = {
+    "importVersion", "format", "id", "name", "content", "sources",
+    "reader", "select", "categories", "modes", "groups", "transform", "output",
+}
+IMPORT_TOP_REQUIRED = {
+    "importVersion", "format", "id", "name", "content", "sources",
+    "reader", "select", "categories", "transform", "output",
+}
+IMPORT_CONTENT_KEYS = {"title", "publisher", "termsUrl", "credit"}
+IMPORT_SOURCE_KEYS = {"id", "name", "urls", "fileName", "size", "sha256"}
+IMPORT_READER_KEYS = {"type", "root", "registry", "titles", "descriptors", "maps", "previews"}
+IMPORT_READER_REQUIRED = {"type", "root", "registry", "descriptors", "maps"}
+IMPORT_SELECT_KEYS = {"levelType", "skipKeySuffix", "require", "exclude", "vanilla", "expect"}
+IMPORT_SELECT_REQUIRED = {"levelType", "expect"}
+IMPORT_CATEGORY_KEYS = {"id", "label", "scriptsEqual", "scriptsWithin", "default", "hidden"}
+IMPORT_CATEGORY_REQUIRED = {"id", "label"}
+IMPORT_GROUP_KEYS = {"id", "label", "match", "vanilla", "default"}
+IMPORT_GROUP_REQUIRED = {"id", "label"}
+IMPORT_TRANSFORM_KEYS = {
+    "stem", "descriptor", "timeOfDay", "title", "author", "textures", "scripts", "survivor", "previews",
+}
+IMPORT_OUTPUT_KEYS = {
+    "packPrefix", "version", "perPack", "order", "newPackBefore", "packName", "packDescription",
+}
+IMPORT_OUTPUT_REQUIRED = {"packPrefix", "version", "perPack", "order"}
+
 
 # --------------------------------------------------------------------------
 # small helpers
@@ -110,6 +153,14 @@ def all_ids(root: Path) -> list[str]:
     if not plugins_dir.is_dir():
         return []
     return sorted(p.name for p in plugins_dir.iterdir() if p.is_dir())
+
+
+def load_import_hosts(root: Path) -> set[str]:
+    path = root / "policy" / "import-hosts.json"
+    if not path.exists():
+        return set()
+    data = load_json(path)
+    return set(data) if isinstance(data, list) else set()
 
 
 # --------------------------------------------------------------------------
@@ -185,6 +236,295 @@ def is_executable_magic(head: bytes) -> bool:
 
 
 # --------------------------------------------------------------------------
+# import-1 recipe validation (mirrors the engine's own parse/validate; no JSON Schema
+# library dependency, see schema/import-1.schema.json for the documented shape)
+
+
+def check_import_recipe_path(path) -> str | None:
+    """spice.json's importer.recipe: relative, inside the mod folder, ending in .json."""
+    if not isinstance(path, str) or not path:
+        return "must be a non-empty string"
+    if len(path) > 64:
+        return "longer than 64 characters"
+    if not path.endswith(".json"):
+        return "must end in .json"
+    if path.startswith("/") or ":" in path or "\\" in path:
+        return "must be a relative path with forward slashes only"
+    segments = path.split("/")
+    if any(seg in ("", ".", "..") for seg in segments):
+        return "must not contain '..' or empty segments"
+    return None
+
+
+def check_import_glob_path(path, *, max_segments: int = IMPORT_READER_MAX_SEGMENTS) -> str | None:
+    """A reader.* path or glob: relative, '/'-separated, no '..', globs only '*' within a segment."""
+    if not isinstance(path, str) or not path:
+        return "must be a non-empty string"
+    if path.startswith("/") or ":" in path or "\\" in path:
+        return "must be a relative path with forward slashes only"
+    segments = path.split("/")
+    if len(segments) > max_segments:
+        return f"more than {max_segments} path segments"
+    for seg in segments:
+        if seg in ("", ".", ".."):
+            return "must not contain '..' or empty segments"
+        if "**" in seg:
+            return "globs may use '*' only within a segment, not across segments"
+        if not IMPORT_SEGMENT_RE.match(seg):
+            return "segment has characters outside [A-Za-z0-9._*-]"
+    return None
+
+
+def validate_import_url(url, hosts: set[str]) -> str | None:
+    if not isinstance(url, str):
+        return "must be a string"
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return "is not a valid URL"
+    if parsed.scheme != "https":
+        return "must be https://"
+    if "@" in parsed.netloc:
+        return "must not contain userinfo"
+    host = parsed.hostname or ""
+    if host not in hosts:
+        return f"host {host!r} is not in policy/import-hosts.json"
+    try:
+        port = parsed.port
+    except ValueError:
+        return "has an invalid port"
+    if port not in (None, 443):
+        return "must not specify a port other than 443"
+    if parsed.query and any(w in parsed.query.lower() for w in IMPORT_CREDENTIAL_QUERY_WORDS):
+        return "query string must not contain credentials"
+    return None
+
+
+def _unknown_keys(obj, allowed: set[str], where: str) -> list[str]:
+    if not isinstance(obj, dict):
+        return [f"{where} must be an object"]
+    return [f"{where}: unexpected key {k!r}" for k in sorted(set(obj.keys()) - allowed)]
+
+
+def _missing_keys(obj, required: set[str], where: str) -> list[str]:
+    if not isinstance(obj, dict):
+        return []
+    return [f"{where}: missing required key {k!r}" for k in sorted(required - set(obj.keys()))]
+
+
+def validate_import_recipe(recipe, plugin_id: str, hosts: set[str], recipe_rel: str = "import.json") -> list[str]:
+    """Section 3.2 field rules for an importVersion-1 recipe. Errors are prefixed with mod/<recipe_rel>."""
+    if not isinstance(recipe, dict):
+        return [f"mod/{recipe_rel} must be a JSON object"]
+
+    raw: list[str] = []
+
+    def add(msgs):
+        raw.extend(msgs)
+
+    add(_unknown_keys(recipe, IMPORT_TOP_KEYS, "top level"))
+    add(_missing_keys(recipe, IMPORT_TOP_REQUIRED, "top level"))
+
+    if recipe.get("importVersion") != 1:
+        add([f"importVersion must be 1, got {recipe.get('importVersion')!r}"])
+    if recipe.get("format") not in IMPORT_FORMATS:
+        add([f"format {recipe.get('format')!r} is not supported (supports {sorted(IMPORT_FORMATS)})"])
+
+    rid = recipe.get("id")
+    if not isinstance(rid, str) or not IMPORT_ID_RE.match(rid):
+        add([f"id {rid!r} does not match ^[a-z0-9][a-z0-9.-]{{0,47}}$"])
+
+    name = recipe.get("name")
+    if not isinstance(name, str) or not (1 <= len(name) <= 80):
+        add(["name must be 1-80 characters"])
+
+    content = recipe.get("content")
+    if isinstance(content, dict):
+        add(_unknown_keys(content, IMPORT_CONTENT_KEYS, "content"))
+        add(_missing_keys(content, IMPORT_CONTENT_KEYS, "content"))
+        terms = content.get("termsUrl")
+        if terms is not None:
+            err = validate_import_url(terms, hosts)
+            if err:
+                add([f"content.termsUrl {err}"])
+        for key in ("title", "publisher", "credit"):
+            val = content.get(key)
+            if not isinstance(val, str) or not (1 <= len(val) <= 400):
+                add([f"content.{key} must be 1-400 characters"])
+    else:
+        add(["content must be an object"])
+
+    sources = recipe.get("sources")
+    if isinstance(sources, list) and 1 <= len(sources) <= 4:
+        for i, src in enumerate(sources):
+            where = f"sources[{i}]"
+            if not isinstance(src, dict):
+                add([f"{where} must be an object"])
+                continue
+            add(_unknown_keys(src, IMPORT_SOURCE_KEYS, where))
+            add(_missing_keys(src, IMPORT_SOURCE_KEYS, where))
+            urls = src.get("urls")
+            if isinstance(urls, list) and 1 <= len(urls) <= 4:
+                for j, url in enumerate(urls):
+                    err = validate_import_url(url, hosts)
+                    if err:
+                        add([f"{where}.urls[{j}] {err}"])
+            else:
+                add([f"{where}.urls must have 1-4 entries"])
+            file_name = src.get("fileName")
+            if not isinstance(file_name, str) or not IMPORT_FILENAME_RE.match(file_name):
+                add([f"{where}.fileName must match ^[A-Za-z0-9._ -]{{1,64}}\\.zip$"])
+            size = src.get("size")
+            if not isinstance(size, int) or isinstance(size, bool) or not (1 <= size <= IMPORT_SIZE_MAX):
+                add([f"{where}.size must be an integer from 1 to {IMPORT_SIZE_MAX}"])
+            sha = src.get("sha256")
+            if not isinstance(sha, str) or not re.match(r"^[0-9a-f]{64}$", sha):
+                add([f"{where}.sha256 must be 64 lowercase hex characters"])
+    else:
+        add(["sources must have 1-4 entries"])
+
+    reader = recipe.get("reader")
+    if isinstance(reader, dict):
+        add(_unknown_keys(reader, IMPORT_READER_KEYS, "reader"))
+        add(_missing_keys(reader, IMPORT_READER_REQUIRED, "reader"))
+        if reader.get("type") != "w4-registry":
+            add([f"reader.type must be 'w4-registry', got {reader.get('type')!r}"])
+        for key in ("root", "registry", "descriptors", "previews"):
+            val = reader.get(key)
+            if val is not None:
+                err = check_import_glob_path(val)
+                if err:
+                    add([f"reader.{key}: {err}"])
+        for key in ("titles", "maps"):
+            val = reader.get(key)
+            if val is None:
+                continue
+            if not isinstance(val, list):
+                add([f"reader.{key} must be a list"])
+                continue
+            for i, v in enumerate(val):
+                err = check_import_glob_path(v)
+                if err:
+                    add([f"reader.{key}[{i}]: {err}"])
+    else:
+        add(["reader must be an object"])
+
+    select = recipe.get("select")
+    if isinstance(select, dict):
+        add(_unknown_keys(select, IMPORT_SELECT_KEYS, "select"))
+        add(_missing_keys(select, IMPORT_SELECT_REQUIRED, "select"))
+        if not isinstance(select.get("levelType"), int) or isinstance(select.get("levelType"), bool):
+            add(["select.levelType must be an integer"])
+        if select.get("skipKeySuffix") is not None and not isinstance(select["skipKeySuffix"], str):
+            add(["select.skipKeySuffix must be a string"])
+        require = select.get("require", [])
+        if not isinstance(require, list) or not all(isinstance(r, str) for r in require):
+            add(["select.require must be a list of strings"])
+        exclude = select.get("exclude", [])
+        if not isinstance(exclude, list) or len(exclude) > 64 or not all(isinstance(e, str) for e in exclude):
+            add(["select.exclude must be a list of at most 64 names"])
+        vanilla = select.get("vanilla", [])
+        if not isinstance(vanilla, list) or len(vanilla) > 32:
+            add(["select.vanilla must be a list of at most 32 entries"])
+        elif isinstance(vanilla, list):
+            for i, v in enumerate(vanilla):
+                where = f"select.vanilla[{i}]"
+                if not isinstance(v, dict) or set(v.keys()) != {"file", "sha256"}:
+                    add([f"{where} must be an object with exactly 'file' and 'sha256'"])
+                    continue
+                file_stem = v.get("file")
+                if not isinstance(file_stem, str) or not file_stem:
+                    add([f"{where}.file must be a non-empty string"])
+                    file_stem = None
+                hashes = v.get("sha256")
+                if not isinstance(hashes, dict) or not hashes:
+                    add([f"{where}.sha256 must be a non-empty object"])
+                else:
+                    for file_path, h in hashes.items():
+                        if not isinstance(h, str) or not re.match(r"^[0-9a-f]{64}$", h):
+                            add([f"{where}.sha256[{file_path!r}] must be 64 lowercase hex characters"])
+                        if file_stem and Path(file_path).stem.lower() != file_stem.lower():
+                            add([f"{where}.sha256[{file_path!r}] does not match file stem {file_stem!r}"])
+        expect = select.get("expect")
+        if not isinstance(expect, dict) or not all(
+            isinstance(expect.get(k), int) and not isinstance(expect.get(k), bool)
+            for k in ("maps", "fromArchive", "fromGame")
+        ):
+            add(["select.expect must have integer maps, fromArchive, fromGame"])
+        elif expect["maps"] > IMPORT_MAX_TOTAL:
+            add([f"select.expect.maps ({expect['maps']}) exceeds the engine cap of {IMPORT_MAX_TOTAL}"])
+    else:
+        add(["select must be an object"])
+
+    categories = recipe.get("categories")
+    if isinstance(categories, list) and 1 <= len(categories) <= 8:
+        defaults = 0
+        for i, cat in enumerate(categories):
+            where = f"categories[{i}]"
+            if not isinstance(cat, dict):
+                add([f"{where} must be an object"])
+                continue
+            add(_unknown_keys(cat, IMPORT_CATEGORY_KEYS, where))
+            add(_missing_keys(cat, IMPORT_CATEGORY_REQUIRED, where))
+            if cat.get("default") is True:
+                defaults += 1
+        if defaults != 1:
+            add([f"categories must have exactly one 'default: true' (found {defaults})"])
+    else:
+        add(["categories must have 1-8 entries"])
+
+    groups = recipe.get("groups")
+    if groups is not None:
+        if isinstance(groups, list):
+            for i, g in enumerate(groups):
+                where = f"groups[{i}]"
+                if not isinstance(g, dict):
+                    add([f"{where} must be an object"])
+                    continue
+                add(_unknown_keys(g, IMPORT_GROUP_KEYS, where))
+                add(_missing_keys(g, IMPORT_GROUP_REQUIRED, where))
+        else:
+            add(["groups must be a list"])
+
+    modes = recipe.get("modes")
+    if modes is not None and not isinstance(modes, dict):
+        add(["modes must be an object"])
+
+    transform = recipe.get("transform")
+    if isinstance(transform, dict):
+        add(_unknown_keys(transform, IMPORT_TRANSFORM_KEYS, "transform"))
+        if transform.get("textures") not in IMPORT_TEXTURES_FORMAT1:
+            add([f"transform.textures must be one of {sorted(IMPORT_TEXTURES_FORMAT1)} in format 1"])
+        if transform.get("scripts") not in IMPORT_SCRIPTS_FORMAT1:
+            add([f"transform.scripts must be one of {sorted(IMPORT_SCRIPTS_FORMAT1)} in format 1"])
+        if transform.get("descriptor") not in IMPORT_DESCRIPTOR_FORMAT1:
+            add([f"transform.descriptor must be one of {sorted(IMPORT_DESCRIPTOR_FORMAT1)} in format 1"])
+    else:
+        add(["transform must be an object"])
+
+    output = recipe.get("output")
+    if isinstance(output, dict):
+        add(_unknown_keys(output, IMPORT_OUTPUT_KEYS, "output"))
+        add(_missing_keys(output, IMPORT_OUTPUT_REQUIRED, "output"))
+        prefix = output.get("packPrefix")
+        if prefix != plugin_id:
+            add([f"output.packPrefix {prefix!r} must equal the plugin id {plugin_id!r}"])
+        per_pack = output.get("perPack")
+        if not isinstance(per_pack, int) or isinstance(per_pack, bool) or not (1 <= per_pack <= IMPORT_MAX_PER_PACK):
+            add([f"output.perPack must be an integer from 1 to {IMPORT_MAX_PER_PACK}"])
+        version = output.get("version")
+        if not isinstance(version, str) or not SEMVER_RE.match(version):
+            add(["output.version must be valid semver"])
+        order = output.get("order")
+        if not isinstance(order, list) or not order:
+            add(["output.order must be a non-empty list"])
+    else:
+        add(["output must be an object"])
+
+    return [f"mod/{recipe_rel}: {m}" for m in raw]
+
+
+# --------------------------------------------------------------------------
 # validate
 
 
@@ -202,6 +542,7 @@ class Validator:
         self.stock_names = {
             n.lower() for n in load_lines(root / "policy" / "stock-names.txt")
         }
+        self.import_hosts = load_import_hosts(root)
 
     def _load_policy_list(self, name: str) -> list[dict]:
         path = self.root / "policy" / name
@@ -251,6 +592,7 @@ class Validator:
         errors += self._check_licence(store, license_path)
         errors += self._check_layout_and_sizes(plugin_dir, plugin_id)
         errors += self._check_versions(store.get("versions", []), plugin_id)
+        errors += self._check_importer(spice, plugin_dir, plugin_id)
 
         name = spice.get("name")
         if isinstance(name, str):
@@ -309,9 +651,31 @@ class Validator:
             if len(shot.get("caption", "")) > 120:
                 errors.append(f"store.json: screenshot caption for {shot['file']!r} > 120 chars")
 
+        imports = store.get("imports")
+        if imports is not None:
+            if not isinstance(imports, list) or not (1 <= len(imports) <= 4):
+                errors.append("store.json: imports must have 1-4 entries")
+            else:
+                for i, entry in enumerate(imports):
+                    where = f"store.json: imports[{i}]"
+                    if not isinstance(entry, dict) or set(entry.keys()) != {
+                        "title", "publisher", "host", "size"
+                    }:
+                        errors.append(f"{where} must be an object with exactly title, publisher, host, size")
+                        continue
+                    for key in ("title", "publisher"):
+                        if not isinstance(entry.get(key), str) or not (1 <= len(entry[key]) <= 400):
+                            errors.append(f"{where}.{key} must be 1-400 characters")
+                    host = entry.get("host")
+                    if not isinstance(host, str) or host not in self.import_hosts:
+                        errors.append(f"{where}.host {host!r} is not in policy/import-hosts.json")
+                    size = entry.get("size")
+                    if not isinstance(size, int) or isinstance(size, bool) or not (1 <= size <= IMPORT_SIZE_MAX):
+                        errors.append(f"{where}.size must be an integer from 1 to {IMPORT_SIZE_MAX}")
+
         extra = set(store.keys()) - {
             "storeVersion", "licence", "homepage", "categories",
-            "gameBuilds", "screenshots", "versions",
+            "gameBuilds", "screenshots", "versions", "imports",
         }
         if extra:
             errors.append(f"store.json: unexpected fields {sorted(extra)} (belongs in spice.json)")
@@ -350,7 +714,29 @@ class Validator:
         for setting in spice.get("settings", []) or []:
             if isinstance(setting, dict) and not setting.get("label"):
                 errors.append(f"mod/spice.json setting {setting.get('key')!r} is missing a label")
+        if "generated" in spice:
+            errors.append("mod/spice.json must not declare 'generated' (reserved for importer-generated packs)")
+        importer = spice.get("importer")
+        if importer is not None and (not isinstance(importer, dict) or set(importer.keys()) != {"recipe"}):
+            errors.append("mod/spice.json importer must be an object with exactly one key 'recipe'")
         return errors
+
+    def _check_importer(self, spice: dict, plugin_dir: Path, plugin_id: str) -> list[str]:
+        importer = spice.get("importer")
+        if not isinstance(importer, dict) or set(importer.keys()) != {"recipe"}:
+            return []  # malformed shape is already reported by _check_spice
+        recipe_rel = importer.get("recipe")
+        path_err = check_import_recipe_path(recipe_rel)
+        if path_err:
+            return [f"mod/spice.json importer.recipe: {path_err}"]
+        recipe_path = plugin_dir / "mod" / recipe_rel
+        if not recipe_path.exists():
+            return [f"mod/spice.json importer.recipe points to a missing file ({recipe_rel})"]
+        try:
+            recipe = load_json(recipe_path)
+        except (OSError, json.JSONDecodeError) as e:
+            return [f"mod/{recipe_rel}: invalid JSON ({e})"]
+        return validate_import_recipe(recipe, plugin_id, self.import_hosts, recipe_rel)
 
     def _check_licence(self, store: dict, license_path: Path) -> list[str]:
         errors = []
@@ -597,6 +983,7 @@ def build_index(root: Path) -> dict:
             "gameBuilds": store.get("gameBuilds", []),
             "screenshots": shots_out,
             "versions": versions,
+            **({"imports": store["imports"]} if store.get("imports") else {}),
         })
 
     plugins_out.sort(key=lambda p: p["id"])

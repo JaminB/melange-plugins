@@ -1,0 +1,16 @@
+{
+  "spiceVersion": 1,
+  "id": "sample-importer",
+  "version": "1.0.0",
+  "name": "Sample Importer",
+  "authors": ["Someone"],
+  "description": "A tiny sample plugin with an importer, used as a store test fixture.",
+  "website": "https://github.com/someone/sample-importer",
+  "kind": "client-only",
+  "melange": { "range": ">=0.3.3 <0.4.0" },
+  "permissions": { "unsafe": false, "filesystem": "none" },
+  "dependencies": [],
+  "conflicts": [],
+  "importer": { "recipe": "import.json" },
+  "settings": []
+}

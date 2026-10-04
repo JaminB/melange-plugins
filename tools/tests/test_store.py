@@ -282,5 +282,99 @@ class ReservedAndNaming(unittest.TestCase):
             self.assertTrue(any("collides with" in e for e in errors), errors)
 
 
+class ImporterRecipe(unittest.TestCase):
+    def _load_recipe(self, tmp):
+        root = make_repo(Path(tmp), "sample-importer")
+        recipe_path = root / "plugins" / "sample-importer" / "mod" / "import.json"
+        recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+        return root, recipe_path, recipe
+
+    def test_valid_recipe_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), "sample-importer")
+            errors = store.Validator(root).validate_plugin("sample-importer")
+            self.assertEqual(errors, [])
+
+    def test_http_url_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, recipe_path, recipe = self._load_recipe(tmp)
+            recipe["sources"][0]["urls"] = ["http://mod.worms.pro/resources/sample.zip"]
+            recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
+            errors = store.Validator(root).validate_plugin("sample-importer")
+            self.assertTrue(any("must be https://" in e for e in errors), errors)
+
+    def test_unknown_host_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, recipe_path, recipe = self._load_recipe(tmp)
+            recipe["sources"][0]["urls"] = ["https://evil.example/sample.zip"]
+            recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
+            errors = store.Validator(root).validate_plugin("sample-importer")
+            self.assertTrue(any("is not in policy/import-hosts.json" in e for e in errors), errors)
+
+    def test_bad_sha_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, recipe_path, recipe = self._load_recipe(tmp)
+            recipe["sources"][0]["sha256"] = "not-hex"
+            recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
+            errors = store.Validator(root).validate_plugin("sample-importer")
+            self.assertTrue(any("sha256 must be 64 lowercase hex" in e for e in errors), errors)
+
+    def test_unknown_key_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, recipe_path, recipe = self._load_recipe(tmp)
+            recipe["bogus"] = True
+            recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
+            errors = store.Validator(root).validate_plugin("sample-importer")
+            self.assertTrue(any("unexpected key 'bogus'" in e for e in errors), errors)
+
+    def test_prefix_mismatch_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, recipe_path, recipe = self._load_recipe(tmp)
+            recipe["output"]["packPrefix"] = "other"
+            recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
+            errors = store.Validator(root).validate_plugin("sample-importer")
+            self.assertTrue(
+                any("packPrefix" in e and "must equal the plugin id" in e for e in errors), errors
+            )
+
+    def test_generated_key_in_spice_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), "sample-importer")
+            spice_path = root / "plugins" / "sample-importer" / "mod" / "spice.json"
+            spice = json.loads(spice_path.read_text(encoding="utf-8"))
+            spice["generated"] = {"by": "sample-importer", "recipe": "x", "format": 1}
+            spice_path.write_text(json.dumps(spice), encoding="utf-8")
+            errors = store.Validator(root).validate_plugin("sample-importer")
+            self.assertTrue(any("must not declare 'generated'" in e for e in errors), errors)
+
+    def test_reserved_generated_pack_id_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), "sample-importer", plugin_id="caravan-1")
+            spice_path = root / "plugins" / "caravan-1" / "mod" / "spice.json"
+            spice = json.loads(spice_path.read_text(encoding="utf-8"))
+            spice["id"] = "caravan-1"
+            spice_path.write_text(json.dumps(spice), encoding="utf-8")
+            recipe_path = root / "plugins" / "caravan-1" / "mod" / "import.json"
+            recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+            recipe["output"]["packPrefix"] = "caravan-1"
+            recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
+            errors = store.Validator(root).validate_plugin("caravan-1")
+            self.assertTrue(any("reserved" in e for e in errors), errors)
+
+    def test_expect_maps_over_cap_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, recipe_path, recipe = self._load_recipe(tmp)
+            recipe["select"]["expect"]["maps"] = 257
+            recipe_path.write_text(json.dumps(recipe), encoding="utf-8")
+            errors = store.Validator(root).validate_plugin("sample-importer")
+            self.assertTrue(any("exceeds the engine cap of 256" in e for e in errors), errors)
+
+    def test_caravan_plugin_recipe_is_valid(self):
+        """The real Caravan recipe, validated against the repo's own policy/schema."""
+        root = Path(__file__).resolve().parents[2]
+        errors = store.Validator(root).validate_plugin("caravan")
+        self.assertEqual(errors, [])
+
+
 if __name__ == "__main__":
     unittest.main()

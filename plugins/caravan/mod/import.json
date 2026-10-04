@@ -1,0 +1,131 @@
+{
+  "importVersion": 1,
+  "format": 1,
+  "id": "renewation-hd-0.2a2",
+  "name": "Renewation HD 0.2A2 maps",
+  "content": {
+    "title": "Renewation HD 0.2A2",
+    "publisher": "mod.worms.pro",
+    "termsUrl": "https://mod.worms.pro/",
+    "credit": "Maps by their original authors, collected in Renewation HD by the mod.worms.pro community."
+  },
+  "sources": [
+    {
+      "id": "mirror",
+      "name": "mod.worms.pro",
+      "urls": ["https://mod.worms.pro/resources/RenewationHD_0.2A2.zip"],
+      "fileName": "RenewationHD_0.2A2.zip",
+      "size": 153878165,
+      "sha256": "6d63e78ba2e423e39c9edff0ab33e9a13bc7eb43e66a111e7747b73130d124f3"
+    }
+  ],
+  "reader": {
+    "type": "w4-registry",
+    "root": "RenewationHD_0.2A2/Data",
+    "registry": "Tweak/SCRIPTS.XOM",
+    "titles": ["Language/PC/English.xom", "Language/PC/EngFE.xom"],
+    "descriptors": "*.XOM",
+    "maps": ["Maps/*.xan", "Maps/*.txt", "Maps/*.hmp"],
+    "previews": "Frontend/Levels/*.tga"
+  },
+  "select": {
+    "levelType": 3,
+    "skipKeySuffix": ".S",
+    "require": ["descriptor", "xan"],
+    "exclude": ["usermap", "re_usermap", "RANDOMBUILDING", "RANDOMWILDWEST"],
+    "vanilla": [
+      { "file": "balloon-w3d", "sha256": {
+        "BALLOON-W3D.XOM": "65bf1d5f9a19090efabe0d55219477c990daf3402be1e31da14d6afe735206b3",
+        "Maps/balloon-w3d.xan": "5ebb04d642b2621e8efcfb387327493657d55249a16cc4c7eb35e6fd2b9a7b25",
+        "Maps/balloon-w3d.hmp": "5b4b67b5d68e02c992760de07640472efe53a7f7553865f83262d0a74efc3e5d"
+      } },
+      { "file": "beanstalk-w3d", "sha256": {
+        "BEANSTALK-W3D.XOM": "2e93ab0b2ce46136c6412dc8c4d1a4a2b41f7b8728054740fd09e82ff5273dfa",
+        "Maps/beanstalk-w3d.xan": "4a79b92fef00e1719a71b56c3b5ff7899d9da99ff56ba1a9b2181d6910df5f36",
+        "Maps/beanstalk-w3d.hmp": "5b4b67b5d68e02c992760de07640472efe53a7f7553865f83262d0a74efc3e5d"
+      } },
+      { "file": "boldly-w3d", "sha256": {
+        "BOLDLY-W3D.XOM": "9344218baa9e06686a64efafc9daa6d9e03f691d8279607cf1392bd8c2f51176",
+        "Maps/boldly-w3d.xan": "d402f2813a8b2fdfbbe523a60af80f7dafa9053d8849b44dd605e1281b3cca95",
+        "Maps/boldly-w3d.hmp": "5b4b67b5d68e02c992760de07640472efe53a7f7553865f83262d0a74efc3e5d"
+      } },
+      { "file": "clean-w3d", "sha256": {
+        "CLEAN-W3D.XOM": "d5458633b2fb45ee10dfb2a2947778fc9cc2ccb54e72049c7ecd7e384a3143d4",
+        "Maps/Clean-w3d.xan": "855a42a90caaaca47c3ca5a31a6d8875d220e5e072e52c367db9343d9fdb804e",
+        "Maps/Clean-w3d.hmp": "5b4b67b5d68e02c992760de07640472efe53a7f7553865f83262d0a74efc3e5d"
+      } },
+      { "file": "countingsheep-w3d", "sha256": {
+        "COUNTINGSHEEP-W3D.XOM": "b1eb718cb3e5daf2ef7aab73894eea23247600fb2d5ca24886a7242413e25450",
+        "Maps/countingsheep-w3d.xan": "0ce5eeb8ebf1f96af8090c8917bd9cb812db05192e674a0469b8ba8f2a246a00",
+        "Maps/countingsheep-w3d.hmp": "5b4b67b5d68e02c992760de07640472efe53a7f7553865f83262d0a74efc3e5d"
+      } },
+      { "file": "rum-w3d", "sha256": {
+        "RUM-W3D.XOM": "f69c1d508861dcb10dc8a602f7aa8cf9cb93040e3af4c34fae016ece01e83c8e",
+        "Maps/rum-w3d.xan": "06a4776ed35d071a626aff6ed878643d6e9acadc6cc73a8775560b7c87e19907",
+        "Maps/rum-w3d.hmp": "5b4b67b5d68e02c992760de07640472efe53a7f7553865f83262d0a74efc3e5d"
+      } },
+      { "file": "trial-w3d", "sha256": {
+        "TRIAL-W3D.XOM": "901884c7ee7472184cb39629724cad994b3d5e6f9945ea02e2b131886f2c2bc1",
+        "Maps/trial-w3d.xan": "ba0bb5417facd91c84294e061d6dbc5d3564efe7bad3ec73f116814ddcc0665f",
+        "Maps/trial-w3d.hmp": "5b4b67b5d68e02c992760de07640472efe53a7f7553865f83262d0a74efc3e5d"
+      } },
+      { "file": "ChallengeAccuracy", "sha256": {
+        "CHALLENGEACCURACY.XOM": "1e01c906da845d83ca76f550728992628967169cb531e3a413ce1b78862390ae",
+        "Maps/ChallengeAccuracy.xan": "80362441a683fc66fdd1f5b60d7f936f56340484216ed6180651208b34c1db1a",
+        "Maps/ChallengeAccuracy.hmp": "9f14372aaa840cf1748481f14f914b9a6b575e5e1b11495ac89faaa7f7b16844"
+      } },
+      { "file": "ChallengeJetpack", "sha256": {
+        "CHALLENGEJETPACK.XOM": "fc5e2618d0563a88f87ff08b8f5e5f436a1e638b5917ae8f658cf9a6990a00b5",
+        "Maps/ChallengeJetpack.xan": "2521542a6abfd9233e0d9a0a4ca53cafbba1955ca19c447de74e703c0d8b2ac8",
+        "Maps/ChallengeJetpack.hmp": "34bfb24d9231a9462a640a07250d61a185493a0183b372914e01004dfcfbc409"
+      } },
+      { "file": "ChallengeNavigation", "sha256": {
+        "CHALLENGENAVIGATION.XOM": "0bf9358d09e91a9f7aea757d1ef675af47be3826c5089365c8c71c0ed508dc23",
+        "Maps/ChallengeNavigation.xan": "11a8d7741f44ba362214ad61e48d59644f3b8e7c84e20a55baa9bf5f3a49aedb",
+        "Maps/ChallengeNavigation.hmp": "c192240eaa732361665dc885c5c0027d800a265b8eb57b28968fab0d860f9849"
+      } },
+      { "file": "ChallengeSniper", "sha256": {
+        "CHALLENGESNIPER.XOM": "ef23340b8f2f8c77b5eb9e633790a76cf675bf41fe9e6b8da06a097fca87d255",
+        "Maps/ChallengeSniper.xan": "019bc8eb5adad8885da6275efc3495bb5399b16d81b91e70e4f77963b20ec736",
+        "Maps/ChallengeSniper.hmp": "251211645840e2068a7e52d6e396e91333fc338252b397c20cad982d2597d5d8"
+      } }
+    ],
+    "expect": { "maps": 174, "fromArchive": 163, "fromGame": 11 }
+  },
+  "categories": [
+    { "id": "play", "label": "Plays as designed", "scriptsEqual": ["stdvs", "wormpot", "DM"] },
+    { "id": "dm",   "label": "Deathmatch only",   "scriptsWithin": ["renew*", "wormpot"] },
+    { "id": "mode", "label": "Mode not supported", "default": true, "hidden": true }
+  ],
+  "modes": {
+    "PRO": "Pro", "RR": "Rope race", "MissionRR": "Rope race mission", "HL": "Homelands", "BOX": "Box",
+    "Boss*": "Boss mission", "BB": "Bridge builder", "BnA": "Build and attack", "CS": "Castle siege",
+    "ND": "Naval duel", "TF2": "Team fortress", "Challenge*": "Challenge"
+  },
+  "groups": [
+    { "id": "w3d",        "label": "Worms 3D ports",  "match": ["W3D_*", "*-w3d"] },
+    { "id": "renewation", "label": "Renewation",      "match": ["re_*"] },
+    { "id": "vanilla",    "label": "Standard maps",   "vanilla": true },
+    { "id": "mmp",        "label": "Mega Map Pack",   "default": true }
+  ],
+  "transform": {
+    "stem": { "slugMax": 24, "hashKeep": 18, "hashHex": 6 },
+    "descriptor": "rebuild",
+    "timeOfDay": { "allowed": ["DAY", "EVENING", "NIGHT"], "fallback": "DAY" },
+    "title": { "max": 40, "fallback": "fileName" },
+    "author": "Databank.MapAuthor",
+    "textures": "vanilla",
+    "scripts": "drop",
+    "survivor": true,
+    "previews": "local"
+  },
+  "output": {
+    "packPrefix": "caravan",
+    "version": "1.0.0",
+    "perPack": 32,
+    "order": ["category", "fileName"],
+    "newPackBefore": ["mode"],
+    "packName": "Caravan maps {n}",
+    "packDescription": "Maps imported on this PC from Renewation HD 0.2A2 by Caravan."
+  }
+}

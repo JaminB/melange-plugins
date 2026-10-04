@@ -1,0 +1,47 @@
+{
+  "importVersion": 1,
+  "format": 1,
+  "id": "sample-recipe",
+  "name": "Sample recipe",
+  "content": {
+    "title": "Sample Pack",
+    "publisher": "mod.worms.pro",
+    "termsUrl": "https://mod.worms.pro/",
+    "credit": "Sample credit."
+  },
+  "sources": [
+    {
+      "id": "mirror",
+      "name": "mod.worms.pro",
+      "urls": ["https://mod.worms.pro/resources/sample.zip"],
+      "fileName": "sample.zip",
+      "size": 1024,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "reader": {
+    "type": "w4-registry",
+    "root": "Sample/Data",
+    "registry": "Tweak/SCRIPTS.XOM",
+    "descriptors": "*.XOM",
+    "maps": ["Maps/*.xan"]
+  },
+  "select": {
+    "levelType": 3,
+    "expect": { "maps": 1, "fromArchive": 1, "fromGame": 0 }
+  },
+  "categories": [
+    { "id": "play", "label": "Plays as designed", "default": true }
+  ],
+  "transform": {
+    "textures": "vanilla",
+    "scripts": "drop",
+    "descriptor": "rebuild"
+  },
+  "output": {
+    "packPrefix": "sample-importer",
+    "version": "1.0.0",
+    "perPack": 32,
+    "order": ["category", "fileName"]
+  }
+}
