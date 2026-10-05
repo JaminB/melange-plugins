@@ -264,10 +264,9 @@ vec3 SunstoneLight(vec3 n, vec3 v, vec3 l, vec3 up, float lit, vec3 albedo, floa
 // clipping per channel or turning orange.
 vec3 Shoulder(vec3 c) {
     float m = max(c.r, max(c.g, c.b));
-    if (m <= 0.9) return c;
-    float r = 0.9 + 0.1 * (1.0 - exp((0.9 - m) / 0.1));
-    vec3 rolled = mix(c * (r / m), vec3(r), clamp((m - 0.9) / m * 1.5, 0.0, 1.0));
-    return mix(rolled, min(c, vec3(1.0)), 0.75);
+    if (m <= 0.85) return c;
+    float r = 0.85 + 0.15 * (1.0 - exp((0.85 - m) / 0.15));
+    return mix(c * (r / m), vec3(r), clamp((m - 0.85) / m, 0.0, 1.0));
 }
 
 vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {

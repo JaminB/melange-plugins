@@ -123,7 +123,7 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- contact shadows, and whether the warm LUT, shafts and cloud shadows apply (themes cool or violet by design skip
 -- the LUT; a number scales it). sunDir is the world direction toward the theme's sun, read from the landscape's sun
 -- direction view (shaders/params.ini, sunstoneDebug 4). haze = false keeps the air off while no sky is on screen
--- (night and dark skies). meadowCap = false keeps the meadow's own chroma (grass that is already yellow-green).
+-- (night and dark skies). meadowCap = false keeps the meadow's own chroma (grass that is already yellow-green). tint scales the warm sun and cool shade tints (white snow).
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
 -- Ambient tint inside sun shadows: cool skylight, near neutral where it would turn snow blue.
@@ -140,7 +140,7 @@ local THEMES = {
     BUILDING    = { specular = 0.10, gloss = 40, relief = 2.5, sky = { 1.12, 1.15, 1.22 }, ground = { 0.84, 0.82, 0.80 },
                     foliage = 0.8 },
     ARCTIC      = { specular = 0.12, gloss = 48, relief = 2.5, sky = { 1.12, 1.13, 1.15 }, ground = { 0.95, 0.95, 0.97 },
-                    shadowTint = { 0.97, 0.98, 1.02 }, foliage = 0, haze = false, expandSpec = 1, bloom = 0.04, hazeSaturation = 1.2,
+                    shadowTint = { 0.97, 0.98, 1.02 }, tint = 0.4, foliage = 0, haze = false, exposure = 0.2, expandSpec = 1, bloom = 0.04, hazeSaturation = 1.2,
                     skySaturation = 1, sunDir = { 0.225, 0.744, -0.629 } },
     ENGLAND     = { specular = 0.05, gloss = 24, relief = 4, sky = { 1.14, 1.18, 1.28 }, ground = { 0.86, 0.84, 0.76 },
                     foliage = 1, sunDir = { 0.302, 0.609, -0.734 } },
@@ -247,7 +247,7 @@ local function applyLighting(l, m, on, foliage)
     landscapeParam("sunstonePatchHue", l.patchHue or 0)
     landscapeParam("sunstoneGreenSpec", l.greenSpec or 0)
     landscapeParam("sunstoneGreenWarm", (l.greenWarm or 0) * math.min(green, 1))
-    landscapeParam("sunstoneTint", l.tint or 0)
+    landscapeParam("sunstoneTint", (l.tint or 0) * (m.tint or 1))
     landscapeParam("sunstoneFoliage", (l.meadow or 0) * green)
     landscapeParam("sunstoneFoliageCap", (green > 0 and m.meadowCap ~= false) and 1 or 0)
     modelParam("sunstoneLight", lit)
@@ -256,7 +256,7 @@ local function applyLighting(l, m, on, foliage)
     modelParam("sunstoneGround", spread(m.ground, k))
     modelParam("sunstoneSunGain", l.modelSunGain or 1)
     modelParam("sunstoneAmbientGain", l.modelAmbientGain or 1)
-    modelParam("sunstoneTint", l.tint or 0)
+    modelParam("sunstoneTint", (l.tint or 0) * (m.tint or 1))
     modelParam("sunstoneGroundDip", l.groundDip or 0)
     modelParam("sunstoneFoliage", (l.leaves or 0) * green)
     -- With nothing of Sunstone's left to draw, the game's own programs come back.
