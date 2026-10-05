@@ -128,16 +128,16 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- direction view (shaders/params.ini, sunstoneDebug 4). haze = false keeps the air off while no sky is on screen
 -- (night and dark skies). meadowCap = false keeps the meadow's own chroma (grass that is already yellow-green);
 -- tint scales the warm sun and cool shade tints (white snow). aerial is how far distant land turns sky blue;
--- skyGlow = false keeps the sky's own gradient (no horizon glow or deeper zenith).
+-- skyGlow = false keeps the sky's own gradient (no horizon glow or deeper zenith). waterDeep tints the deep sea.
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
 -- Ambient tint inside sun shadows: cool skylight, near neutral where it would turn snow blue.
 local SHADOW_TINT = { 0.9, 0.96, 1.1 }
 local THEMES = {
     ARABIAN     = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.14, 1.15, 1.22 }, ground = { 0.90, 0.85, 0.76 },
-                    foliage = 0.5, sunTint = 0.3, lut = 0.4 },
+                    foliage = 0.5, sunTint = 0.3, lut = 0.4, shadowDip = 0.4 },
     WILDWEST    = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.14, 1.15, 1.22 }, ground = { 0.88, 0.81, 0.72 },
-                    foliage = 0.5, sunTint = 0.3, lut = 0.4 },
+                    foliage = 0.5, sunTint = 0.3, lut = 0.4, shadowDip = 0.4 },
     CAMELOT     = { specular = 0.05, gloss = 24, relief = 4, sky = { 1.14, 1.18, 1.28 }, ground = { 0.86, 0.84, 0.76 },
                     foliage = 1 },
     PREHISTORIC = { specular = 0.06, gloss = 20, relief = 5, sky = { 1.14, 1.18, 1.26 }, ground = { 0.86, 0.84, 0.76 },
@@ -151,7 +151,8 @@ local THEMES = {
                     foliage = 1, sunDir = { 0.302, 0.609, -0.734 } },
     HORROR      = { specular = 0.08, gloss = 32, relief = 4, sky = { 1.18, 1.16, 1.22 }, ground = { 0.94, 0.92, 0.96 },
                     foliage = 0, haze = false, exposure = 0.15, contrast = 0.94, vibrance = 0.1, lut = false, sunAmount = 0,
-                    sunlitFade = 0.2, fog = 0.45, sunTint = 0, hazeSaturation = 1.1, aerial = 0, skyGlow = false, sunDir = { 0.26, 0.884, -0.387 } },
+                    sunlitFade = 0.2, fog = 0.45, sunTint = 0, hazeSaturation = 1.1, aerial = 0, skyGlow = false, waterDeep = { 1.03, 0.97, 1 },
+                    sunDir = { 0.26, 0.884, -0.387 } },
     LUNAR       = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.08, 1.08, 1.12 }, ground = { 0.88, 0.88, 0.90 },
                     foliage = 0, haze = false, fog = 0.2, lut = false, shafts = false, clouds = false, aerial = 0, skyGlow = false },
     PIRATE      = { specular = 0.06, gloss = 32, relief = 4, sky = { 1.16, 1.18, 1.28 }, ground = { 0.90, 0.85, 0.76 },
@@ -279,7 +280,7 @@ local function applyLighting(l, m, on, foliage)
 end
 
 -- Sunstone's water (shaders/); paused, the game's own water draws again.
-local function applyWater(w, on)
+local function applyWater(w, on, theme)
     if not wum.shaders then return end
     local enabled = on and w.enabled
     if enabled then
@@ -296,6 +297,8 @@ local function applyWater(w, on)
         waterParam("sunstoneWaterCrest", w.crest or 0)
         waterParam("sunstoneWaterDispersion", w.dispersion or 0)
         waterParam("sunstoneWaterSmooth", w.smooth or 0)
+        local deep = theme.waterDeep or { 1, 1, 1 }
+        pcall(wum.shaders.setParam, "Water.cg", "WaterFragmentMain", "sunstoneWaterDeep", deep[1], deep[2], deep[3])
     end
     pcall(wum.shaders.enableGlsl, "Water.cg", "WaterFragmentMain", enabled == true)
 end
@@ -367,7 +370,7 @@ local function apply()
     applySupersample(preset.supersample)
     applyLighting(preset.lighting, theme, state.lighting, preset.foliage or 1)
     if wum.shaders then landscapeParam("sunstoneRenderScale", state.scale) end
-    applyWater(preset.water, state.water)
+    applyWater(preset.water, state.water, theme)
 end
 
 apply()
