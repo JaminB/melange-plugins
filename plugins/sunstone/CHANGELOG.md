@@ -1,3 +1,7 @@
+## 1.7.1
+
+- Fixes the sea turning pale and losing its shallows and shore foam in a match once the camera moved.
+
 ## 1.7.0
 
 - Bold water keeps the hue of the game's own sea on every theme, only deeper and more saturated: Horror's olive
