@@ -16,12 +16,13 @@ local DEBUG = false
 -- Per "Blood" setting: the most live particles, droplets per point of damage, mist puffs per burst, a multiplier for
 -- the bleeding rate and the most splats one burst puts on the lens.
 local AMOUNT = {
-    light  = { max = 70,  perDamage = 0.6, mist = 1, bleed = 0.6, lens = 1 },
-    heavy  = { max = 180, perDamage = 1.2, mist = 3, bleed = 1.0, lens = 2 },
-    absurd = { max = 360, perDamage = 2.4, mist = 6, bleed = 1.8, lens = 3 },
+    light  = { max = 120, perDamage = 1.0, mist = 2, bleed = 0.6, lens = 1 },
+    heavy  = { max = 300, perDamage = 2.4, mist = 4, bleed = 1.0, lens = 2 },
+    absurd = { max = 480, perDamage = 4.5, mist = 7, bleed = 1.8, lens = 3 },
 }
-local POOL_MAX = 360
-local BURST_MAX = 90            -- droplets in one burst, however much damage it was
+local POOL_MAX = 480
+local BURST_MAX = 150           -- droplets in one burst, however much damage it was
+local BURST_BASE = 8            -- every hit sprays as if it did this much more damage, so a light one still shows
 local DEATH_DAMAGE = 60         -- a death counts as this much damage
 
 -- World units and seconds. A worm is about 30 units tall and +Y is up.
@@ -29,16 +30,16 @@ local GRAVITY = -420
 local DRAG = 0.6                -- fraction of speed lost per second
 local MIST_GRAVITY = 0.15       -- mist falls much more slowly than droplets
 local MIST_DRAG = 3
-local DROPLET_LIFE = { 0.6, 1.6 }
+local DROPLET_LIFE = { 0.8, 1.8 }
 local DROPLET_SPEED = { 70, 230 }
-local DROPLET_SIZE = { 0.6, 1.8 }
+local DROPLET_SIZE = { 1.1, 3.0 }
 local MIST_LIFE = { 0.5, 0.9 }
-local MIST_SIZE = { 6, 14 }
-local MIST_ALPHA = 0.2
+local MIST_SIZE = { 8, 18 }
+local MIST_ALPHA = 0.3
 local DROPLET_ALPHA = 0.9
 local FADE_START = 0.7          -- droplets start to fade after this fraction of their life
 local STREAK_SECONDS = 0.03     -- a streak is as long as the distance covered in this time...
-local STREAK_MIN, STREAK_MAX = 2.4, 12  -- ...within these limits
+local STREAK_MIN, STREAK_MAX = 3.5, 16  -- ...within these limits
 
 -- Offsets from the worm's reported position, to be calibrated in game: up to the middle of the body, and down to
 -- the ground the worm stands on.
@@ -57,15 +58,16 @@ local REST_GAP = 0.1            -- no position change for this long means the wo
 local EXPLOSIONS_MAX = 16
 
 -- Bleeding: droplets per second per point of damage (up to a ceiling), and how long it lasts.
-local BLEED_PER_DAMAGE = 0.12
-local BLEED_MAX_RATE = 14
-local BLEED_SECS = { 2, 12 }
-local BLEED_SECS_PER_DAMAGE = 0.12
+local BLEED_PER_DAMAGE = 0.3
+local BLEED_MIN_RATE = 3
+local BLEED_MAX_RATE = 22
+local BLEED_SECS = { 5, 16 }
+local BLEED_SECS_PER_DAMAGE = 0.2
 
 -- Ground stains.
 local STAIN_SLOTS = 8
-local STAIN_BASE, STAIN_PER_DAMAGE, STAIN_MAX, STAIN_DEATH = 6, 0.25, 22, 26
-local STAIN_MIN_DAMAGE = 4      -- lighter hits leave nothing on the ground
+local STAIN_BASE, STAIN_PER_DAMAGE, STAIN_MAX, STAIN_DEATH = 9, 0.35, 28, 30
+local STAIN_MIN_DAMAGE = 2      -- lighter hits leave nothing on the ground
 local STAIN_MERGE = 7           -- blood landing this close to a live stain, or inside most of it, makes that one grow
 local REST_SPEED = 40           -- slower than this a worm counts as at rest
 local REST_SECS = 0.3
@@ -73,8 +75,8 @@ local PENDING_SECS = 8          -- a stain waiting for a thrown worm to land is 
 
 -- Blood on the worms' skin. Gore is 0..1 per worm and each point of damage adds 1/GORE_DAMAGE of it.
 local SKIN_SLOTS = 16
-local GORE_DAMAGE = 80
-local GORE_FIRST = 0.15         -- the first hit on a worm gives at least this much
+local GORE_DAMAGE = 60
+local GORE_FIRST = 0.35         -- the first hit on a worm gives at least this much
 local SKIN_LEAD = 0             -- seconds: extrapolates the body centre along the worm's velocity, to be tuned in game
 -- The heading is the worm's facing from the game (yaw); only on a Melange without it is it estimated from the walking
 -- direction, and then the pattern turns toward the direction of travel only between these speeds.
@@ -545,7 +547,7 @@ end
 
 -- Starts or tops up a worm's bleeding.
 local function addBleed(s, damage)
-    local rate = min(BLEED_MAX_RATE, damage * BLEED_PER_DAMAGE)
+    local rate = min(BLEED_MAX_RATE, max(BLEED_MIN_RATE, damage * BLEED_PER_DAMAGE))
     if now < s.bleedUntil then rate = min(BLEED_MAX_RATE, rate + s.bleedRate) end
     s.bleedRate = rate
     s.bleedUntil = max(s.bleedUntil, now + min(BLEED_SECS[2], BLEED_SECS[1] + damage * BLEED_SECS_PER_DAMAGE))
@@ -562,7 +564,7 @@ local function burst(s, damage, dx, dy, dz, death)
     local cx, cy, cz = s.px, s.py + CENTRE_Y, s.pz
     local strength = min(damage, DEATH_DAMAGE) / DEATH_DAMAGE
     local spread = death and 1.1 or 0.55
-    local count = min(BURST_MAX, max(3, floor(damage * preset.perDamage + 0.5)))
+    local count = min(BURST_MAX, floor((damage + BURST_BASE) * preset.perDamage + 0.5))
     local c = palette.droplet
     for _ = 1, count do
         local ex, ey, ez = dx + rnd(-1, 1) * spread, dy + rnd(-1, 1) * spread, dz + rnd(-1, 1) * spread
@@ -654,7 +656,7 @@ local function emitBleed(s, dt)
         n = n + 1
         local shade = rnd(0.65, 1.1)
         spawn(DROPLET, s.px + rnd(-3, 3), s.py + CENTRE_Y + rnd(-3, 3), s.pz + rnd(-1, 1),
-              rnd(-25, 25), rnd(-5, 35), rnd(-10, 10), rnd(0.5, 1.0), rnd(0.6, 1.2),
+              rnd(-25, 25), rnd(-5, 35), rnd(-10, 10), rnd(0.9, 1.8), rnd(0.6, 1.2),
               min(1, c[1] * shade), min(1, c[2] * shade), min(1, c[3] * shade), DROPLET_ALPHA)
     end
     if s.bleedAcc > 2 then s.bleedAcc = 0 end

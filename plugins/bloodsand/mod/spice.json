@@ -1,7 +1,7 @@
 {
   "spiceVersion": 1,
   "id": "bloodsand",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "name": "Bloodsand",
   "authors": ["Melange"],
   "description": "A client-only, cosmetic gore mod: worms spray blood when hit, bleed for a while and wear the blood on their skin, open gaping wounds and get black eyes as their health runs low, throw up blood and spill their intestines when nearly dead, leave stains on the ground, and heavy hits spatter the camera lens. Only reads game state and draws. No effect on the simulation.",
