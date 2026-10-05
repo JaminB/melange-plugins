@@ -165,8 +165,9 @@ local THEMES = {
                     sunGlow = 0, tint = 0, shadeChroma = 0, sunDir = { 0.250, 0.363, -0.898 } },
     PIRATE      = { specular = 0.06, gloss = 32, relief = 4, sky = { 1.16, 1.18, 1.28 }, ground = { 0.90, 0.85, 0.76 },
                     foliage = 0.15, meadowCap = false, shadeChroma = 0, shadowDip = 0.6, sunDir = { 0.204, 0.692, -0.692 } },
-    WAR         = { specular = 0.04, gloss = 20, relief = 5, sky = { 1.12, 1.15, 1.22 }, ground = { 0.80, 0.77, 0.72 },
-                    foliage = 0.8 },
+    WAR         = { specular = 0.04, gloss = 20, relief = 5, sky = { 1.14, 1.16, 1.12 }, ground = { 0.80, 0.77, 0.72 },
+                    foliage = 0.8, sunColour = { 1, 1.02, 0.94 }, shadowTint = { 1, 1.03, 0.92 }, shadeChroma = 0,
+                    fog = 0.5, sunGlow = 0, shafts = false, sunDir = { 0.049, 0.213, -0.975 } },
 }
 
 -- Theme, setting and menu adjustments on top of a preset's values, per effect.
