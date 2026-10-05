@@ -1,3 +1,7 @@
+## 1.1.2
+
+Runs on Melange 0.4. No other change.
+
 ## 1.1.1
 
 Fixes blood, wounds, black eyes and ground stains not being drawn at all on some machines: the shader that paints the

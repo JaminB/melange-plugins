@@ -1,3 +1,7 @@
+## 1.7.2
+
+- Runs on Melange 0.4. No other change.
+
 ## 1.7.1
 
 - Fixes the sea turning pale and losing its shallows and shore foam in a match once the camera moved.
