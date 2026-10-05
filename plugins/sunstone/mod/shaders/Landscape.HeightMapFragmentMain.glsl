@@ -30,6 +30,7 @@ uniform float sunstoneReliefFade;      // distance at which the relief has faded
 uniform float sunstoneSunGain;         // sun (diffuse) gain
 uniform float sunstoneAmbientGain;     // ambient gain
 uniform float sunstoneShadowAmbient;   // ambient dip inside sun shadows
+uniform float sunstoneShadeChroma;     // saturation boost of the ambient light, so shade keeps its colour
 uniform float sunstoneDetail;          // luminance variation of the world-space detail noise (+/- this fraction)
 uniform float sunstoneDetailBump;      // micro-normal strength of the detail noise
 uniform float sunstoneDetailFade;      // distance at which the detail has faded out
@@ -160,6 +161,14 @@ vec3 NoiseD(vec2 x) {
     return vec3(a + k1 * u.x + k2 * u.y + k4 * u.x * u.y, du * vec2(k1 + k4 * u.y, k2 + k4 * u.x));
 }
 
+// Two value noises on lattices turned against each other, so no grid shows; centred (about -0.5..0.5) in x, its
+// gradient in yz.
+vec3 Clump(vec2 p) {
+    const mat2 r = mat2(0.6, 0.8, -0.8, 0.6);
+    vec3 a = NoiseD(p), b = NoiseD(r * p * 1.37 + 4.1);
+    return vec3(a.x + b.x - 1.0, a.yz + transpose(r) * b.yz * 1.37) * 0.5;
+}
+
 // World position projected on the plane most facing the surface; ax0 and ax1 are the world axes of the plane.
 vec2 Project(vec3 pw, vec3 nw, out vec3 ax0, out vec3 ax1) {
     vec3 a = abs(nw);
@@ -266,7 +275,10 @@ vec3 SunstoneLight(vec3 n, vec3 v, vec3 l, vec3 up, float lit, vec3 albedo, floa
     vec3 diffuse = sun * ndlWrapped * lit * (1.0 - f0);
     float through = pow(clamp(dot(v, -l), 0.0, 1.0), 2.0);
     vec3 transmit = sun * vec3(0.5, 0.6, 0.1) * (sunstoneTransmit * green * through * lit);
-    return (diffuse + ambient + rim + transmit) * albedo + globalSpecular * spec;
+    // Shade keeps the colour of what it falls on rather than greying toward the sky's tint.
+    vec3 fill = ambient * albedo;
+    fill = max(mix(vec3(Luma(fill)), fill, 1.0 + sunstoneShadeChroma * (1.0 - lit)), 0.0);
+    return (diffuse + rim + transmit) * albedo + fill + globalSpecular * spec;
 }
 
 // Brightness above the knee rolls off toward white, as film does, so bright sand and stone stay pale rather than
@@ -341,15 +353,23 @@ vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
             vec3 hueTint = mix(mix(vec3(1.0), vec3(0.94, 1.0, 1.08), 1.0 - smoothstep(0.15, 0.5, hp)), vec3(1.12, 1.03, 0.76),
                                smoothstep(0.5, 0.85, hp));
             albedo *= mix(vec3(1.0), hueTint, sunstonePatchHue * green);
-            // Tufts streaked along the wind, from broad gusts down to clumps of blades: darker in the gaps and
-            // warmer on top, each octave faded before it would shimmer.
-            vec2 wind = mat2(0.8, 0.6, -0.6, 0.8) * wuv;
+            // Clumps of grass, slightly longer along the wind, at three sizes: darker and cooler in the gaps, warmer
+            // on top, and tilted so the sun lights one side of each. Each octave fades before it would shimmer.
+            mat2 windRot = mat2(0.8, 0.6, -0.6, 0.8);
+            vec2 wind = windRot * wuv;
             float fp = max(fwidth(wuv.x), fwidth(wuv.y));
-            float ta = (1.0 - smoothstep(4.0, 8.0, fp)) * (NoiseD(wind * vec2(0.025, 0.08)).x - 0.5);
-            float tb = (1.0 - smoothstep(1.2, 2.4, fp)) * (NoiseD(wind * vec2(0.08, 0.28) + 5.7).x - 0.5);
-            float tc = (1.0 - smoothstep(0.4, 0.8, fp)) * (NoiseD(wind * vec2(0.25, 0.9) + 2.3).x - 0.5);
-            float tuft = (0.8 * ta + 0.9 * tb + 0.8 * tc) * sunstoneTuft * green * meadow;
-            albedo *= 1.0 + tuft * 2.0 * vec3(1.05, 1.0, 0.75);
+            vec3 ca = Clump(wind * vec2(0.0625, 0.125));
+            vec3 cb = Clump(wind * vec2(0.2, 0.4) + 5.7);
+            vec3 cc = Clump(wind * vec2(0.625, 1.25) + 2.3);
+            float wa = 0.7 * (1.0 - smoothstep(2.0, 4.0, fp));
+            float wb = 0.9 * (1.0 - smoothstep(0.6, 1.2, fp));
+            float wc = 0.8 * (1.0 - smoothstep(0.2, 0.4, fp));
+            float k = sunstoneTuft * green * meadow;
+            float tuft = (wa * ca.x + wb * cb.x + wc * cc.x) * k;
+            albedo *= 1.0 + tuft * 2.6 * vec3(1.05, 1.0, 0.72);
+            vec2 tilt = transpose(windRot) * (wa * ca.yz + wb * cb.yz + wc * cc.yz) * k;
+            vec3 gt = rot * (tilt.x * ax0 + tilt.y * ax1);
+            nb = normalize(nb - gt + nb * dot(gt, nb));
             detail = dn.x * dw;
             if (sunstoneDebug > 0.5 && sunstoneDebug < 1.5) return vec4(fract(pw / 100.0), 1.0);
         }

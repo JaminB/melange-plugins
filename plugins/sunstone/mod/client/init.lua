@@ -11,7 +11,7 @@ local BASE = {
                 contactThickness = 10, contactSteps = 10 },
     hdr     = { foliage = 1, expandSurface = 2, expandSpec = 1, expandSky = 2.6, cloudShadow = 0.12, fogAmount = 1,
                 sunTint = 0.5, sunGlow = 1, sunDisc = 0, shafts = 0.22, dof = 1, bloom = 0.1, dirt = 0.4,
-                flare = 0.03, clarity = 0.4, exposure = 0.7, skyExposure = 0.45, vignette = 0.16, tsContrast = 1.08, saturation = 1,
+                flare = 0.03, clarity = 0.4, exposure = 0.7, skyExposure = 0.45, vignette = 0.16, tsContrast = 1.15, saturation = 1,
                 vibrance = 0.15, lutAmount = 0.25, look = 0, skyGrade = 0.25, hazeSaturation = 1.7, skySaturation = 1.1, dither = 1,
                 hazeFallback = 1, aerial = 0.5, horizonGlow = 0.3, skyDepth = 0.3, sunDir = { 0, 0.936, -0.351 } },
     lite    = { foliage = 0.7, expandSurface = 2, expandSpec = 3, exposure = 0.3, vignette = 0.12, tsContrast = 1.1,
@@ -38,7 +38,7 @@ local PRESETS = {
         lighting = { light = 1, relief = 0, rim = 0.2, modelRim = 0.3, shadows = true, sunGain = 1.2, ambientGain = 1.05,
                      detail = 0, detailBump = 0,
                      grassWrap = 0.3, transmit = 0.15, patch = 0.05, greenSpec = 0.7, tint = 1, groundDip = 0.25,
-                     meadow = 33, leaves = 22, shadeShift = 0.6, tuft = 0.14, sheen = 0 },
+                     meadow = 29, leaves = 22, shadeShift = 0.6, tuft = 0.14, sheen = 0 },
         water   = { enabled = true, waves = 0.3, glint = 0.5, foam = 0, ssr = 0, caustics = 0, crest = 0.6,
                     dispersion = 0, smooth = 6 },
     },
@@ -55,7 +55,7 @@ local PRESETS = {
         lighting = { light = 1, relief = 1, rim = 0.3, modelRim = 0.45, shadows = true, sunGain = 1.2, ambientGain = 1.05,
                      detail = 0.04,
                      detailBump = 0.15, grassWrap = 0.3, transmit = 0.1, patch = 0.04, greenSpec = 0.7, tint = 0.6,
-                     groundDip = 0.2, meadow = 33, leaves = 22, shadeShift = 0.6, tuft = 0.14, sheen = 0.05 },
+                     groundDip = 0.2, meadow = 29, leaves = 22, shadeShift = 0.6, tuft = 0.14, sheen = 0.05 },
         water   = { enabled = true, waves = 0.35, glint = 0.6, foam = 0.8, ssr = 1, ssrCap = 0.4, caustics = 0.4,
                     crest = 0.4, dispersion = 0.5, smooth = 6 },
     },
@@ -70,10 +70,10 @@ local PRESETS = {
         sharpen = { enabled = true },
         lens    = { enabled = true },
         shadows = { size = 4096, mode = 2 },
-        lighting = { light = 1, relief = 1.25, rim = 0.5, modelRim = 0.6, shadows = true, sunGain = 1.55,
+        lighting = { light = 1, relief = 1.25, rim = 0.5, modelRim = 0.6, shadows = true, sunGain = 1.65,
                      ambientGain = 1.12, shadowAmbient = 0.33, modelSunGain = 1.25, modelAmbientGain = 1.2, greenWarm = 0.5,
                      hemisphere = 1.25, detail = 0.06, detailBump = 0.25, grassWrap = 0.3, transmit = 0.15,
-                     patch = 0.07, patchHue = 0.9, greenSpec = 0.7, tint = 1, groundDip = 0.25, meadow = 33, leaves = 22,
+                     patch = 0.07, patchHue = 0.9, greenSpec = 0.7, tint = 1, groundDip = 0.25, meadow = 29, leaves = 22,
                      shadeShift = 0.5, tuft = 0.2, sheen = 0.08 },
         water   = { enabled = true, waves = 0.2, glint = 0.8, foam = 0.9, rich = 0.25, ssr = 1, ssrCap = 0.5,
                     caustics = 0.6, crest = 0.6, dispersion = 1, smooth = 6 },
@@ -132,7 +132,7 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
 -- Ambient tint inside sun shadows: cool skylight, near neutral where it would turn snow blue.
-local SHADOW_TINT = { 0.9, 0.96, 1.1 }
+local SHADOW_TINT = { 0.85, 0.93, 1.14 }
 local THEMES = {
     ARABIAN     = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.14, 1.15, 1.22 }, ground = { 0.90, 0.85, 0.76 },
                     foliage = 0.5, sunTint = 0.3, lut = 0.4, shadowDip = 0.4 },

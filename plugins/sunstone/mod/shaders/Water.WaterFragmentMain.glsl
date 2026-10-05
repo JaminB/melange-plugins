@@ -81,6 +81,21 @@ float SkyWeight(vec2 uv) {
     return sky * smoothstep(0.0, 0.04, min(e.x, e.y));
 }
 
+// The sky around uv, blurred and stretched vertically as rough water blurs a reflection, so the painted outlines of
+// the clouds do not come back as dark lines on the sea. Weight in w.
+vec4 SkyBlur(vec2 uv) {
+    const vec2 o[7] = vec2[7](vec2(0.0), vec2(-0.02, 0.015), vec2(0.02, 0.015), vec2(0.0, 0.04),
+                              vec2(-0.015, -0.025), vec2(0.015, -0.025), vec2(0.0, 0.07));
+    vec3 c = vec3(0.0);
+    float w = 0.0;
+    for (int i = 0; i < 7; ++i) {
+        float k = SkyWeight(uv + o[i]);
+        c += texture2D(mg_scene, uv + o[i]).rgb * k;
+        w += k;
+    }
+    return vec4(w > 1e-3 ? c / w : vec3(0.0), w / 7.0);
+}
+
 vec2 Slope(vec2 uv) {
     vec3 s = texture2D(texture1, uv).xyz * 2.0 - 1.0;
     return s.xy / max(s.z, 0.2);
@@ -300,18 +315,21 @@ void main() {
 
     // Sky-tinted reflection: the game's own sky where the reflected ray meets it on screen, else the sky at the
     // horizon above this pixel, else the theme's water colour lifted toward white.
-    vec3 r = reflect(-v, n);
+    // The reflected sky follows a calmer surface than the light, so the swell does not break it into blotches.
+    vec3 r = reflect(-v, normalize(vec3(slope.x * 0.4, 1.0, slope.y * 0.4)));
     r.y = max(r.y, 0.02);
     vec3 sky = mix(themeCol, vec3(1.0), 0.45);
     vec2 hor = ScreenOf(normalize(vec3(r.x, 0.04, r.z)));
     sky = mix(sky, texture2D(mg_scene, hor).rgb, SkyWeight(hor));
-    vec2 mir = ScreenOf(r);
-    sky = mix(sky, texture2D(mg_scene, mir).rgb, SkyWeight(mir) * (1.0 - far * 0.5));
+    vec4 mir = SkyBlur(ScreenOf(r));
+    sky = mix(sky, mir.rgb, mir.w * (1.0 - far * 0.5));
     float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
     // The reflected sky takes on the water's own hue, so a pale horizon does not turn the sea cyan.
     vec3 hue = clamp(deep / max(dot(deep, vec3(0.299, 0.587, 0.114)), 0.05), 0.0, 2.0);
+    // Over clear shallows the sea floor shows through and the sky's reflection would only lay a milky sheet on it.
+    float clear = dot(trans, vec3(1.0 / 3.0));
     vec3 col = mix(body, sky * mix(vec3(1.0), hue, 0.5 + 0.35 * sunstoneWaterRich),
-                   clamp(fres * sunstoneWaterReflect, 0.0, (0.35 - 0.12 * far) * (1.0 - 0.3 * sunstoneWaterRich)));
+                   clamp(fres * sunstoneWaterReflect, 0.0, (0.35 - 0.12 * far) * (1.0 - 0.3 * sunstoneWaterRich)) * (1.0 - 0.6 * clear));
 
     // Facets facing the sun read a little lighter, so the swell keeps its shape seen from above.
     col *= 1.0 + clamp(dot(n.xz, l.xz) * 0.5, -0.07, 0.07) * (1.0 - far);
