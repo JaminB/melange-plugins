@@ -12,7 +12,7 @@ local BASE = {
     hdr     = { foliage = 1, expandSurface = 2, expandSpec = 2, expandSky = 2.6, cloudShadow = 0.12, fogAmount = 1,
                 sunTint = 0.5, sunGlow = 1, sunDisc = 0, shafts = 0.35, dof = 1, bloom = 0.06, dirt = 0.4,
                 flare = 0.03, clarity = 0.4, exposure = 0.35, vignette = 0.16, tsContrast = 1.08, saturation = 1,
-                vibrance = 0.15, lutAmount = 0.25, look = 0, skyGrade = 0.25, dither = 1 },
+                vibrance = 0.15, lutAmount = 0.25, look = 0, skyGrade = 0.25, hazeSaturation = 1.7, dither = 1 },
     lite    = { foliage = 0.7, expandSurface = 2, expandSpec = 3, exposure = 0.3, vignette = 0.12, tsContrast = 1.1,
                 saturation = 1, vibrance = 0.1, skyGrade = 0.25, dither = 1 },
     smaa    = {},
@@ -138,7 +138,7 @@ local THEMES = {
                     foliage = 1 },
     HORROR      = { specular = 0.08, gloss = 32, relief = 4, sky = { 1.18, 1.16, 1.22 }, ground = { 0.94, 0.92, 0.96 },
                     foliage = 0, exposure = 0.15, contrast = 0.94, vibrance = 0.1, lut = false, sunAmount = 0,
-                    sunlitFade = 0.2 },
+                    sunlitFade = 0.2, fog = 0.8, sunTint = 0, hazeSaturation = 1.1 },
     LUNAR       = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.08, 1.08, 1.12 }, ground = { 0.88, 0.88, 0.90 },
                     foliage = 0, fog = 0.2, lut = false, shafts = false, clouds = false },
     PIRATE      = { specular = 0.06, gloss = 32, relief = 4, sky = { 1.16, 1.18, 1.28 }, ground = { 0.90, 0.85, 0.76 },
@@ -169,6 +169,7 @@ ADJUST.hdr = function(v, theme, preset, state)
     if theme.bloom then v.bloom = math.min(v.bloom, theme.bloom) end
     v.fogAmount = v.fogAmount * (theme.fog or 1)
     if theme.sunTint then v.sunTint = theme.sunTint end
+    if theme.hazeSaturation then v.hazeSaturation = theme.hazeSaturation end
     if theme.lut == false then v.lutAmount = 0 end
     if theme.shafts == false then v.shafts = 0 end
     if theme.clouds == false then v.cloudShadow = 0 end
