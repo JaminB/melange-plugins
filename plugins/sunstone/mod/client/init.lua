@@ -114,7 +114,8 @@ local LANDSCAPE = { "LandscapeFragmentMain", "HeightMapFragmentMain" }
 local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLitCol", "FFFragmentMainTexLitCol" }
 
 -- Per theme: landscape specular reflectance and gloss, relief depth (world units), the ambient tints for surfaces
--- facing the sky and the ground (the ground tint is the bounce light off that theme's terrain), and post offsets:
+-- facing the sky and the ground (the ground tint is the bounce light off that theme's terrain), a scale for how much
+-- darker shade is (shade-heavy maps keep more fill light), and post offsets:
 -- foliage (how far the green band is pulled toward natural greens), highlight expansion, exposure (stops), a
 -- contrast scale, a vibrance cap, a bloom cap, a fog scale, the haze's sun tint, whether the sun lights the AO and
 -- contact shadows, and whether the warm LUT, shafts and cloud shadows apply (themes cool or violet by design skip
@@ -145,7 +146,7 @@ local THEMES = {
     LUNAR       = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.08, 1.08, 1.12 }, ground = { 0.88, 0.88, 0.90 },
                     foliage = 0, fog = 0.2, lut = false, shafts = false, clouds = false },
     PIRATE      = { specular = 0.06, gloss = 32, relief = 4, sky = { 1.16, 1.18, 1.28 }, ground = { 0.90, 0.85, 0.76 },
-                    foliage = 1 },
+                    foliage = 1, shadowDip = 0.6 },
     WAR         = { specular = 0.04, gloss = 20, relief = 5, sky = { 1.12, 1.15, 1.22 }, ground = { 0.80, 0.77, 0.72 },
                     foliage = 0.8 },
 }
@@ -226,7 +227,7 @@ local function applyLighting(l, m, on)
     landscapeParam("sunstoneShadowTint", st[1], st[2], st[3])
     landscapeParam("sunstoneSunGain", l.sunGain or 1)
     landscapeParam("sunstoneAmbientGain", l.ambientGain or 1)
-    landscapeParam("sunstoneShadowAmbient", l.shadowAmbient or 0.2)
+    landscapeParam("sunstoneShadowAmbient", (l.shadowAmbient or 0.2) * (m.shadowDip or 1))
     landscapeParam("sunstoneDetail", l.detail or 0)
     landscapeParam("sunstoneDetailBump", l.detailBump or 0)
     landscapeParam("sunstoneGrassWrap", l.grassWrap or 0)

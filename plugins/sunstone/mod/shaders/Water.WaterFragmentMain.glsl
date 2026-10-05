@@ -279,7 +279,7 @@ void main() {
     // The game blends its water over what lies behind it; the deep colour takes that brightness in its own hue.
     vec3 gameHere = mix(texture2D(mg_scene, uv).rgb, game, combinedWaterParams[3].z);
     const vec3 lw = vec3(0.299, 0.587, 0.114);
-    float deepLift = clamp(dot(gameHere, lw) / max(dot(game, lw), 1e-3), 1.0, 1.6);
+    float deepLift = clamp(dot(gameHere, lw) / max(dot(game, lw), 1e-3), 1.0, 2.5);
     vec3 deep = game * mix(1.0, deepLift, sunstoneWaterLift) * mix(sunstoneWaterDeep, vec3(1.0), sunstoneWaterRich);
     // A rich sea is a deeper, more saturated version of the same hue; seas that are already vivid gain less.
     float deepHi = max(max(deep.r, deep.g), deep.b);
