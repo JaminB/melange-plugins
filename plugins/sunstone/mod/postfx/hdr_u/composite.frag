@@ -24,6 +24,7 @@ uniform float p_clarity;
 uniform float p_shafts;
 uniform vec3 p_sunColor;
 uniform float p_bloom;
+uniform float p_bloomThreshold;
 uniform float p_dirt;
 uniform float p_flare;
 uniform float p_expandSky;
@@ -117,7 +118,11 @@ void main() {
         hdr += s * p_shafts * p_sunColor * smoothstep(300.0, 2000.0, dist) * mix(1.0, 0.2, sky) * fx;
     }
 
-    if (p_bloom > 0.0) hdr = mix(hdr, texture2D(mg_pass_u1, mg_uv).rgb / BloomTotal(1.0), p_bloom * fx);
+    // Only light brighter than the pixel and above the threshold spreads, so bloom never softens or greys the scene.
+    if (p_bloom > 0.0) {
+        vec3 b = texture2D(mg_pass_u1, mg_uv).rgb / BloomTotal(1.0);
+        hdr += max(b - hdr, vec3(0.0)) * p_bloom * smoothstep(p_bloomThreshold, p_bloomThreshold * 2.5, Luma(b)) * fx;
+    }
 
     if (p_dirt > 0.0 || p_flare > 0.0) {
         float n3 = BloomTotal(3.0);

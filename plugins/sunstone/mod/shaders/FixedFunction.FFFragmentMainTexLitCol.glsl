@@ -60,6 +60,8 @@ vec3 Foliage(vec3 c) {
     float S, H = Hue(c, S);
     float w = smoothstep(0.2, 0.4, S) * smoothstep(95.0, 120.0, H) * (1.0 - smoothstep(155.0, 175.0, H));
     w *= 1.0 - smoothstep(0.55, 0.65, S) * (1.0 - smoothstep(120.0, 130.0, H));
+    // Glossy materials are painted props, not leaves.
+    w *= 1.0 - smoothstep(0.15, 0.4, dot(materialMatrix[0].xyz, vec3(0.333)));
     return Hsv(H - sunstoneFoliage * w, S, max(c.r, max(c.g, c.b)));
 }
 

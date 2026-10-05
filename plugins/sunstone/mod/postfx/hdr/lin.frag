@@ -27,6 +27,8 @@ uniform float p_horizonHaze;
 uniform float p_horizonFalloff;
 uniform float p_hazeSaturation;
 uniform float p_desaturate;
+uniform float p_desatStart;
+uniform float p_aerial;
 uniform float p_flatHaze;
 uniform float p_sunTint;
 uniform float p_sunSide;
@@ -140,8 +142,9 @@ void main() {
         // without a step, and in their own hue most of the way, so the far sea stays blue rather than grey.
         float lv = level * (1.0 - smoothstep(0.15, 0.35, d));
         haze *= mix(1.0, p_flatHaze, lv);
-        vec3 fc = mix(lin, vec3(Luma(lin)), haze * p_desaturate * (1.0 - level));
-        vec3 target = hazeCol + p_sunColor * glowWide;
+        vec3 fc = mix(lin, vec3(Luma(lin)), haze * p_desaturate * (1.0 - level) * smoothstep(p_desatStart, p_desatStart * 2.0, dist));
+        // Away from the sun the far air turns a light sky blue.
+        vec3 target = hazeCol * mix(vec3(1.0), vec3(0.9, 0.97, 1.1), p_aerial * (1.0 - side * side)) + p_sunColor * glowWide;
         float fy = Luma(fc);
         vec3 own = fc * (Luma(target) / max(fy, 1e-4));
         // The sea keeps its own hue most of the way; islands and props keep part of their colour at mid distance.

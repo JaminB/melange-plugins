@@ -38,6 +38,7 @@ uniform float sunstoneTransmit;        // back-transmission through green surfac
 uniform float sunstonePatch;           // low-frequency brightness patches on green surfaces (+/- this fraction)
 uniform float sunstonePatchHue;        // warm and cool patches on green surfaces
 uniform float sunstoneGreenSpec;       // specular reduction on green surfaces
+uniform float sunstoneGreenWarm;       // warmer sunlight and cooler shade on green surfaces
 uniform float sunstoneFoliage;         // meadow hue shift toward yellow-green (degrees)
 uniform float sunstoneFoliageCap;      // meadow chroma cap (0 none)
 uniform vec3 sunstoneSunTint;          // tint of the direct light
@@ -217,7 +218,7 @@ vec3 Meadow(vec3 c, float green) {
     float S, H = Hue(c, S);
     float mx = max(c.r, max(c.g, c.b));
     float w = smoothstep(0.25, 0.45, S) * smoothstep(100.0, 125.0, H) * (1.0 - smoothstep(155.0, 175.0, H)) * green;
-    S = mix(S, min(S, 0.45 + (S - 0.45) * 0.5), w * sunstoneFoliageCap);
+    S = mix(S, min(S, 0.35 + (S - 0.35) * 0.4), w * sunstoneFoliageCap);
     return Hsv(H - sunstoneFoliage * w, S, mx * (1.0 - 0.08 * w * sunstoneFoliageCap));
 }
 
@@ -234,8 +235,9 @@ vec3 SunstoneLight(vec3 n, vec3 v, vec3 l, vec3 up, float lit, vec3 albedo, floa
     float ndl = max(dot(n, l), 0.0);
     float wrap = sunstoneGrassWrap * green;
     float ndlWrapped = max((dot(n, l) + wrap) / (1.0 + wrap), 0.0);
-    vec3 sun = globalDiffuse * mix(vec3(1.0), sunstoneSunTint, sunstoneTint) * sunstoneSunGain;
-    vec3 shadowTint = mix(vec3(1.0), sunstoneShadowTint, sunstoneTint);
+    float warm = sunstoneGreenWarm * green;
+    vec3 sun = globalDiffuse * mix(vec3(1.0), sunstoneSunTint, sunstoneTint) * sunstoneSunGain * mix(vec3(1.0), vec3(1.08, 1.0, 0.78), warm);
+    vec3 shadowTint = mix(vec3(1.0), sunstoneShadowTint, sunstoneTint) * mix(vec3(1.0), vec3(0.96, 1.0, 1.08), warm);
     float f0 = sunstoneSpecular * gloss;
     float power = max(sunstoneGloss, 1.0);
     vec3 h = normalize(l + v);
@@ -303,7 +305,8 @@ vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
         // World-space detail: independent of the texture's texels, so it only adds where the texture is magnified
         // and fades with distance.
         float green = smoothstep(0.05, 0.15, tex.g - max(tex.r, tex.b));
-        albedo = Meadow(albedo, green);
+        // Full shift on level ground (meadows), less on steep and rounded foliage (tree canopies, bushes).
+        albedo = Meadow(albedo, green * mix(0.55, 1.0, smoothstep(0.35, 0.85, dot(n, up))));
         float detail = 0.0;
         if (dot(view[1].xyz, view[1].xyz) > 0.25) {
             mat3 rot = mat3(view);
