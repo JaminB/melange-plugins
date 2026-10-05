@@ -694,12 +694,12 @@ local function trackWorms(worms, dt)
     end
 
     -- An explosion is only shown once the game has said a worm was damaged at that moment; one that hurt nobody is
-    -- dropped after a short wait. Each worm in reach gets a burst away from the blast, sized by an estimate that
-    -- falls off with distance, and that estimate is credited against the health the game takes off later.
-    local hurt = abs(now - hurtAt) <= DAMAGED_WINDOW
+    -- dropped after a short wait. The two messages are matched by when they arrived, not by when this frame runs, so
+    -- a long frame cannot separate them. Each worm in reach gets a burst away from the blast, sized by an estimate
+    -- that falls off with distance, and that estimate is credited against the health the game takes off later.
     local kept = 0
     for e = 1, nExp do
-        if hurt then
+        if abs(EX.at[e] - hurtAt) <= DAMAGED_WINDOW then
             local ex, ey, ez, damage, radius = EX.x[e], EX.y[e], EX.z[e], EX.dmg[e], EX.radius[e]
             for _, s in pairs(slots) do
                 if s.seen == frameId and s.alive then
