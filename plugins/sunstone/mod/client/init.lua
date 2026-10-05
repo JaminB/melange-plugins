@@ -148,7 +148,7 @@ local THEMES = {
     PREHISTORIC = { specular = 0.06, gloss = 20, relief = 5, sky = { 1.14, 1.18, 1.26 }, ground = { 0.86, 0.84, 0.76 },
                     foliage = 1, tint = 0, shadeChroma = 0, sunDir = { 0.060, 0.492, -0.869 } },
     BUILDING    = { specular = 0.10, gloss = 40, relief = 0.8, sky = { 1.14, 1.16, 1.12 }, ground = { 0.84, 0.82, 0.80 },
-                    foliage = 0.8, lut = false, fog = 0.15, hazeSaturation = 1.2, sunColour = { 0.96, 1.04, 0.92 }, shadowTint = { 0.98, 1.02, 0.97 }, shadeChroma = 0,
+                    foliage = 0.8, lut = false, fog = 0.15, hazeSaturation = 1.2, whitePoint = 9, whiteAmount = 0.3, sunColour = { 0.96, 1.04, 0.92 }, shadowTint = { 0.98, 1.02, 0.97 }, shadeChroma = 0,
                     sunDir = { 0, 0.678, -0.734 } },
     ARCTIC      = { specular = 0.12, gloss = 48, relief = 2.5, sky = { 1.12, 1.13, 1.15 }, ground = { 0.95, 0.95, 0.97 },
                     shadowTint = { 0.85, 0.94, 1.2 }, shadeChroma = 0, lut = false, waterClarity = 6, tint = 0.4, foliage = 0, haze = false, exposure = 0.2, expandSpec = 1, bloom = 0.04, hazeSaturation = 1.2,
