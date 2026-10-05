@@ -150,7 +150,7 @@ local THEMES = {
     LUNAR       = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.08, 1.08, 1.12 }, ground = { 0.88, 0.88, 0.90 },
                     foliage = 0, haze = false, fog = 0.2, lut = false, shafts = false, clouds = false },
     PIRATE      = { specular = 0.06, gloss = 32, relief = 4, sky = { 1.16, 1.18, 1.28 }, ground = { 0.90, 0.85, 0.76 },
-                    foliage = 1, shadowDip = 0.6 },
+                    foliage = 0.55, shadowDip = 0.6, sunDir = { 0.204, 0.692, -0.692 } },
     WAR         = { specular = 0.04, gloss = 20, relief = 5, sky = { 1.12, 1.15, 1.22 }, ground = { 0.80, 0.77, 0.72 },
                     foliage = 0.8 },
 }
