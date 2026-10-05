@@ -114,7 +114,7 @@ void main() {
 
     if (p_shafts > 0.0) {
         vec3 s = texture2D(mg_pass_shaftB, mg_uv).rgb;
-        hdr += s * p_shafts * p_sunColor * clamp(dist / 600.0, 0.0, 1.0) * mix(1.0, 0.2, sky) * fx;
+        hdr += s * p_shafts * p_sunColor * smoothstep(300.0, 2000.0, dist) * mix(1.0, 0.2, sky) * fx;
     }
 
     if (p_bloom > 0.0) hdr = mix(hdr, texture2D(mg_pass_u1, mg_uv).rgb / BloomTotal(1.0), p_bloom * fx);

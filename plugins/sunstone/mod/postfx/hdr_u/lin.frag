@@ -110,11 +110,11 @@ void main() {
 
     // Haze colour: the horizon, warmer on the sun's side and cooler opposite it.
     float side = 0.5 + 0.5 * dot(SafeNormalize(rayW.xz), SafeNormalize(sunW.xz));
-    vec3 tint = mix(vec3(0.93, 0.97, 1.05), vec3(1.0, 0.93, 0.82), side * side);
+    vec3 tint = mix(vec3(0.97, 0.99, 1.02), vec3(1.0, 0.93, 0.82), side * side);
     vec3 hazeCol = pow(hz.rgb, vec3(2.2));
     hazeCol = max(mix(vec3(Luma(hazeCol)), hazeCol, p_hazeSaturation), 0.0) * mix(vec3(1.0), tint, p_sunTint * day);
     // Light scattered toward the camera: the air is brighter on the sun's side, even with the sun high overhead.
-    float lobe = mix(1.0, mix(0.93, 1.12, side * side), clamp(p_sunTint * 2.0, 0.0, 1.0) * day * p_sunSide);
+    float lobe = mix(1.0, mix(0.97, 1.12, side * side), clamp(p_sunTint * 2.0, 0.0, 1.0) * day * p_sunSide);
     hazeCol *= lobe;
     float glowWide = pow(cs, 24.0) * 0.25 * p_sunGlow * day;
 
