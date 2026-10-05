@@ -128,12 +128,13 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- direction view (shaders/params.ini, sunstoneDebug 4). haze = false keeps the air off while no sky is on screen
 -- (night and dark skies). meadowCap = false keeps the meadow's own chroma (grass that is already yellow-green);
 -- tint scales the warm sun and cool shade tints (white snow). aerial is how far distant land turns sky blue;
--- skyGlow = false keeps the sky's own gradient (no horizon glow or deeper zenith). waterDeep tints the deep sea and
--- waterReflect scales its sky reflection. sunGlow replaces the glow around the sun;
--- whitePoint and whiteAmount keep bright sand below white.
+-- skyGlow = false keeps the sky's own gradient (no horizon glow or deeper zenith). waterDeep tints the deep sea,
+-- waterReflect scales its sky reflection and waterClarity is how deep the sea floor shows (world units).
+-- sunGlow replaces the glow around the sun, whitePoint and whiteAmount keep bright sand below white, and
+-- shadeChroma is how much colour shade keeps.
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
--- Ambient tint inside sun shadows: cool skylight, near neutral where it would turn snow blue.
+-- Ambient tint inside sun shadows: cool skylight.
 local SHADOW_TINT = { 0.85, 0.93, 1.14 }
 local THEMES = {
     ARABIAN     = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.14, 1.15, 1.22 }, ground = { 0.90, 0.85, 0.76 },
@@ -147,7 +148,7 @@ local THEMES = {
     BUILDING    = { specular = 0.10, gloss = 40, relief = 2.5, sky = { 1.12, 1.15, 1.22 }, ground = { 0.84, 0.82, 0.80 },
                     foliage = 0.8 },
     ARCTIC      = { specular = 0.12, gloss = 48, relief = 2.5, sky = { 1.12, 1.13, 1.15 }, ground = { 0.95, 0.95, 0.97 },
-                    shadowTint = { 0.97, 0.98, 1.02 }, tint = 0.4, foliage = 0, haze = false, exposure = 0.2, expandSpec = 1, bloom = 0.04, hazeSaturation = 1.2,
+                    shadowTint = { 0.85, 0.94, 1.2 }, shadeChroma = 0, lut = false, waterClarity = 6, tint = 0.4, foliage = 0, haze = false, exposure = 0.2, expandSpec = 1, bloom = 0.04, hazeSaturation = 1.2,
                     skySaturation = 1, sunDir = { 0.225, 0.744, -0.629 } },
     ENGLAND     = { specular = 0.05, gloss = 24, relief = 4, sky = { 1.14, 1.18, 1.28 }, ground = { 0.86, 0.84, 0.76 },
                     foliage = 1, sunDir = { 0.302, 0.609, -0.734 } },
@@ -256,6 +257,7 @@ local function applyLighting(l, m, on, foliage)
     landscapeParam("sunstoneSunGain", l.sunGain or 1)
     landscapeParam("sunstoneAmbientGain", l.ambientGain or 1)
     landscapeParam("sunstoneShadowAmbient", (l.shadowAmbient or 0.2) * (m.shadowDip or 1))
+    landscapeParam("sunstoneShadeChroma", m.shadeChroma or 0.5)
     landscapeParam("sunstoneDetail", l.detail or 0)
     landscapeParam("sunstoneDetailBump", l.detailBump or 0)
     landscapeParam("sunstoneGrassWrap", l.grassWrap or 0)
@@ -304,6 +306,7 @@ local function applyWater(w, on, theme)
         waterParam("sunstoneWaterCrest", w.crest or 0)
         waterParam("sunstoneWaterDispersion", w.dispersion or 0)
         waterParam("sunstoneWaterSmooth", w.smooth or 0)
+        waterParam("sunstoneWaterClarity", theme.waterClarity or 15)
         local deep = theme.waterDeep or { 1, 1, 1 }
         pcall(wum.shaders.setParam, "Water.cg", "WaterFragmentMain", "sunstoneWaterDeep", deep[1], deep[2], deep[3])
     end
