@@ -83,9 +83,8 @@ void main() {
     float depth = texture2D(mg_depth, mg_uv).r;
     vec4 vp = mg_invProj * vec4(vec3(mg_uv, depth) * 2.0 - 1.0, 1.0);
     float dist = length(vp.xyz / vp.w);
-    // The sky dome sits beyond half the far plane; the sky treatment fades in on the way there so the far sea has
-    // no seam.
-    float sky = depth >= 1.0 ? 1.0 : smoothstep(0.3, 0.5, dist / mg_nearFar.y);
+    // The sky dome sits at about 0.63 of the far plane; the far sea ends before half of it.
+    float sky = depth >= 1.0 ? 1.0 : smoothstep(0.5, 0.6, dist / mg_nearFar.y);
     float ramp = 0.0;
 #ifdef DEBUG_RAMP
     if (mg_uv.y < 0.12) {

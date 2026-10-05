@@ -13,7 +13,7 @@ bool IsSky(vec2 uv) {
     float d = texture2D(mg_depth, uv).r;
     if (d >= 1.0) return true;
     vec4 p = mg_invProj * vec4(vec3(uv, d) * 2.0 - 1.0, 1.0);
-    return length(p.xyz / p.w) > 0.5 * mg_nearFar.y;
+    return length(p.xyz / p.w) > 0.55 * mg_nearFar.y;
 }
 
 void main() {

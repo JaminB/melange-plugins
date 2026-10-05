@@ -89,7 +89,9 @@ void main() {
     }
 #endif
 
-    float sky = depth >= 1.0 || (dist > 0.5 * far && rayW.y > -0.002) ? 1.0 : 0.0;
+    // The sky dome sits at about 0.63 of the far plane and reaches below the horizon, down to where the sea ends
+    // (under half the far plane).
+    float sky = depth >= 1.0 ? 1.0 : smoothstep(0.5, 0.6, dist / far);
     float day, seen;
     vec4 hz = HorizonColour(mg_uv.x, day, seen);
     vec3 sunW = normalize(p_sunDir);
@@ -99,13 +101,12 @@ void main() {
     // Haze colour: the horizon, warmer on the sun's side and cooler opposite it.
     float side = 0.5 + 0.5 * dot(SafeNormalize(rayW.xz), SafeNormalize(sunW.xz));
     vec3 tint = mix(vec3(0.93, 0.97, 1.05), vec3(1.0, 0.93, 0.82), side * side);
-    vec3 hazeCol = Expand(pow(hz.rgb, vec3(2.2)), 1.0) * mix(vec3(1.0), tint, p_sunTint * day);
+    vec3 hazeCol = pow(hz.rgb, vec3(2.2)) * mix(vec3(1.0), tint, p_sunTint * day);
     float glowWide = pow(cs, 24.0) * 0.25 * p_sunGlow * day;
 
-    vec3 outc;
-    if (sky < 0.5) {
-        c = Foliage(c, p_foliage);
-        vec3 lin = Expand(pow(c, vec3(2.2)), 0.0);
+    vec3 outc = vec3(0.0);
+    if (sky < 1.0) {
+        vec3 lin = Expand(pow(Foliage(c, p_foliage), vec3(2.2)), 0.0);
         // Looking down at the island no sky is on screen to tell day from night by; the clouds stay.
         float clouds = mix(1.0, day, seen);
         lin *= 1.0 - p_cloudShadow * smoothstep(0.4, 0.75, cloud) * clouds * (1.0 - smoothstep(4000.0, 8000.0, dist));
@@ -127,7 +128,8 @@ void main() {
         vec3 own = fc * (Luma(target) / max(fy, 1e-4));
         target = mix(target, fy > 1e-3 ? own : target, lv);
         outc = mix(fc, target, haze);
-    } else {
+    }
+    if (sky > 0.0) {
         vec3 s = Expand(pow(c, vec3(2.2)), 1.0);
         s *= mix(1.0, mix(1.08, 0.88, smoothstep(0.0, 0.7, rayW.y)), p_skyGradient);
         float band = clamp(p_horizonHaze * exp(-12.0 * max(rayW.y, 0.0)) * 0.5 * p_fogAmount * hz.a, 0.0, 1.0);
@@ -135,7 +137,7 @@ void main() {
         float cosR = cos(radians(0.5 * p_sunSize));
         float disc = smoothstep(cosR - (1.0 - cosR) * 0.3, cosR, cosSun);
         float glow = glowWide + pow(cs, 600.0) * 2.0 * p_sunGlow * day;
-        outc = s + p_sunColor * (glow + 30.0 * disc * p_sunDisc * day);
+        outc = mix(outc, s + p_sunColor * (glow + 30.0 * disc * p_sunDisc * day), sky);
     }
 
     float coc = smoothstep(p_dofStart, p_dofEnd, dist) * (1.0 - sky);

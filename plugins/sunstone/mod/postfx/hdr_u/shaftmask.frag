@@ -45,7 +45,7 @@ void main() {
         vec4 vp = mg_invProj * vec4(vec3(uv, depth) * 2.0 - 1.0, 1.0);
         vec3 P = vp.xyz / vp.w;
         vec3 rayW = normalize(P * mat3(mg_view));
-        if (depth >= 1.0 || (length(P) > 0.5 * mg_nearFar.y && rayW.y > -0.002)) {
+        if (depth >= 1.0 || length(P) > 0.55 * mg_nearFar.y) {
             float cs = max(dot(rayW, sunW), 0.0);
             sum += min(max(texture2D(mg_pass_lin, uv).rgb, vec3(0.0)), vec3(8.0)) * mix(0.2, 1.0, cs * cs * cs * cs);
         }

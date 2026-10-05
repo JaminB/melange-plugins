@@ -15,11 +15,13 @@ vec3 Foliage(vec3 c, float amt) {
     return Hsv2Rgb(H / 360.0, S, mx * (1.0 - p_folValue * wC));
 }
 
-// Stretches the top of the 8-bit range back out: the sky most, white glints more than lit surfaces.
+// Stretches the top of the 8-bit range back out: white clouds most, white glints more than lit surfaces. Saturated
+// sky keeps the surface range so it stays blue through the display transform.
 vec3 Expand(vec3 lin, float sky) {
     float m = Max3(lin), sat = (m - Min3(lin)) / max(m, 1e-3);
-    float spec = smoothstep(0.85, 1.0, m) * (1.0 - smoothstep(0.05, 0.25, sat));
-    float W = mix(p_expandSurface + p_expandSpec * spec, p_expandSky, sky);
+    float white = 1.0 - smoothstep(0.05, 0.25, sat);
+    float spec = smoothstep(0.85, 1.0, m) * white;
+    float W = mix(p_expandSurface + p_expandSpec * spec, p_expandSky, sky * white);
     float v = clamp((m - 0.55) / 0.45, 0.0, 1.0);
     return lin * (1.0 + (W - 1.0) * v * v);
 }
