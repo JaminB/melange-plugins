@@ -316,20 +316,27 @@ void main() {
     // Sky-tinted reflection: the game's own sky where the reflected ray meets it on screen, else the sky at the
     // horizon above this pixel, else the theme's water colour lifted toward white.
     // The reflected sky follows a calmer surface than the light, so the swell does not break it into blotches.
-    vec3 r = reflect(-v, normalize(vec3(slope.x * 0.4, 1.0, slope.y * 0.4)));
+    vec2 calm = clamp(slope * 0.1, -0.04, 0.04);
+    vec3 nc = normalize(vec3(calm.x, 1.0, calm.y));
+    vec3 r = reflect(-v, nc);
     r.y = max(r.y, 0.02);
     vec3 sky = mix(themeCol, vec3(1.0), 0.45);
     vec2 hor = ScreenOf(normalize(vec3(r.x, 0.04, r.z)));
     sky = mix(sky, texture2D(mg_scene, hor).rgb, SkyWeight(hor));
     vec4 mir = SkyBlur(ScreenOf(r));
-    sky = mix(sky, mir.rgb, mir.w * (1.0 - far * 0.5));
-    float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+    // Mostly the horizon's colour: mirrored clouds, broken up by the swell, read as pale blotches on the sea.
+    sky = mix(sky, mir.rgb, mir.w * 0.25 * (1.0 - far * 0.5));
+    // Taken on the mean water plane: at glancing angles any tilt from the swell would print as large pale patches.
+    float fres = 0.02 + 0.98 * pow(1.0 - max(v.y, 0.0), 5.0);
     // The reflected sky takes on the water's own hue, so a pale horizon does not turn the sea cyan.
-    vec3 hue = clamp(deep / max(dot(deep, vec3(0.299, 0.587, 0.114)), 0.05), 0.0, 2.0);
+    // Taken from the theme's average water colour: the ramp's own patches would print through the reflection.
+    vec3 deepAvg = themeCol * mix(sunstoneWaterDeep, vec3(1.0), sunstoneWaterRich);
+    vec3 hue = clamp(deepAvg / max(dot(deepAvg, vec3(0.299, 0.587, 0.114)), 0.05), 0.0, 2.0);
     // Over clear shallows the sea floor shows through and the sky's reflection would only lay a milky sheet on it.
     float clear = dot(trans, vec3(1.0 / 3.0));
-    vec3 col = mix(body, sky * mix(vec3(1.0), hue, 0.5 + 0.35 * sunstoneWaterRich),
-                   clamp(fres * sunstoneWaterReflect, 0.0, (0.35 - 0.12 * far) * (1.0 - 0.3 * sunstoneWaterRich)) * (1.0 - 0.6 * clear));
+    vec3 skyRefl = sky * mix(vec3(1.0), hue, 0.5 + 0.35 * sunstoneWaterRich);
+    float reflW = clamp(fres * sunstoneWaterReflect, 0.0, (0.35 - 0.12 * far) * (1.0 - 0.3 * sunstoneWaterRich)) * (1.0 - 0.6 * clear);
+    vec3 col = mix(body, skyRefl, reflW);
 
     // Facets facing the sun read a little lighter, so the swell keeps its shape seen from above.
     col *= 1.0 + clamp(dot(n.xz, l.xz) * 0.5, -0.07, 0.07) * (1.0 - far);
@@ -390,7 +397,9 @@ void main() {
     foam = max(foam, smoothstep(0.55, 1.0, shore) * (0.2 + 0.35 * lace) * (1.0 - smoothstep(300.0, 1500.0, dist))) * (1.0 - far);
     col = mix(col, vec3(0.95) * (0.6 + 0.4 * globalDiffuse), clamp(foam * sunstoneWaterFoam, 0.0, 0.9));
 
-    if (sunstoneWater > 13.5) col = vec3(caust * caustW);
+    if (sunstoneWater > 15.5) col = vec3(reflW * 2.0);
+    else if (sunstoneWater > 14.5) col = skyRefl;
+    else if (sunstoneWater > 13.5) col = vec3(caust * caustW);
     else if (sunstoneWater > 12.5) col = vec3(ssr.w, ssrW * 2.0, 0.0);
     else if (sunstoneWater > 11.5) col = vec3(glint, fleck, 0.0);
     else if (sunstoneWater > 10.5) col = vec3(foam);

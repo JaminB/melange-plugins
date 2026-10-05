@@ -39,7 +39,7 @@ uniform float sunstoneTransmit;        // back-transmission through green surfac
 uniform float sunstonePatch;           // low-frequency brightness patches on green surfaces (+/- this fraction)
 uniform float sunstonePatchHue;        // warm and cool patches on green surfaces
 uniform float sunstoneGreenSpec;       // specular reduction on green surfaces
-uniform float sunstoneGreenWarm;       // warmer sunlight and cooler shade on green surfaces
+uniform float sunstoneGreenWarm;       // warmer sunlight and shade that stays green on green surfaces
 uniform float sunstoneFoliage;         // meadow hue shift toward yellow-green (degrees)
 uniform float sunstoneFoliageCap;      // meadow chroma cap (0 none)
 uniform float sunstoneShadeShift;      // share of the meadow hue shift kept in shade
@@ -255,7 +255,7 @@ vec3 SunstoneLight(vec3 n, vec3 v, vec3 l, vec3 up, float lit, vec3 albedo, floa
     // Canopies and steep banks take less of the warm light, so sunlit tree tops do not turn lime.
     float warm = sunstoneGreenWarm * green * mix(0.3, 1.0, meadow);
     vec3 sun = globalDiffuse * mix(vec3(1.0), sunstoneSunTint, sunstoneTint) * sunstoneSunGain * mix(vec3(1.0), vec3(1.08, 1.0, 0.78), warm);
-    vec3 shadowTint = mix(vec3(1.0), sunstoneShadowTint, sunstoneTint) * mix(vec3(1.0), vec3(0.9, 1.0, 1.14), warm);
+    vec3 shadowTint = mix(vec3(1.0), sunstoneShadowTint, sunstoneTint) * mix(vec3(1.0), vec3(1.16, 1.0, 0.7), warm);
     float f0 = sunstoneSpecular * gloss;
     float power = max(sunstoneGloss, 1.0);
     vec3 h = normalize(l + v);
