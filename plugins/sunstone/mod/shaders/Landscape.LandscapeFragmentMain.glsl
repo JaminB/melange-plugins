@@ -29,7 +29,7 @@ uniform float sunstoneSunGain;         // sun (diffuse) gain
 uniform float sunstoneAmbientGain;     // ambient gain
 uniform float sunstoneShadowAmbient;   // ambient dip inside sun shadows
 uniform float sunstoneSplit;           // pixels left of this x keep the game's lighting and shadows (comparisons)
-uniform vec2 mg_renderScale;            // the scene over the window: 2 at 2x2 supersampling
+uniform float sunstoneRenderScale;      // the scene over the window: 2 at 2x2 supersampling (set by init.lua)
 
 float Cmp(vec2 uv, float z) { return shadow2D(shadowMap, vec3(uv, z)).r; }
 
@@ -203,7 +203,7 @@ vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
         fade *= smoothstep(0.04, 0.2, dot(n, v));
         // Where a texel spans several pixels the relief would only emboss the texel grid, so it fades out.
         vec2 texels = vec2(textureSize(texture0, 0));
-        fade *= smoothstep(0.5, 1.0, max(length(dFdx(uv) * texels), length(dFdy(uv) * texels)) * max(mg_renderScale.x, 1.0));
+        fade *= smoothstep(0.5, 1.0, max(length(dFdx(uv) * texels), length(dFdy(uv) * texels)) * max(sunstoneRenderScale, 1.0));
         vec3 nb = Relief(n, p, uv, h0, sunstoneRelief * fade);
         lit = Shadow(gl_TexCoord[4], shadowMode, dot(n, l));
         c = Shoulder(SunstoneLight(nb, v, l, up, lit, albedo, 0.5 + h0));
