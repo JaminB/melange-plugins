@@ -38,10 +38,12 @@ uniform float sunstoneTransmit;        // back-transmission through green surfac
 uniform float sunstonePatch;           // low-frequency brightness patches on green surfaces (+/- this fraction)
 uniform float sunstonePatchHue;        // warm and cool patches on green surfaces
 uniform float sunstoneGreenSpec;       // specular reduction on green surfaces
+uniform float sunstoneFoliage;         // meadow hue shift toward yellow-green (degrees)
+uniform float sunstoneFoliageCap;      // meadow chroma cap (0 none)
 uniform vec3 sunstoneSunTint;          // tint of the direct light
 uniform vec3 sunstoneShadowTint;       // tint of the ambient light inside shadows
 uniform float sunstoneTint;            // how far the two tints apply (0 none)
-uniform float sunstoneDebug;           // 1 world position (fract(pos / 100)); 2 detail; 3 green mask
+uniform float sunstoneDebug;           // 1 world position (fract(pos / 100)); 2 detail; 3 green mask; 4 sun direction
 uniform float sunstoneSplit;           // pixels left of this x keep the game's lighting and shadows (comparisons)
 uniform float sunstoneRenderScale;      // the scene over the window: 2 at 2x2 supersampling (set by init.lua)
 
@@ -195,6 +197,30 @@ vec3 Relief(vec3 n, vec3 p, vec2 uv, float h0, float depth) {
     return normalize(abs(det) * n - g);
 }
 
+float Hue(vec3 c, out float s) {
+    float mx = max(c.r, max(c.g, c.b)), C = mx - min(c.r, min(c.g, c.b));
+    s = C / max(mx, 1e-4);
+    if (C < 1e-4) return 0.0;
+    float h = mx == c.r ? (c.g - c.b) / C : (mx == c.g ? 2.0 + (c.b - c.r) / C : 4.0 + (c.r - c.g) / C);
+    return fract(h / 6.0) * 360.0;
+}
+
+vec3 Hsv(float h, float s, float v) {
+    vec3 k = clamp(abs(fract(h / 360.0 + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+    return v * mix(vec3(1.0), k, s);
+}
+
+// Pulls the meadow's saturated mid greens toward yellow-green and caps their chroma; green is the texture's foliage
+// weight, so painted props and water never move.
+vec3 Meadow(vec3 c, float green) {
+    if (sunstoneFoliage <= 0.0 || green <= 0.0) return c;
+    float S, H = Hue(c, S);
+    float mx = max(c.r, max(c.g, c.b));
+    float w = smoothstep(0.25, 0.45, S) * smoothstep(100.0, 125.0, H) * (1.0 - smoothstep(155.0, 175.0, H)) * green;
+    S = mix(S, min(S, 0.45 + (S - 0.45) * 0.5), w * sunstoneFoliageCap);
+    return Hsv(H - sunstoneFoliage * w, S, mx * (1.0 - 0.08 * w * sunstoneFoliageCap));
+}
+
 vec3 GameLight(vec3 n, vec3 v, vec3 l, float lit, vec3 albedo) {
     float ndl = clamp(dot(n, l) * lit, 0.0, 1.0);
     float spec = lit * pow(clamp(dot(n, normalize(l + v)), 0.0, 1.0), 20.0);
@@ -260,6 +286,7 @@ vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
         lit = Shadow(gl_TexCoord[4], shadowMode, dot(n, l));
         c = GameLight(n, v, l, lit, albedo);
     } else {
+        if (sunstoneDebug > 3.5) return vec4(0.5 + 0.5 * (transpose(mat3(view)) * l), 1.0);
         vec3 up = view[1].xyz;
         up = dot(up, up) > 0.25 ? normalize(up) : l;
         float h0 = Luma(tex.rgb);
@@ -276,6 +303,7 @@ vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
         // World-space detail: independent of the texture's texels, so it only adds where the texture is magnified
         // and fades with distance.
         float green = smoothstep(0.05, 0.15, tex.g - max(tex.r, tex.b));
+        albedo = Meadow(albedo, green);
         float detail = 0.0;
         if (dot(view[1].xyz, view[1].xyz) > 0.25) {
             mat3 rot = mat3(view);
@@ -289,7 +317,8 @@ vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
             vec3 ge = rot * (dn.y * ax0 + dn.z * ax1);
             nb = normalize(nb - sunstoneDetailBump * dw * (ge - nb * dot(ge, nb)));
             albedo *= 1.0 + sunstoneDetail * dw * dn.x;
-            albedo *= 1.0 + sunstonePatch * green * 2.0 * (NoiseD(wuv / 80.0).x - 0.5);
+            float patch = 0.55 * NoiseD(wuv / 80.0).x + 0.45 * NoiseD(wuv / 360.0 + 3.1).x;
+            albedo *= 1.0 + sunstonePatch * green * 2.0 * (patch - 0.5);
             float hp = NoiseD(wuv / 45.0 + 7.3).x;
             vec3 hueTint = mix(mix(vec3(1.0), vec3(0.94, 1.0, 1.08), 1.0 - smoothstep(0.15, 0.5, hp)), vec3(1.12, 1.03, 0.76),
                                smoothstep(0.5, 0.85, hp));

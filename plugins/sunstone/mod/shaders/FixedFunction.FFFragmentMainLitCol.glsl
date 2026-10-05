@@ -20,6 +20,7 @@ uniform vec3 sunstoneSunTint;       // tint of the direct light
 uniform vec3 sunstoneShadowTint;    // tint of the ambient light
 uniform float sunstoneTint;         // how far the two tints apply (0 none)
 uniform float sunstoneGroundDip;    // ambient dip on surfaces facing down (0 none)
+uniform float sunstoneFoliage;      // leaf hue shift toward yellow-green (degrees)
 uniform float sunstoneSplit;        // pixels left of this x keep the game's lighting (comparisons)
 
 bool GameTerms() {
@@ -35,6 +36,29 @@ vec3 Shoulder(vec3 c) {
     float r = 0.9 + 0.1 * (1.0 - exp((0.9 - m) / 0.1));
     vec3 rolled = mix(c * (r / m), vec3(r), clamp((m - 0.9) / m * 1.5, 0.0, 1.0));
     return mix(rolled, min(c, vec3(1.0)), 0.5);
+}
+
+float Hue(vec3 c, out float s) {
+    float mx = max(c.r, max(c.g, c.b)), C = mx - min(c.r, min(c.g, c.b));
+    s = C / max(mx, 1e-4);
+    if (C < 1e-4) return 0.0;
+    float h = mx == c.r ? (c.g - c.b) / C : (mx == c.g ? 2.0 + (c.b - c.r) / C : 4.0 + (c.r - c.g) / C);
+    return fract(h / 6.0) * 360.0;
+}
+
+vec3 Hsv(float h, float s, float v) {
+    vec3 k = clamp(abs(fract(h / 360.0 + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+    return v * mix(vec3(1.0), k, s);
+}
+
+// A gentler pull of leaf greens toward yellow-green, with no chroma cap; very saturated greens (painted drums) keep
+// their colour.
+vec3 Foliage(vec3 c) {
+    if (sunstoneFoliage <= 0.0 || GameTerms()) return c;
+    float S, H = Hue(c, S);
+    float w = smoothstep(0.2, 0.4, S) * smoothstep(95.0, 120.0, H) * (1.0 - smoothstep(155.0, 175.0, H));
+    w *= 1.0 - smoothstep(0.55, 0.65, S) * (1.0 - smoothstep(120.0, 130.0, H));
+    return Hsv(H - sunstoneFoliage * w, S, max(c.r, max(c.g, c.b)));
 }
 
 // The rim light, kept apart so it can take on the surface's colour.
@@ -87,6 +111,6 @@ void Light(out vec3 base, out vec3 add) {
 void main() {
     vec3 base, add;
     Light(base, add);
-    vec3 albedo = sunstoneLight > 9.5 ? vec3(0.5) : gl_Color.rgb;
+    vec3 albedo = sunstoneLight > 9.5 ? vec3(0.5) : Foliage(gl_Color.rgb);
     gl_FragColor = vec4(clamp(Shoulder(base * albedo + add + rimLight * mix(vec3(1.0), albedo / max(max(albedo.r, max(albedo.g, albedo.b)), 1e-3), 0.6)), 0.0, 1.0), gl_Color.a);
 }

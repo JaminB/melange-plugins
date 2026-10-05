@@ -28,6 +28,7 @@ uniform float p_dirt;
 uniform float p_flare;
 uniform float p_expandSky;
 uniform float p_exposure;
+uniform float p_skyExposure;
 uniform float p_vignette;
 uniform float p_tsContrast;
 uniform float p_tsShoulder;
@@ -136,7 +137,7 @@ void main() {
 
     vec2 v = mg_uv * 2.0 - 1.0;
     float vig = mix(1.0, clamp(1.0 - p_vignette * dot(v, v) * 0.5, 0.0, 1.0), fx);
-    hdr *= exp2(p_exposure) * vig;
+    hdr *= exp2(mix(p_exposure, p_skyExposure, sky)) * vig;
     vec3 c = pow(Display(hdr, mix(p_tsContrast, 1.0, sky)), vec3(1.0 / 2.2));
 
     float grade = mix(1.0, p_skyGrade, sky);

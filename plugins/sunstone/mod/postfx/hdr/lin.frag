@@ -32,6 +32,8 @@ uniform float p_sunTint;
 uniform float p_sunSide;
 uniform float p_hazeChroma;
 uniform float p_skyGradient;
+uniform vec3 p_hazeColor;
+uniform float p_hazeFallback;
 uniform vec3 p_sunDir;
 uniform vec3 p_sunColor;
 uniform float p_sunGlow;
@@ -98,6 +100,10 @@ void main() {
     float sky = depth >= 1.0 ? 1.0 : smoothstep(0.5, 0.6, dist / far);
     float day, seen;
     vec4 hz = HorizonColour(mg_uv.x, day, seen);
+    // With little or no sky on screen (looking down at the islands) the air takes the theme's own horizon colour.
+    float fb = p_hazeFallback * (1.0 - seen);
+    hz = vec4(mix(hz.rgb, p_hazeColor, fb), max(hz.a, fb));
+    day = max(day, fb);
     vec3 sunW = normalize(p_sunDir);
     float cosSun = dot(rayW, sunW);
     float cs = max(cosSun, 0.0);
@@ -134,7 +140,7 @@ void main() {
         // without a step, and in their own hue most of the way, so the far sea stays blue rather than grey.
         float lv = level * (1.0 - smoothstep(0.15, 0.35, d));
         haze *= mix(1.0, p_flatHaze, lv);
-        vec3 fc = mix(lin, vec3(Luma(lin)), haze * p_desaturate);
+        vec3 fc = mix(lin, vec3(Luma(lin)), haze * p_desaturate * (1.0 - level));
         vec3 target = hazeCol + p_sunColor * glowWide;
         float fy = Luma(fc);
         vec3 own = fc * (Luma(target) / max(fy, 1e-4));

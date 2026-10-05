@@ -359,7 +359,7 @@ void main() {
     float lace = Fbm(wp * 4.0 + vec2(t * 0.05, -t * 0.03));
     float band = 0.5 + 0.5 * sin(depth / sunstoneWaterFoamWidth * 12.0 - t * 1.5 + lace * 4.0);
     float foam = smoothstep(0.5, 0.72, lace * 0.8 + band * 0.35 * shore + shore * 0.2) * sqrt(shore);
-    foam = max(foam, smoothstep(0.4, 1.0, shore) * (0.55 + 0.45 * lace)) * (1.0 - far);
+    foam = max(foam, smoothstep(0.55, 1.0, shore) * (0.3 + 0.45 * lace)) * (1.0 - far);
     col = mix(col, vec3(0.95) * (0.6 + 0.4 * globalDiffuse), clamp(foam * sunstoneWaterFoam, 0.0, 0.9));
 
     if (sunstoneWater > 13.5) col = vec3(caust * caustW);

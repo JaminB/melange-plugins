@@ -7,12 +7,13 @@
 -- Every preset starts from these values (the effect.ini defaults), so switching presets never leaves a value behind.
 local BASE = {
     ssao    = { radius = 32, intensity = 1.2, bias = 0.05, maxDistance = 1500, nearFade = 80, slices = 2, steps = 4,
-                sunlitFade = 0.5, sunAmount = 1, contactStrength = 0, contactLength = 26, contactThickness = 10,
-                contactSteps = 10 },
+                sunlitFade = 0.5, sunAmount = 1, sunDir = { 0, 0.936, -0.351 }, contactStrength = 0, contactLength = 26,
+                contactThickness = 10, contactSteps = 10 },
     hdr     = { foliage = 1, expandSurface = 2, expandSpec = 1, expandSky = 2.6, cloudShadow = 0.12, fogAmount = 1,
-                sunTint = 0.5, sunGlow = 1, sunDisc = 0, shafts = 0.35, dof = 1, bloom = 0.06, dirt = 0.4,
-                flare = 0.03, clarity = 0.4, exposure = 0.35, vignette = 0.16, tsContrast = 1.08, saturation = 1,
-                vibrance = 0.15, lutAmount = 0.25, look = 0, skyGrade = 0.25, hazeSaturation = 1.7, skySaturation = 1.1, dither = 1 },
+                sunTint = 0.5, sunGlow = 1, sunDisc = 0, shafts = 0.22, dof = 1, bloom = 0.1, dirt = 0.4,
+                flare = 0.03, clarity = 0.4, exposure = 0.7, skyExposure = 0.35, vignette = 0.16, tsContrast = 1.08, saturation = 1,
+                vibrance = 0.15, lutAmount = 0.25, look = 0, skyGrade = 0.25, hazeSaturation = 1.7, skySaturation = 1.1, dither = 1,
+                hazeFallback = 1, sunDir = { 0, 0.936, -0.351 } },
     lite    = { foliage = 0.7, expandSurface = 2, expandSpec = 3, exposure = 0.3, vignette = 0.12, tsContrast = 1.1,
                 saturation = 1, vibrance = 0.1, skyGrade = 0.25, dither = 1 },
     smaa    = {},
@@ -35,7 +36,8 @@ local PRESETS = {
         sharpen = { enabled = true, sharpness = 0.4 },
         shadows = { size = 2048, mode = 1 },
         lighting = { light = 1, relief = 0, rim = 0.2, modelRim = 0.3, shadows = true, detail = 0, detailBump = 0,
-                     grassWrap = 0.3, transmit = 0.15, patch = 0.05, greenSpec = 0.7, tint = 1, groundDip = 0.25 },
+                     grassWrap = 0.3, transmit = 0.15, patch = 0.05, greenSpec = 0.7, tint = 1, groundDip = 0.25,
+                     meadow = 30, leaves = 22 },
         water   = { enabled = true, waves = 0.3, glint = 0.5, foam = 0, ssr = 0, caustics = 0, crest = 0.6,
                     dispersion = 0 },
     },
@@ -44,14 +46,14 @@ local PRESETS = {
         foliage = 0.6,
         ssao    = { enabled = true },
         hdr     = { enabled = true, fogAmount = 0.5, bloom = 0.03, shafts = 0, dof = 0, sunDisc = 0, flare = 0, dirt = 0,
-                    clarity = 0.2, exposure = 0.2, tsContrast = 1.05, vibrance = 0.1, lutAmount = 0.2, vignette = 0.12 },
+                    clarity = 0.2, exposure = 0.2, skyExposure = 0.2, tsContrast = 1.05, vibrance = 0.1, lutAmount = 0.2, vignette = 0.12 },
         smaa    = { enabled = true },
         sharpen = { enabled = true },
         lens    = { enabled = true, ca = 0, grain = 0 },
         shadows = { size = 2048, mode = 2 },
         lighting = { light = 1, relief = 1, rim = 0.3, modelRim = 0.45, shadows = true, detail = 0.04,
                      detailBump = 0.15, grassWrap = 0.3, transmit = 0.1, patch = 0.04, greenSpec = 0.7, tint = 0.6,
-                     groundDip = 0.2 },
+                     groundDip = 0.2, meadow = 30, leaves = 22 },
         water   = { enabled = true, waves = 0.35, glint = 0.6, foam = 0.8, ssr = 1, ssrCap = 0.4, caustics = 0.4,
                     crest = 0.4, dispersion = 0.5 },
     },
@@ -59,8 +61,8 @@ local PRESETS = {
     -- that reflects the scenery.
     bold = {
         foliage = 1,
-        ssao    = { enabled = true, slices = 3, steps = 4, radius = 40, intensity = 1.6, maxDistance = 2500,
-                    nearFade = 50, contactStrength = 0.45 },
+        ssao    = { enabled = true, slices = 3, steps = 4, radius = 40, intensity = 2.0, maxDistance = 2500,
+                    nearFade = 50, contactStrength = 0.7 },
         hdr     = { enabled = true },
         smaa    = { enabled = true },
         sharpen = { enabled = true },
@@ -69,7 +71,7 @@ local PRESETS = {
         lighting = { light = 1, relief = 1.25, rim = 0.5, modelRim = 0.6, shadows = true, sunGain = 1.35,
                      ambientGain = 1.0, shadowAmbient = 0.33, modelSunGain = 1.12, modelAmbientGain = 0.9,
                      hemisphere = 1.25, detail = 0.06, detailBump = 0.25, grassWrap = 0.3, transmit = 0.15,
-                     patch = 0.07, patchHue = 0.9, greenSpec = 0.7, tint = 1, groundDip = 0.25 },
+                     patch = 0.07, patchHue = 0.9, greenSpec = 0.7, tint = 1, groundDip = 0.25, meadow = 30, leaves = 22 },
         water   = { enabled = true, waves = 0.3, glint = 0.3, foam = 0.9, rich = 0.25, ssr = 1, ssrCap = 0.5,
                     caustics = 0.6, crest = 0.6, dispersion = 1 },
     },
@@ -119,7 +121,9 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- foliage (how far the green band is pulled toward natural greens), highlight expansion, exposure (stops), a
 -- contrast scale, a vibrance cap, a bloom cap, a fog scale, the haze's sun tint, whether the sun lights the AO and
 -- contact shadows, and whether the warm LUT, shafts and cloud shadows apply (themes cool or violet by design skip
--- the LUT; a number scales it).
+-- the LUT; a number scales it). sunDir is the world direction toward the theme's sun, read from the landscape's sun
+-- direction view (shaders/params.ini, sunstoneDebug 4). haze = false keeps the air off while no sky is on screen
+-- (night and dark skies).
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
 -- Ambient tint inside sun shadows: cool skylight, near neutral where it would turn snow blue.
@@ -136,15 +140,15 @@ local THEMES = {
     BUILDING    = { specular = 0.10, gloss = 40, relief = 2.5, sky = { 1.12, 1.15, 1.22 }, ground = { 0.84, 0.82, 0.80 },
                     foliage = 0.8 },
     ARCTIC      = { specular = 0.12, gloss = 48, relief = 2.5, sky = { 1.12, 1.13, 1.15 }, ground = { 0.95, 0.95, 0.97 },
-                    shadowTint = { 0.97, 0.98, 1.02 }, foliage = 0, expandSpec = 1, bloom = 0.04, hazeSaturation = 1.2,
+                    shadowTint = { 0.97, 0.98, 1.02 }, foliage = 0, haze = false, expandSpec = 1, bloom = 0.04, hazeSaturation = 1.2,
                     skySaturation = 1 },
     ENGLAND     = { specular = 0.05, gloss = 24, relief = 4, sky = { 1.14, 1.18, 1.28 }, ground = { 0.86, 0.84, 0.76 },
-                    foliage = 1 },
+                    foliage = 1, sunDir = { 0.302, 0.609, -0.734 } },
     HORROR      = { specular = 0.08, gloss = 32, relief = 4, sky = { 1.18, 1.16, 1.22 }, ground = { 0.94, 0.92, 0.96 },
-                    foliage = 0, exposure = 0.15, contrast = 0.94, vibrance = 0.1, lut = false, sunAmount = 0,
+                    foliage = 0, haze = false, exposure = 0.15, contrast = 0.94, vibrance = 0.1, lut = false, sunAmount = 0,
                     sunlitFade = 0.2, fog = 0.8, sunTint = 0, hazeSaturation = 1.1 },
     LUNAR       = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.08, 1.08, 1.12 }, ground = { 0.88, 0.88, 0.90 },
-                    foliage = 0, fog = 0.2, lut = false, shafts = false, clouds = false },
+                    foliage = 0, haze = false, fog = 0.2, lut = false, shafts = false, clouds = false },
     PIRATE      = { specular = 0.06, gloss = 32, relief = 4, sky = { 1.16, 1.18, 1.28 }, ground = { 0.90, 0.85, 0.76 },
                     foliage = 1, shadowDip = 0.6 },
     WAR         = { specular = 0.04, gloss = 20, relief = 5, sky = { 1.12, 1.15, 1.22 }, ground = { 0.80, 0.77, 0.72 },
@@ -157,9 +161,12 @@ local ADJUST = {}
 -- Shared by hdr and lite.
 local function adjustLight(v, theme, preset, state)
     v.foliage = (theme.foliage or 1) * (preset.foliage or 1)
+    -- With Sunstone's lighting on, the scene shaders move the greens instead (meadow and leaves apart).
+    if state.lighting and preset.lighting and (preset.lighting.light or 0) > 0 then v.foliage = 0 end
     if theme.expandSurface then v.expandSurface = theme.expandSurface end
     if theme.expandSpec then v.expandSpec = theme.expandSpec end
     v.exposure = v.exposure + (theme.exposure or 0)
+    if v.skyExposure then v.skyExposure = v.skyExposure + (theme.exposure or 0) end
     v.tsContrast = v.tsContrast * (theme.contrast or 1)
     if theme.vibrance then v.vibrance = math.min(v.vibrance, theme.vibrance) end
     if state.menu then v.tsContrast = 1 end
@@ -178,6 +185,8 @@ ADJUST.hdr = function(v, theme, preset, state)
     if theme.lut == false then v.lutAmount = 0 elseif theme.lut then v.lutAmount = v.lutAmount * theme.lut end
     if theme.shafts == false then v.shafts = 0 end
     if theme.clouds == false then v.cloudShadow = 0 end
+    if theme.sunDir then v.sunDir = theme.sunDir end
+    if theme.haze == false then v.hazeFallback = 0 end
     if not state.dof then v.dof = 0 end
     if not state.lens then
         v.dirt = 0
@@ -191,6 +200,7 @@ ADJUST.hdr = function(v, theme, preset, state)
 end
 
 ADJUST.ssao = function(v, theme)
+    if theme.sunDir then v.sunDir = theme.sunDir end
     if theme.sunAmount then v.sunAmount = theme.sunAmount end
     if theme.sunlitFade then v.sunlitFade = theme.sunlitFade end
 end
@@ -212,10 +222,11 @@ local function modelParam(name, ...)
     pcall(wum.shaders.setParam, "FixedFunction.cg", "FFFragmentMain*Lit*", name, ...)
 end
 
-local function applyLighting(l, m, on)
+local function applyLighting(l, m, on, foliage)
     if not wum.shaders then return end
     local lit = on and l.light or 0
     local k = l.hemisphere or 1
+    local green = (m.foliage or 1) * foliage
     landscapeParam("sunstoneLight", lit)
     landscapeParam("sunstoneSpecular", m.specular)
     landscapeParam("sunstoneGloss", m.gloss)
@@ -236,6 +247,8 @@ local function applyLighting(l, m, on)
     landscapeParam("sunstonePatchHue", l.patchHue or 0)
     landscapeParam("sunstoneGreenSpec", l.greenSpec or 0)
     landscapeParam("sunstoneTint", l.tint or 0)
+    landscapeParam("sunstoneFoliage", (l.meadow or 0) * green)
+    landscapeParam("sunstoneFoliageCap", green > 0 and 1 or 0)
     modelParam("sunstoneLight", lit)
     modelParam("sunstoneRim", l.modelRim)
     modelParam("sunstoneSky", spread(m.sky, k))
@@ -244,6 +257,7 @@ local function applyLighting(l, m, on)
     modelParam("sunstoneAmbientGain", l.modelAmbientGain or 1)
     modelParam("sunstoneTint", l.tint or 0)
     modelParam("sunstoneGroundDip", l.groundDip or 0)
+    modelParam("sunstoneFoliage", (l.leaves or 0) * green)
     -- With nothing of Sunstone's left to draw, the game's own programs come back.
     local landscape = l.shadows or lit > 0
     for _, e in ipairs(LANDSCAPE) do pcall(wum.shaders.enableGlsl, "Landscape.cg", e, landscape) end
@@ -336,7 +350,7 @@ local function apply()
     end
     applyShadows(preset.shadows)
     applySupersample(preset.supersample)
-    applyLighting(preset.lighting, theme, state.lighting)
+    applyLighting(preset.lighting, theme, state.lighting, preset.foliage or 1)
     if wum.shaders then landscapeParam("sunstoneRenderScale", state.scale) end
     applyWater(preset.water, state.water)
 end
