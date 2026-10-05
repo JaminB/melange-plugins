@@ -41,8 +41,8 @@ varying vec2 mg_uv;
 #include "foliage.glsl"
 
 // The horizon colour near this column (alpha: how much sky the columns found) and, in day, how bright the whole
-// horizon is, which gates the sun effects off on dark skies.
-vec4 HorizonColour(float x, out float day) {
+// horizon is, which gates the sun effects off on dark skies. seen falls to 0 as the columns find no sky.
+vec4 HorizonColour(float x, out float day, out float seen) {
     vec3 sum = vec3(0.0), total = vec3(0.0);
     float wsum = 0.0, cover = 0.0;
     for (int i = 0; i < 8; ++i) {
@@ -54,6 +54,7 @@ vec4 HorizonColour(float x, out float day) {
         total += h.rgb * h.a;
         cover += h.a;
     }
+    seen = smoothstep(0.0, 0.5, cover);
     day = cover > 1e-3 ? smoothstep(0.25, 0.5, Luma(total / cover)) : 0.0;
     return wsum > 1e-4 ? vec4(sum / wsum, clamp(cover / 4.0, 0.0, 1.0)) : vec4(0.0);
 }
@@ -89,8 +90,8 @@ void main() {
 #endif
 
     float sky = depth >= 1.0 || (dist > 0.5 * far && rayW.y > -0.002) ? 1.0 : 0.0;
-    float day;
-    vec4 hz = HorizonColour(mg_uv.x, day);
+    float day, seen;
+    vec4 hz = HorizonColour(mg_uv.x, day, seen);
     vec3 sunW = normalize(p_sunDir);
     float cosSun = dot(rayW, sunW);
     float cs = max(cosSun, 0.0);
@@ -105,7 +106,9 @@ void main() {
     if (sky < 0.5) {
         c = Foliage(c, p_foliage);
         vec3 lin = Expand(pow(c, vec3(2.2)), 0.0);
-        lin *= 1.0 - p_cloudShadow * smoothstep(0.4, 0.75, cloud) * day * (1.0 - smoothstep(4000.0, 8000.0, dist));
+        // Looking down at the island no sky is on screen to tell day from night by; the clouds stay.
+        float clouds = mix(1.0, day, seen);
+        lin *= 1.0 - p_cloudShadow * smoothstep(0.4, 0.75, cloud) * clouds * (1.0 - smoothstep(4000.0, 8000.0, dist));
 
         // Exponential height fog integrated along the view ray, relative to the camera's height.
         float k = offW.y / p_heightFalloff;
