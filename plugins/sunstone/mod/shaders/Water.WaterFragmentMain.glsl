@@ -38,6 +38,7 @@ uniform float sunstoneWaterCaustics;     // caustic light on the sea floor in th
 uniform float sunstoneWaterCausticScale; // caustic cells per water texture repeat
 uniform float sunstoneWaterCrest;        // turquoise lift on crests facing the sun
 uniform float sunstoneWaterDispersion;   // red/blue split of the refraction (pixels)
+uniform float sunstoneWaterSmooth;       // blur of the colour ramp lookup (ramp texels), against contour lines
 
 float Hash(vec2 p) {
     p = fract(p * vec2(0.1031, 0.1030));
@@ -193,12 +194,20 @@ float Caustic(vec2 p, float t) {
     return edge * edge;
 }
 
-vec3 GameWater(vec2 uv, float t, out float spec) {
+// The colour ramp at c, blurred along its diagonal over r texels.
+vec3 Ramp(vec2 c, float r) {
+    if (r <= 0.0) return texture2D(texture0, c).rgb;
+    vec2 o = vec2(r) / vec2(textureSize(texture0, 0));
+    return (texture2D(texture0, c - o).rgb + texture2D(texture0, c - 0.5 * o).rgb + texture2D(texture0, c).rgb +
+            texture2D(texture0, c + 0.5 * o).rgb + texture2D(texture0, c + o).rgb) * 0.2;
+}
+
+vec3 GameWater(vec2 uv, float t, float r, out float spec) {
     float st = t * 0.5;
     vec3 nm = normalize(MapNormal(uv * 5.0 + st * vec2(-0.3, 0.6)) * vec3(0.2, 0.2, 0.0) +
                         MapNormal(uv * -0.2 + st * vec2(0.0, 0.2)) + MapNormal(uv * -0.75 + st * vec2(-0.1, -0.2)));
     mat4 p = combinedWaterParams;
-    vec3 diffuse = texture2D(texture0, nm.gg * 0.25).rgb - texture2D(texture0, nm.bb * 2.0).rrr * p[3].w;
+    vec3 diffuse = Ramp(nm.gg * 0.25, r) - Ramp(nm.bb * 2.0, r).rrr * p[3].w;
     vec3 refl = pow(Env(nm * p[2].xyz), vec3(p[0].x)) * p[0].y;
     spec = clamp(pow(Env(nm * p[1].xyz).r, p[0].z) * p[3].x, 0.0, 1.0);
     return diffuse + refl;
@@ -211,7 +220,7 @@ void main() {
     float t = pausedTime;
     if (gl_FragCoord.x < sunstoneSplit) {
         float s;
-        gl_FragColor = vec4(GameWater(gl_TexCoord[0].xy, t, s) + s, combinedWaterParams[3].z);
+        gl_FragColor = vec4(GameWater(gl_TexCoord[0].xy, t, 0.0, s) + s, combinedWaterParams[3].z);
         return;
     }
 
@@ -275,7 +284,7 @@ void main() {
     // The theme's own water colour (the ramp's average) keeps each theme's character.
     vec3 themeCol = texture2D(texture0, vec2(0.125), 8.0).rgb;
     float gameSpec;
-    vec3 game = max(GameWater(uv0, t, gameSpec), 0.0);
+    vec3 game = max(GameWater(uv0, t, sunstoneWaterSmooth, gameSpec), 0.0);
     // The game blends its water over what lies behind it; the deep colour takes that brightness in its own hue.
     vec3 gameHere = mix(texture2D(mg_scene, uv).rgb, game, combinedWaterParams[3].z);
     // The blended colour itself, so the ramp's dark contour lines stay as faint as the game draws them.

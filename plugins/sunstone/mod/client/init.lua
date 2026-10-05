@@ -13,7 +13,7 @@ local BASE = {
                 sunTint = 0.5, sunGlow = 1, sunDisc = 0, shafts = 0.22, dof = 1, bloom = 0.1, dirt = 0.4,
                 flare = 0.03, clarity = 0.4, exposure = 0.7, skyExposure = 0.45, vignette = 0.16, tsContrast = 1.08, saturation = 1,
                 vibrance = 0.15, lutAmount = 0.25, look = 0, skyGrade = 0.25, hazeSaturation = 1.7, skySaturation = 1.1, dither = 1,
-                hazeFallback = 1, sunDir = { 0, 0.936, -0.351 } },
+                hazeFallback = 1, aerial = 0.5, horizonGlow = 0.3, skyDepth = 0.3, sunDir = { 0, 0.936, -0.351 } },
     lite    = { foliage = 0.7, expandSurface = 2, expandSpec = 3, exposure = 0.3, vignette = 0.12, tsContrast = 1.1,
                 saturation = 1, vibrance = 0.1, skyGrade = 0.25, dither = 1 },
     smaa    = {},
@@ -31,23 +31,23 @@ local PRESETS = {
     },
     low = {
         foliage = 0.7,
-        lite    = { enabled = true },
+        lite    = { enabled = true, exposure = 0.42 },
         smaa    = { enabled = true },
         sharpen = { enabled = true, sharpness = 0.4 },
         shadows = { size = 2048, mode = 1 },
         lighting = { light = 1, relief = 0, rim = 0.2, modelRim = 0.3, shadows = true, sunGain = 1.2, ambientGain = 1.05,
                      detail = 0, detailBump = 0,
                      grassWrap = 0.3, transmit = 0.15, patch = 0.05, greenSpec = 0.7, tint = 1, groundDip = 0.25,
-                     meadow = 36, leaves = 22 },
+                     meadow = 33, leaves = 22, shadeShift = 0.6, tuft = 0.14, sheen = 0 },
         water   = { enabled = true, waves = 0.3, glint = 0.5, foam = 0, ssr = 0, caustics = 0, crest = 0.6,
-                    dispersion = 0 },
+                    dispersion = 0, smooth = 6 },
     },
     -- Close to the game's own look: natural greens, light haze and AO, no lens effects.
     subtle = {
         foliage = 0.6,
         ssao    = { enabled = true },
         hdr     = { enabled = true, fogAmount = 0.5, bloom = 0.03, shafts = 0, dof = 0, sunDisc = 0, flare = 0, dirt = 0,
-                    clarity = 0.2, exposure = 0.2, skyExposure = 0.2, tsContrast = 1.05, vibrance = 0.1, lutAmount = 0.2, vignette = 0.12 },
+                    clarity = 0.2, exposure = 0.35, skyExposure = 0.4, tsContrast = 1.05, vibrance = 0.1, lutAmount = 0.2, vignette = 0.12 },
         smaa    = { enabled = true },
         sharpen = { enabled = true },
         lens    = { enabled = true, ca = 0, grain = 0 },
@@ -55,9 +55,9 @@ local PRESETS = {
         lighting = { light = 1, relief = 1, rim = 0.3, modelRim = 0.45, shadows = true, sunGain = 1.2, ambientGain = 1.05,
                      detail = 0.04,
                      detailBump = 0.15, grassWrap = 0.3, transmit = 0.1, patch = 0.04, greenSpec = 0.7, tint = 0.6,
-                     groundDip = 0.2, meadow = 36, leaves = 22 },
+                     groundDip = 0.2, meadow = 33, leaves = 22, shadeShift = 0.6, tuft = 0.14, sheen = 0.05 },
         water   = { enabled = true, waves = 0.35, glint = 0.6, foam = 0.8, ssr = 1, ssrCap = 0.4, caustics = 0.4,
-                    crest = 0.4, dispersion = 0.5 },
+                    crest = 0.4, dispersion = 0.5, smooth = 6 },
     },
     -- The modern look: light in linear space with air, sun and soft highlights, AO and contact shadows, a deep sea
     -- that reflects the scenery.
@@ -73,9 +73,10 @@ local PRESETS = {
         lighting = { light = 1, relief = 1.25, rim = 0.5, modelRim = 0.6, shadows = true, sunGain = 1.55,
                      ambientGain = 1.12, shadowAmbient = 0.33, modelSunGain = 1.25, modelAmbientGain = 1.2, greenWarm = 0.5,
                      hemisphere = 1.25, detail = 0.06, detailBump = 0.25, grassWrap = 0.3, transmit = 0.15,
-                     patch = 0.07, patchHue = 0.9, greenSpec = 0.7, tint = 1, groundDip = 0.25, meadow = 36, leaves = 22 },
+                     patch = 0.07, patchHue = 0.9, greenSpec = 0.7, tint = 1, groundDip = 0.25, meadow = 33, leaves = 22,
+                     shadeShift = 0.5, tuft = 0.2, sheen = 0.08 },
         water   = { enabled = true, waves = 0.2, glint = 0.8, foam = 0.9, rich = 0.25, ssr = 1, ssrCap = 0.5,
-                    caustics = 0.6, crest = 0.6, dispersion = 1 },
+                    caustics = 0.6, crest = 0.6, dispersion = 1, smooth = 6 },
     },
 }
 -- Bold rendered at twice the resolution each way and scaled down (2x2 supersampling): the cleanest edges and
@@ -126,7 +127,8 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- the LUT; a number scales it). sunDir is the world direction toward the theme's sun, read from the landscape's sun
 -- direction view (shaders/params.ini, sunstoneDebug 4). haze = false keeps the air off while no sky is on screen
 -- (night and dark skies). meadowCap = false keeps the meadow's own chroma (grass that is already yellow-green);
--- tint scales the warm sun and cool shade tints (white snow).
+-- tint scales the warm sun and cool shade tints (white snow). aerial is how far distant land turns sky blue;
+-- skyGlow = false keeps the sky's own gradient (no horizon glow or deeper zenith).
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
 -- Ambient tint inside sun shadows: cool skylight, near neutral where it would turn snow blue.
@@ -149,9 +151,9 @@ local THEMES = {
                     foliage = 1, sunDir = { 0.302, 0.609, -0.734 } },
     HORROR      = { specular = 0.08, gloss = 32, relief = 4, sky = { 1.18, 1.16, 1.22 }, ground = { 0.94, 0.92, 0.96 },
                     foliage = 0, haze = false, exposure = 0.15, contrast = 0.94, vibrance = 0.1, lut = false, sunAmount = 0,
-                    sunlitFade = 0.2, fog = 0.45, sunTint = 0, hazeSaturation = 1.1, sunDir = { 0.26, 0.884, -0.387 } },
+                    sunlitFade = 0.2, fog = 0.45, sunTint = 0, hazeSaturation = 1.1, aerial = 0, skyGlow = false, sunDir = { 0.26, 0.884, -0.387 } },
     LUNAR       = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.08, 1.08, 1.12 }, ground = { 0.88, 0.88, 0.90 },
-                    foliage = 0, haze = false, fog = 0.2, lut = false, shafts = false, clouds = false },
+                    foliage = 0, haze = false, fog = 0.2, lut = false, shafts = false, clouds = false, aerial = 0, skyGlow = false },
     PIRATE      = { specular = 0.06, gloss = 32, relief = 4, sky = { 1.16, 1.18, 1.28 }, ground = { 0.90, 0.85, 0.76 },
                     foliage = 0.28, meadowCap = false, shadowDip = 0.6, sunDir = { 0.204, 0.692, -0.692 } },
     WAR         = { specular = 0.04, gloss = 20, relief = 5, sky = { 1.12, 1.15, 1.22 }, ground = { 0.80, 0.77, 0.72 },
@@ -183,6 +185,11 @@ ADJUST.hdr = function(v, theme, preset, state)
     if theme.bloom then v.bloom = math.min(v.bloom, theme.bloom) end
     v.fogAmount = v.fogAmount * (theme.fog or 1)
     if theme.sunTint then v.sunTint = theme.sunTint end
+    if theme.aerial then v.aerial = theme.aerial end
+    if theme.skyGlow == false then
+        v.horizonGlow = 0
+        v.skyDepth = 0
+    end
     if theme.hazeSaturation then v.hazeSaturation = theme.hazeSaturation end
     if theme.skySaturation then v.skySaturation = theme.skySaturation end
     if theme.lut == false then v.lutAmount = 0 elseif theme.lut then v.lutAmount = v.lutAmount * theme.lut end
@@ -253,6 +260,9 @@ local function applyLighting(l, m, on, foliage)
     landscapeParam("sunstoneTint", (l.tint or 0) * (m.tint or 1))
     landscapeParam("sunstoneFoliage", (l.meadow or 0) * green)
     landscapeParam("sunstoneFoliageCap", (green > 0 and m.meadowCap ~= false) and 1 or 0)
+    landscapeParam("sunstoneShadeShift", l.shadeShift or 1)
+    landscapeParam("sunstoneTuft", (l.tuft or 0) * math.min(green, 1))
+    landscapeParam("sunstoneSheen", (l.sheen or 0) * math.min(green, 1))
     modelParam("sunstoneLight", lit)
     modelParam("sunstoneRim", l.modelRim)
     modelParam("sunstoneSky", spread(m.sky, k))
@@ -285,6 +295,7 @@ local function applyWater(w, on)
         waterParam("sunstoneWaterCaustics", w.caustics or 0)
         waterParam("sunstoneWaterCrest", w.crest or 0)
         waterParam("sunstoneWaterDispersion", w.dispersion or 0)
+        waterParam("sunstoneWaterSmooth", w.smooth or 0)
     end
     pcall(wum.shaders.enableGlsl, "Water.cg", "WaterFragmentMain", enabled == true)
 end

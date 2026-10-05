@@ -9,6 +9,7 @@ uniform mat4 mg_invProj;
 uniform vec4 mg_resolution;
 uniform vec2 mg_nearFar;
 uniform float p_sunlitFade;
+uniform float p_contactKeep;
 uniform float p_contactStrength;
 uniform vec3 p_contactTint;
 uniform int p_debug;
@@ -75,7 +76,8 @@ void main() {
     vec3 a = 2.0404 * lin - 0.3324, b = -4.7951 * lin + 0.6417, c = 2.7552 * lin + 0.6903;
     vec3 vis = max(vec3(ao), ((ao * a + b) * ao + c) * ao);
     float luma = dot(scene.rgb, vec3(0.2126, 0.7152, 0.0722));
-    vis = mix(vis, vec3(1.0), p_sunlitFade * smoothstep(0.5, 0.9, luma));
+    // Deep occlusion (the ground right under a worm or a prop) stays on bright sunlit surfaces too.
+    vis = mix(vis, vec3(1.0), p_sunlitFade * smoothstep(0.5, 0.9, luma) * smoothstep(1.0 - max(p_contactKeep, 0.01), 1.0, ao));
     vec3 shade = mix(vec3(1.0), (1.0 - p_contactStrength) * p_contactTint, occ);
     lin *= vis * shade;
     gl_FragColor = vec4(pow(clamp(lin, 0.0, 1.0), vec3(1.0 / 2.2)), scene.a);

@@ -41,6 +41,10 @@ uniform float sunstoneGreenSpec;       // specular reduction on green surfaces
 uniform float sunstoneGreenWarm;       // warmer sunlight and cooler shade on green surfaces
 uniform float sunstoneFoliage;         // meadow hue shift toward yellow-green (degrees)
 uniform float sunstoneFoliageCap;      // meadow chroma cap (0 none)
+uniform float sunstoneShadeShift;      // share of the meadow hue shift kept in shade
+uniform float sunstoneTuft;            // tufts on green surfaces: brightness variation along the wind (+/- this fraction)
+uniform float sunstoneSheen;           // sky sheen on green surfaces at grazing angles
+uniform float sunstoneRollHue;         // highlight roll-off: 0 per channel (the game's hues), 1 hue-preserving
 uniform vec3 sunstoneSunTint;          // tint of the direct light
 uniform vec3 sunstoneShadowTint;       // tint of the ambient light inside shadows
 uniform float sunstoneTint;            // how far the two tints apply (0 none)
@@ -213,13 +217,13 @@ vec3 Hsv(float h, float s, float v) {
 
 // Pulls the meadow's saturated mid greens toward yellow-green and caps their chroma; green is the texture's foliage
 // weight, so painted props and water never move.
-vec3 Meadow(vec3 c, float green) {
+vec3 Meadow(vec3 c, float green, float lit) {
     if (sunstoneFoliage <= 0.0 || green <= 0.0) return c;
     float S, H = Hue(c, S);
     float mx = max(c.r, max(c.g, c.b));
     float w = smoothstep(0.25, 0.45, S) * smoothstep(100.0, 125.0, H) * (1.0 - smoothstep(155.0, 175.0, H)) * green;
     S = mix(S, min(S, 0.35 + (S - 0.35) * 0.4), w * sunstoneFoliageCap);
-    return Hsv(H - sunstoneFoliage * w, S, mx * (1.0 - 0.08 * w * sunstoneFoliageCap));
+    return Hsv(H - sunstoneFoliage * w * mix(sunstoneShadeShift, 1.0, lit), S, mx * (1.0 - 0.08 * w * sunstoneFoliageCap));
 }
 
 vec3 GameLight(vec3 n, vec3 v, vec3 l, float lit, vec3 albedo) {
@@ -235,9 +239,10 @@ vec3 SunstoneLight(vec3 n, vec3 v, vec3 l, vec3 up, float lit, vec3 albedo, floa
     float ndl = max(dot(n, l), 0.0);
     float wrap = sunstoneGrassWrap * green;
     float ndlWrapped = max((dot(n, l) + wrap) / (1.0 + wrap), 0.0);
-    float warm = sunstoneGreenWarm * green;
+    // Canopies and steep banks take less of the warm light, so sunlit tree tops do not turn lime.
+    float warm = sunstoneGreenWarm * green * mix(0.3, 1.0, smoothstep(0.35, 0.85, dot(n, up)));
     vec3 sun = globalDiffuse * mix(vec3(1.0), sunstoneSunTint, sunstoneTint) * sunstoneSunGain * mix(vec3(1.0), vec3(1.08, 1.0, 0.78), warm);
-    vec3 shadowTint = mix(vec3(1.0), sunstoneShadowTint, sunstoneTint) * mix(vec3(1.0), vec3(0.96, 1.0, 1.08), warm);
+    vec3 shadowTint = mix(vec3(1.0), sunstoneShadowTint, sunstoneTint) * mix(vec3(1.0), vec3(0.9, 1.0, 1.14), warm);
     float f0 = sunstoneSpecular * gloss;
     float power = max(sunstoneGloss, 1.0);
     vec3 h = normalize(l + v);
@@ -261,12 +266,15 @@ vec3 SunstoneLight(vec3 n, vec3 v, vec3 l, vec3 up, float lit, vec3 albedo, floa
 }
 
 // Brightness above the knee rolls off toward white, as film does, so bright sand and stone stay pale rather than
-// clipping per channel or turning orange.
+// clipping. Rolled per channel, bright warm surfaces turn yellower as the game's clipped lighting draws them;
+// sunstoneRollHue blends toward a roll-off that keeps the hue.
 vec3 Shoulder(vec3 c) {
     float m = max(c.r, max(c.g, c.b));
     if (m <= 0.85) return c;
     float r = 0.85 + 0.15 * (1.0 - exp((0.85 - m) / 0.15));
-    return mix(c * (r / m), vec3(r), clamp((m - 0.85) / m, 0.0, 1.0));
+    vec3 kept = mix(c * (r / m), vec3(r), clamp((m - 0.85) / m, 0.0, 1.0));
+    vec3 each = mix(c, 0.85 + 0.15 * (1.0 - exp((0.85 - c) / 0.15)), step(0.85, c));
+    return mix(each, kept, sunstoneRollHue);
 }
 
 vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
@@ -304,8 +312,9 @@ vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
         // World-space detail: independent of the texture's texels, so it only adds where the texture is magnified
         // and fades with distance.
         float green = smoothstep(0.05, 0.15, tex.g - max(tex.r, tex.b));
-        // Full shift on level ground (meadows), less on steep and rounded foliage (tree canopies, bushes).
-        albedo = Meadow(albedo, green * mix(0.55, 1.0, smoothstep(0.35, 0.85, dot(n, up))));
+        lit = Shadow(gl_TexCoord[4], shadowMode, dot(n, l));
+        // Full shift on level ground (meadows), less on steep and rounded foliage (tree canopies, bushes) and in shade.
+        albedo = Meadow(albedo, green * mix(0.4, 1.0, smoothstep(0.35, 0.85, dot(n, up))), lit);
         float detail = 0.0;
         if (dot(view[1].xyz, view[1].xyz) > 0.25) {
             mat3 rot = mat3(view);
@@ -325,14 +334,26 @@ vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
             vec3 hueTint = mix(mix(vec3(1.0), vec3(0.94, 1.0, 1.08), 1.0 - smoothstep(0.15, 0.5, hp)), vec3(1.12, 1.03, 0.76),
                                smoothstep(0.5, 0.85, hp));
             albedo *= mix(vec3(1.0), hueTint, sunstonePatchHue * green);
+            // Tufts streaked along the wind, from broad gusts down to clumps of blades: darker in the gaps and
+            // warmer on top, each octave faded before it would shimmer.
+            vec2 wind = mat2(0.8, 0.6, -0.6, 0.8) * wuv;
+            float fp = max(fwidth(wuv.x), fwidth(wuv.y));
+            float ta = (1.0 - smoothstep(4.0, 8.0, fp)) * (NoiseD(wind * vec2(0.025, 0.08)).x - 0.5);
+            float tb = (1.0 - smoothstep(1.2, 2.4, fp)) * (NoiseD(wind * vec2(0.08, 0.28) + 5.7).x - 0.5);
+            float tc = (1.0 - smoothstep(0.4, 0.8, fp)) * (NoiseD(wind * vec2(0.25, 0.9) + 2.3).x - 0.5);
+            float tuft = (0.8 * ta + 0.9 * tb + 0.8 * tc) * sunstoneTuft * green;
+            albedo *= 1.0 + tuft * 2.0 * vec3(1.05, 1.0, 0.75);
             detail = dn.x * dw;
             if (sunstoneDebug > 0.5 && sunstoneDebug < 1.5) return vec4(fract(pw / 100.0), 1.0);
         }
         if (sunstoneDebug > 1.5 && sunstoneDebug < 2.5) return vec4(vec3(0.5 + 0.5 * detail), 1.0);
         if (sunstoneDebug > 2.5) return vec4(vec3(green), 1.0);
-        lit = Shadow(gl_TexCoord[4], shadowMode, dot(n, l));
         float gloss = (0.5 + h0) * (1.0 - sunstoneGreenSpec * green);
-        c = Shoulder(SunstoneLight(nb, v, l, up, lit, albedo, gloss, green));
+        c = SunstoneLight(nb, v, l, up, lit, albedo, gloss, green);
+        // Grass catches the sky at grazing angles.
+        float graze = pow(1.0 - max(dot(nb, v), 0.0), 4.0);
+        c += globalAmbient * sunstoneSky * (sunstoneSheen * green * graze * (0.5 + 0.5 * lit));
+        c = Shoulder(c);
     }
     if (showShadow) return vec4(vec3(lit), 1.0);
     vec4 o = vec4(clamp(c, 0.0, 1.0), tex.a);

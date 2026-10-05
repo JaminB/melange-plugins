@@ -51,8 +51,12 @@ vec3 Hsv(float h, float s, float v) {
     return v * mix(vec3(1.0), k, s);
 }
 
+// How much the surface faces the sun (0..1) and the sky (0..1), set by Light().
+float leafSun = 1.0;
+float leafSky = 0.5;
+
 // A gentler pull of leaf greens toward yellow-green, with no chroma cap; very saturated greens (painted drums) keep
-// their colour.
+// their colour. Leaves turned from the sun stay a cooler green, and canopy tops seen from above shift less.
 vec3 Foliage(vec3 c) {
     if (sunstoneFoliage <= 0.0 || GameTerms()) return c;
     float S, H = Hue(c, S);
@@ -60,7 +64,8 @@ vec3 Foliage(vec3 c) {
     w *= 1.0 - smoothstep(0.55, 0.65, S) * (1.0 - smoothstep(120.0, 130.0, H));
     // Glossy materials are painted props, not leaves.
     w *= 1.0 - smoothstep(0.15, 0.4, dot(materialMatrix[0].xyz, vec3(0.333)));
-    return Hsv(H - sunstoneFoliage * w, S, max(c.r, max(c.g, c.b)));
+    float shift = mix(0.4, 1.0, leafSun) * (1.0 - 0.5 * smoothstep(0.85, 0.97, leafSky));
+    return Hsv(H - sunstoneFoliage * w * shift, S, max(c.r, max(c.g, c.b))) * mix(vec3(1.0), vec3(0.93, 1.0, 1.1), w * (1.0 - leafSun));
 }
 
 // The rim light, kept apart so it can take on the surface's colour.
@@ -91,6 +96,8 @@ void Light(out vec3 base, out vec3 add) {
     float w = sunstoneWrap;
     float diffuse = clamp((ndl + w) / (1.0 + w), 0.0, 1.0);
     float sky = dot(n, up) * 0.5 + 0.5;
+    leafSun = smoothstep(-0.1, 0.5, ndl);
+    leafSky = sky;
     vec3 ambient = lightAmbientCol * sunstoneAmbientGain * mix(sunstoneGround, sunstoneSky, sky)
         * mix(vec3(1.0), sunstoneShadowTint, sunstoneTint) * mix(1.0 - sunstoneGroundDip, 1.0, sky);
 
