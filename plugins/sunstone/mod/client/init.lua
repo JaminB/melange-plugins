@@ -9,7 +9,7 @@ local BASE = {
     ssao    = { radius = 32, intensity = 1.2, bias = 0.05, maxDistance = 1500, nearFade = 80, slices = 2, steps = 4,
                 sunlitFade = 0.5, sunAmount = 1, contactStrength = 0, contactLength = 26, contactThickness = 10,
                 contactSteps = 10 },
-    hdr     = { foliage = 1, expandSurface = 2, expandSpec = 3, expandSky = 2.6, cloudShadow = 0.12, fogAmount = 1,
+    hdr     = { foliage = 1, expandSurface = 2, expandSpec = 2, expandSky = 2.6, cloudShadow = 0.12, fogAmount = 1,
                 sunTint = 0.5, sunGlow = 1, sunDisc = 0, shafts = 0.35, dof = 1, bloom = 0.06, dirt = 0.4,
                 flare = 0.03, clarity = 0.4, exposure = 0.35, vignette = 0.16, tsContrast = 1.08, saturation = 1,
                 vibrance = 0.15, lutAmount = 0.25, look = 0, skyGrade = 0.25, dither = 1 },
@@ -70,7 +70,7 @@ local PRESETS = {
                      ambientGain = 1.0, shadowAmbient = 0.25, modelSunGain = 1.12, modelAmbientGain = 0.9,
                      hemisphere = 1.25, detail = 0.06, detailBump = 0.25, grassWrap = 0.3, transmit = 0.15,
                      patch = 0.05, patchHue = 0.6, greenSpec = 0.7, tint = 1, groundDip = 0.25 },
-        water   = { enabled = true, waves = 0.45, glint = 0.7, foam = 0.9, rich = 0.25, ssr = 1, ssrCap = 0.5,
+        water   = { enabled = true, waves = 0.3, glint = 0.5, foam = 0.9, rich = 0.25, ssr = 1, ssrCap = 0.5,
                     caustics = 0.6, crest = 0.6, dispersion = 1 },
     },
 }
