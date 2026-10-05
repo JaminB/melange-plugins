@@ -119,16 +119,16 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- foliage (how far the green band is pulled toward natural greens), highlight expansion, exposure (stops), a
 -- contrast scale, a vibrance cap, a bloom cap, a fog scale, the haze's sun tint, whether the sun lights the AO and
 -- contact shadows, and whether the warm LUT, shafts and cloud shadows apply (themes cool or violet by design skip
--- the LUT).
+-- the LUT; a number scales it).
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
 -- Ambient tint inside sun shadows: cool skylight, near neutral where it would turn snow blue.
 local SHADOW_TINT = { 0.9, 0.96, 1.1 }
 local THEMES = {
     ARABIAN     = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.14, 1.15, 1.22 }, ground = { 0.90, 0.85, 0.76 },
-                    foliage = 0.5, sunTint = 0.3 },
+                    foliage = 0.5, sunTint = 0.3, lut = 0.4 },
     WILDWEST    = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.14, 1.15, 1.22 }, ground = { 0.88, 0.81, 0.72 },
-                    foliage = 0.5, sunTint = 0.3 },
+                    foliage = 0.5, sunTint = 0.3, lut = 0.4 },
     CAMELOT     = { specular = 0.05, gloss = 24, relief = 4, sky = { 1.14, 1.18, 1.28 }, ground = { 0.86, 0.84, 0.76 },
                     foliage = 1 },
     PREHISTORIC = { specular = 0.06, gloss = 20, relief = 5, sky = { 1.14, 1.18, 1.26 }, ground = { 0.86, 0.84, 0.76 },
@@ -175,7 +175,7 @@ ADJUST.hdr = function(v, theme, preset, state)
     if theme.sunTint then v.sunTint = theme.sunTint end
     if theme.hazeSaturation then v.hazeSaturation = theme.hazeSaturation end
     if theme.skySaturation then v.skySaturation = theme.skySaturation end
-    if theme.lut == false then v.lutAmount = 0 end
+    if theme.lut == false then v.lutAmount = 0 elseif theme.lut then v.lutAmount = v.lutAmount * theme.lut end
     if theme.shafts == false then v.shafts = 0 end
     if theme.clouds == false then v.cloudShadow = 0 end
     if not state.dof then v.dof = 0 end
