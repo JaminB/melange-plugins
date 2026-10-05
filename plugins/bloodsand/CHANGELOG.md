@@ -1,3 +1,12 @@
+## 1.1.0
+
+Badly hurt worms now show it in three more ways. Their eyes blacken as health falls: one eye first, then both. Worms
+at a quarter of their health or less occasionally throw up blood. Some worms, picked at random each match, have their
+intestines out once they are badly wounded: coils in a torn belly and a loop hanging from it that swings as the worm
+moves. Blood, wounds and the new marks now turn with the way a worm faces, not the way it last walked. Needs Melange
+0.3.5 or later, which gives plugins a worm's facing angle (`yaw` in `wum.game.worms()`). New settings: Worms throw up
+blood and Intestines; black eyes follow Blood on worms.
+
 ## 1.0.0
 
 First release. Worms throw blood the moment they are hurt, away from the explosion and sized by the damage, bleed for
