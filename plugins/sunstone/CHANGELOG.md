@@ -1,3 +1,23 @@
+## 2.0.0
+
+- Natural greens: grass and foliage move from neon toward meadow greens, while gas, barrels, water and sky keep
+  their colours. The amount is set per theme and is off on Arctic, Lunar and Horror.
+- Light and grade are now worked out in linear light with the highlights expanded back toward their real range: a
+  display transform that rolls bright colours softly to white, fog that thickens with distance and height and warms
+  toward the sun, a sky gradient and sun glow, drifting cloud shadows, light shafts, a gentle distance blur, bloom
+  without a threshold, faint lens dirt and flare, and a blue-noise dither against banding. This replaces the
+  separate grade, aerial perspective, bloom and sky glow effects.
+- Ambient occlusion is horizon-based, with short contact shadows toward the sun under worms and props, applied in
+  linear light with a lift on bright surfaces.
+- The landscape gets fine world-space detail, softer light through grass and a warm sun with cooler shadows; worms
+  and props get the same sun and shadow tints and darker undersides.
+- The sea reflects the scenery, shows caustics in the shallows, lifts its sun-facing crests and splits colour
+  slightly where it bends the light.
+- A light lens finish on Bold: colour fringes toward the corners and fine film grain. New settings turn the distance
+  blur, the grain and the lens effects off.
+- Low uses a single-pass version of the new colour and grade. Ultra runs the heavier effects at half their usual
+  scale against the supersampled scene, so it costs less than Bold would at that size.
+
 ## 1.7.0
 
 - Bold water keeps the hue of the game's own sea on every theme, only deeper and more saturated: Horror's olive

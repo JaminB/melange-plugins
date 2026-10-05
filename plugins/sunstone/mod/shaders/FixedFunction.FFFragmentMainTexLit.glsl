@@ -17,6 +17,10 @@ uniform float sunstoneSpecular;     // scale of the material's specular
 uniform float sunstoneRim;          // rim light strength
 uniform float sunstoneSunGain;      // sun (diffuse) gain
 uniform float sunstoneAmbientGain;  // ambient gain
+uniform vec3 sunstoneSunTint;       // tint of the direct light
+uniform vec3 sunstoneShadowTint;    // tint of the ambient light
+uniform float sunstoneTint;         // how far the two tints apply (0 none)
+uniform float sunstoneGroundDip;    // ambient dip on surfaces facing down (0 none)
 uniform float sunstoneSplit;        // pixels left of this x keep the game's lighting (comparisons)
 
 bool GameTerms() {
@@ -59,7 +63,8 @@ void Light(out vec3 base, out vec3 add) {
     float w = sunstoneWrap;
     float diffuse = clamp((ndl + w) / (1.0 + w), 0.0, 1.0);
     float sky = dot(n, up) * 0.5 + 0.5;
-    vec3 ambient = lightAmbientCol * sunstoneAmbientGain * mix(sunstoneGround, sunstoneSky, sky);
+    vec3 ambient = lightAmbientCol * sunstoneAmbientGain * mix(sunstoneGround, sunstoneSky, sky)
+        * mix(vec3(1.0), sunstoneShadowTint, sunstoneTint) * mix(1.0 - sunstoneGroundDip, 1.0, sky);
 
     float p = max(power, 1.0);
     float shine = power > 0.0 ? (p + 8.0) / 8.0 * pow(ndh, p) * max(ndl, 0.0) : 0.0;
@@ -71,7 +76,7 @@ void Light(out vec3 base, out vec3 add) {
     vec3 rim = sunstoneRim * edge * (lightAmbientCol * sunstoneSky * 0.6 + lightDiffuseCol * (0.2 + back)) * (0.4 + 0.6 * sky);
 
     float keep = 1.0 - clamp(dot(specCol, vec3(0.333)) * sunstoneSpecular * 0.5, 0.0, 0.5);
-    base = lightDiffuseCol * sunstoneSunGain * diffuse * keep + ambient + emissive;
+    base = lightDiffuseCol * mix(vec3(1.0), sunstoneSunTint, sunstoneTint) * sunstoneSunGain * diffuse * keep + ambient + emissive;
     add = spec + rim + rimCol * gameRim * 0.5;
 }
 

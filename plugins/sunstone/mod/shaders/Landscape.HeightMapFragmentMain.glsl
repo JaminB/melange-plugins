@@ -1,6 +1,7 @@
 #version 130
 // Sunstone landscape lighting (heightmap variant: the vertex colour only carries alpha). Hemispheric ambient,
-// energy-conserving Blinn-Phong, a rim light and texture relief over contact-hardening soft shadows.
+// energy-conserving Blinn-Phong, a rim light, texture relief and world-space detail, with foliage-aware diffuse,
+// over contact-hardening soft shadows.
 uniform sampler2D texture0;
 uniform sampler2DShadow shadowMap;
 uniform vec3 shadowSize;
@@ -8,7 +9,8 @@ uniform vec3 globalDiffuse;
 uniform vec3 globalAmbient;
 uniform vec3 globalSpecular;
 uniform vec3 globalFresnel;
-// The vertex program's view matrix; column 1 is the world's up axis in eye space.
+// The vertex program's view matrix: columns 0-2 are the world's axes in eye space (column 1 is up), column 3 the
+// translation.
 uniform mat4 view;
 
 // Tunables (shaders/params.ini). Shadow mode 0 = the game's own 3x3 filter, 1 = soft, 2 = soft with contact
@@ -28,6 +30,17 @@ uniform float sunstoneReliefFade;      // distance at which the relief has faded
 uniform float sunstoneSunGain;         // sun (diffuse) gain
 uniform float sunstoneAmbientGain;     // ambient gain
 uniform float sunstoneShadowAmbient;   // ambient dip inside sun shadows
+uniform float sunstoneDetail;          // luminance variation of the world-space detail noise (+/- this fraction)
+uniform float sunstoneDetailBump;      // micro-normal strength of the detail noise
+uniform float sunstoneDetailFade;      // distance at which the detail has faded out
+uniform float sunstoneGrassWrap;       // diffuse wrap on green surfaces
+uniform float sunstoneTransmit;        // back-transmission through green surfaces
+uniform float sunstonePatch;           // low-frequency brightness patches on green surfaces (+/- this fraction)
+uniform float sunstoneGreenSpec;       // specular reduction on green surfaces
+uniform vec3 sunstoneSunTint;          // tint of the direct light
+uniform vec3 sunstoneShadowTint;       // tint of the ambient light inside shadows
+uniform float sunstoneTint;            // how far the two tints apply (0 none)
+uniform float sunstoneDebug;           // 1 world position (fract(pos / 100)); 2 detail; 3 green mask
 uniform float sunstoneSplit;           // pixels left of this x keep the game's lighting and shadows (comparisons)
 uniform float sunstoneRenderScale;      // the scene over the window: 2 at 2x2 supersampling (set by init.lua)
 
@@ -122,6 +135,49 @@ float Shadow(vec4 sp, float mode, float nl) {
 
 float Luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
+float Hash(vec2 p) {
+    vec3 q = fract(vec3(p.xyx) * 0.1031);
+    q += dot(q, q.yzx + 33.33);
+    return fract((q.x + q.y) * q.z);
+}
+
+// Value noise in x (0..1) and its derivative in yz.
+vec3 NoiseD(vec2 x) {
+    vec2 i = floor(x), f = fract(x);
+    vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    vec2 du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+    float a = Hash(i), b = Hash(i + vec2(1.0, 0.0)), c = Hash(i + vec2(0.0, 1.0)), d = Hash(i + vec2(1.0, 1.0));
+    float k1 = b - a, k2 = c - a, k4 = a - b - c + d;
+    return vec3(a + k1 * u.x + k2 * u.y + k4 * u.x * u.y, du * vec2(k1 + k4 * u.y, k2 + k4 * u.x));
+}
+
+// World position projected on the plane most facing the surface; ax0 and ax1 are the world axes of the plane.
+vec2 Project(vec3 pw, vec3 nw, out vec3 ax0, out vec3 ax1) {
+    vec3 a = abs(nw);
+    if (a.y >= a.x && a.y >= a.z) {
+        ax0 = vec3(1.0, 0.0, 0.0);
+        ax1 = vec3(0.0, 0.0, 1.0);
+    } else if (a.x >= a.z) {
+        ax0 = vec3(0.0, 0.0, 1.0);
+        ax1 = vec3(0.0, 1.0, 0.0);
+    } else {
+        ax0 = vec3(1.0, 0.0, 0.0);
+        ax1 = vec3(0.0, 1.0, 0.0);
+    }
+    return vec2(dot(pw, ax0), dot(pw, ax1));
+}
+
+// Two octaves (periods 6 and 1.5 world units), each faded out once a pixel covers a quarter of its period so it
+// never shimmers. Returns the centred value (about -1..1) in x and its gradient per world unit in yz.
+vec3 DetailNoise(vec2 uv, float footprint) {
+    vec3 a = NoiseD(uv / 6.0), b = NoiseD(uv / 1.5);
+    float wa = 0.65 * (1.0 - smoothstep(1.5, 4.5, footprint));
+    float wb = 0.35 * (1.0 - smoothstep(0.375, 1.125, footprint));
+    float v = wa * a.x + wb * b.x - 0.5 * (wa + wb);
+    vec2 g = wa * a.yz / 6.0 + wb * b.yz / 1.5;
+    return vec3(2.0 * v, 2.0 * g);
+}
+
 // Bump from the texture's brightness: brighter texels stand proud by up to `depth` world units. The surface gradient
 // is built from screen-space derivatives of the eye-space position, so no tangents are needed.
 vec3 Relief(vec3 n, vec3 p, vec2 uv, float h0, float depth) {
@@ -146,8 +202,13 @@ vec3 GameLight(vec3 n, vec3 v, vec3 l, float lit, vec3 albedo) {
     return (globalDiffuse * ndl + globalAmbient) * albedo + add;
 }
 
-vec3 SunstoneLight(vec3 n, vec3 v, vec3 l, vec3 up, float lit, vec3 albedo, float gloss) {
+// green is the foliage weight (0..1): wrapped diffuse and back-transmission apply to it only.
+vec3 SunstoneLight(vec3 n, vec3 v, vec3 l, vec3 up, float lit, vec3 albedo, float gloss, float green) {
     float ndl = max(dot(n, l), 0.0);
+    float wrap = sunstoneGrassWrap * green;
+    float ndlWrapped = max((dot(n, l) + wrap) / (1.0 + wrap), 0.0);
+    vec3 sun = globalDiffuse * mix(vec3(1.0), sunstoneSunTint, sunstoneTint) * sunstoneSunGain;
+    vec3 shadowTint = mix(vec3(1.0), sunstoneShadowTint, sunstoneTint);
     float f0 = sunstoneSpecular * gloss;
     float power = max(sunstoneGloss, 1.0);
     vec3 h = normalize(l + v);
@@ -158,13 +219,16 @@ vec3 SunstoneLight(vec3 n, vec3 v, vec3 l, vec3 up, float lit, vec3 albedo, floa
     float s = sky * sky * (3.0 - 2.0 * sky);
     vec3 ambient = globalAmbient * sunstoneAmbientGain * mix(sunstoneGround, sunstoneSky, s);
     ambient *= 1.0 - sunstoneShadowAmbient * (1.0 - lit) * clamp(dot(up, l) * 2.0, 0.0, 1.0);
+    ambient *= mix(vec3(1.0), shadowTint, 1.0 - lit);
 
     float edge = pow(max(1.0 - max(dot(n, v), 0.0), 0.0), 3.0);
     float back = clamp(0.5 - 0.5 * dot(v, l), 0.0, 1.0);
     vec3 rim = sunstoneRim * edge * back * lit * globalDiffuse;
 
-    vec3 diffuse = globalDiffuse * sunstoneSunGain * ndl * lit * (1.0 - f0);
-    return (diffuse + ambient + rim) * albedo + globalSpecular * spec;
+    vec3 diffuse = sun * ndlWrapped * lit * (1.0 - f0);
+    float through = pow(clamp(dot(v, -l), 0.0, 1.0), 2.0);
+    vec3 transmit = sun * vec3(0.5, 0.6, 0.1) * (sunstoneTransmit * green * through * lit);
+    return (diffuse + ambient + rim + transmit) * albedo + globalSpecular * spec;
 }
 
 // Brightness above the knee rolls off toward white, as film does, so bright sand and stone stay pale rather than
@@ -199,14 +263,40 @@ vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
         up = dot(up, up) > 0.25 ? normalize(up) : l;
         float h0 = Luma(tex.rgb);
         vec3 p = -gl_TexCoord[1].xyz;
-        float fade = 1.0 - smoothstep(0.25, 1.0, length(p) / max(sunstoneReliefFade, 1.0));
-        fade *= smoothstep(0.04, 0.2, dot(n, v));
+        float dist = length(p);
+        float facing = smoothstep(0.04, 0.2, dot(n, v));
+        float fade = (1.0 - smoothstep(0.25, 1.0, dist / max(sunstoneReliefFade, 1.0))) * facing;
         // Where a texel spans several pixels the relief would only emboss the texel grid, so it fades out.
         vec2 texels = vec2(textureSize(texture0, 0));
-        fade *= smoothstep(0.5, 1.0, max(length(dFdx(uv) * texels), length(dFdy(uv) * texels)) * max(sunstoneRenderScale, 1.0));
+        float texelsPerPixel = max(length(dFdx(uv) * texels), length(dFdy(uv) * texels)) * max(sunstoneRenderScale, 1.0);
+        fade *= smoothstep(0.5, 1.0, texelsPerPixel);
         vec3 nb = Relief(n, p, uv, h0, sunstoneRelief * fade);
+
+        // World-space detail: independent of the texture's texels, so it only adds where the texture is magnified
+        // and fades with distance.
+        float green = smoothstep(0.05, 0.15, tex.g - max(tex.r, tex.b));
+        float detail = 0.0;
+        if (dot(view[1].xyz, view[1].xyz) > 0.25) {
+            mat3 rot = mat3(view);
+            vec3 pw = transpose(rot) * (p - view[3].xyz);
+            vec3 ax0, ax1;
+            vec2 wuv = Project(pw, transpose(rot) * n, ax0, ax1);
+            float reach = max(sunstoneDetailFade, 1.0);
+            float dw = mix(0.35, 1.0, 1.0 - smoothstep(0.5, 1.0, texelsPerPixel))
+                * (1.0 - smoothstep(0.375 * reach, reach, dist)) * facing;
+            vec3 dn = DetailNoise(wuv, max(fwidth(wuv.x), fwidth(wuv.y)));
+            vec3 ge = rot * (dn.y * ax0 + dn.z * ax1);
+            nb = normalize(nb - sunstoneDetailBump * dw * (ge - nb * dot(ge, nb)));
+            albedo *= 1.0 + sunstoneDetail * dw * dn.x;
+            albedo *= 1.0 + sunstonePatch * green * 2.0 * (NoiseD(wuv / 80.0).x - 0.5);
+            detail = dn.x * dw;
+            if (sunstoneDebug > 0.5 && sunstoneDebug < 1.5) return vec4(fract(pw / 100.0), 1.0);
+        }
+        if (sunstoneDebug > 1.5 && sunstoneDebug < 2.5) return vec4(vec3(0.5 + 0.5 * detail), 1.0);
+        if (sunstoneDebug > 2.5) return vec4(vec3(green), 1.0);
         lit = Shadow(gl_TexCoord[4], shadowMode, dot(n, l));
-        c = Shoulder(SunstoneLight(nb, v, l, up, lit, albedo, 0.5 + h0));
+        float gloss = (0.5 + h0) * (1.0 - sunstoneGreenSpec * green);
+        c = Shoulder(SunstoneLight(nb, v, l, up, lit, albedo, gloss, green));
     }
     if (showShadow) return vec4(vec3(lit), 1.0);
     vec4 o = vec4(clamp(c, 0.0, 1.0), tex.a);
