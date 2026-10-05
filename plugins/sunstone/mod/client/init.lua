@@ -131,10 +131,11 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- skyGlow = false keeps the sky's own gradient (no horizon glow or deeper zenith). waterDeep tints the deep sea,
 -- waterReflect scales its sky reflection and waterClarity is how deep the sea floor shows (world units).
 -- sunGlow replaces the glow around the sun, whitePoint and whiteAmount keep bright sand below white, and
--- shadeChroma is how much colour shade keeps.
+-- shadeChroma is how much colour shade keeps. sunColour and shadowTint replace the warm sun and cool shade tints.
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
--- Ambient tint inside sun shadows: cool skylight.
+-- Landscape sun tint and the ambient tint inside sun shadows: warm sun, cool skylight.
+local SUN_TINT = { 1.06, 1, 0.9 }
 local SHADOW_TINT = { 0.85, 0.93, 1.14 }
 local THEMES = {
     ARABIAN     = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.14, 1.15, 1.22 }, ground = { 0.90, 0.85, 0.76 },
@@ -146,8 +147,9 @@ local THEMES = {
                     foliage = 1, tint = 0, shadeChroma = 0.25, sunDir = { 0, 0.742, -0.670 } },
     PREHISTORIC = { specular = 0.06, gloss = 20, relief = 5, sky = { 1.14, 1.18, 1.26 }, ground = { 0.86, 0.84, 0.76 },
                     foliage = 1, tint = 0, shadeChroma = 0, sunDir = { 0.060, 0.492, -0.869 } },
-    BUILDING    = { specular = 0.10, gloss = 40, relief = 2.5, sky = { 1.12, 1.15, 1.22 }, ground = { 0.84, 0.82, 0.80 },
-                    foliage = 0.8 },
+    BUILDING    = { specular = 0.10, gloss = 40, relief = 0.8, sky = { 1.14, 1.16, 1.12 }, ground = { 0.84, 0.82, 0.80 },
+                    foliage = 0.8, lut = false, fog = 0.15, hazeSaturation = 1.2, sunColour = { 0.96, 1.04, 0.92 }, shadowTint = { 0.98, 1.02, 0.97 }, shadeChroma = 0,
+                    sunDir = { 0, 0.678, -0.734 } },
     ARCTIC      = { specular = 0.12, gloss = 48, relief = 2.5, sky = { 1.12, 1.13, 1.15 }, ground = { 0.95, 0.95, 0.97 },
                     shadowTint = { 0.85, 0.94, 1.2 }, shadeChroma = 0, lut = false, waterClarity = 6, tint = 0.4, foliage = 0, haze = false, exposure = 0.2, expandSpec = 1, bloom = 0.04, hazeSaturation = 1.2,
                     skySaturation = 1, sunDir = { 0.225, 0.744, -0.629 } },
@@ -254,6 +256,8 @@ local function applyLighting(l, m, on, foliage)
     landscapeParam("sunstoneRim", l.rim)
     landscapeParam("sunstoneSky", spread(m.sky, k))
     landscapeParam("sunstoneGround", spread(m.ground, k))
+    local su = m.sunColour or SUN_TINT
+    landscapeParam("sunstoneSunTint", su[1], su[2], su[3])
     local st = m.shadowTint or SHADOW_TINT
     landscapeParam("sunstoneShadowTint", st[1], st[2], st[3])
     landscapeParam("sunstoneSunGain", l.sunGain or 1)
@@ -383,6 +387,11 @@ local function apply()
     applyLighting(preset.lighting, theme, state.lighting, preset.foliage or 1)
     if wum.shaders then landscapeParam("sunstoneRenderScale", state.scale) end
     applyWater(preset.water, state.water, theme)
+end
+
+-- Effects from Sunstone 1.7 and earlier, which an upgraded install may still have enabled.
+for _, name in ipairs({ "fog", "sky", "bloom", "grade" }) do
+    pcall(wum.postfx.enable, "sunstone/" .. name, false)
 end
 
 apply()
