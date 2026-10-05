@@ -1,13 +1,13 @@
 -- Bloodsand: blood bursts when worms are hit, bleeding afterwards, blood and gaping wounds on the worms' skin,
--- stains on the ground and splatter on the lens.
+-- blackened eyes and intestines on badly hurt worms, vomiting blood, stains on the ground and splatter on the lens.
 --
--- It only reads game state (worm health and positions, damage and explosion messages, the camera) and draws. It
+-- It only reads game state (worm health, positions and facing, damage and explosion messages, the camera) and draws. It
 -- never changes the simulation, sends anything or asks for a permission, so every player sees their own blood.
 --
--- Droplets and mist are world quads drawn from one "world" callback. The ground stains are the bloodsand/stains
--- post-FX effect (eight slots) and the blood and wounds on worms are bloodsand/skin (sixteen slots that follow the
--- worms); both are fed with wum.postfx.setTransient, which writes nothing to Melange.ini. The lens splats are
--- textures drawn at the "hud" stage.
+-- Droplets, mist and the dangling loop of intestines are world quads drawn from one "world" callback. The ground
+-- stains are the bloodsand/stains post-FX effect (eight slots) and the blood, wounds, black eyes and the intestines
+-- painted on a wound are bloodsand/skin (sixteen slots that follow the worms); both are fed with
+-- wum.postfx.setTransient, which writes nothing to Melange.ini. The lens splats are textures drawn at the "hud" stage.
 
 if not (wum.draw and wum.draw.on and wum.game and wum.game.worms) then return end
 
@@ -76,7 +76,9 @@ local SKIN_SLOTS = 16
 local GORE_DAMAGE = 80
 local GORE_FIRST = 0.15         -- the first hit on a worm gives at least this much
 local SKIN_LEAD = 0             -- seconds: extrapolates the body centre along the worm's velocity, to be tuned in game
-local HEADING_SPEED = { 15, 400 } -- the pattern turns toward the direction of travel only between these speeds
+-- The heading is the worm's facing from the game (yaw); only on a Melange without it is it estimated from the walking
+-- direction, and then the pattern turns toward the direction of travel only between these speeds.
+local HEADING_SPEED = { 15, 400 }
 local HEADING_TURN = 8          -- how fast the heading catches up, per second
 local HEADING_RESEND = 0.03     -- radians
 local GORE_RESEND = 0.01
@@ -89,6 +91,53 @@ local WOUND_RESEND = 0.02
 local PREVIEW_WOUND = 0.7         -- the preview gives its worm this wound level, which decays to 0 over PREVIEW_SECS
 local PREVIEW_SECS = 12
 
+-- Black eyes (the shader draws them): the level is 0 at or above EYE.START of the health fraction and 1 at or below
+-- EYE.FULL. They are hidden while the worm is thrown, since its facing no longer says how it lies; eyeShow fades them.
+local EYE = {
+    START = 0.8,
+    FULL = 0.3,
+    FADE = 4,                       -- per second
+    RESEND = 0.02,
+}
+
+-- Intestines: a worm with a wound level above GUT.START may have a loop hanging from its belly, painted by the shader
+-- and drawn as a chain of ribbons here. All to be tuned in game.
+local GUT = {
+    RESEND = 0.02,
+    CHANCE = 0.4,                   -- the share of worms that can show guts at all
+    START = 0.6,                    -- the wound level where the gut starts to show; the level is 1 at wound level 1
+    AZ = 0.9,                       -- the gut's side is random within this many radians of the facing
+    Y = 5.5,                        -- height of the belly above the feet
+    OUT = 5.6,                      -- distance of the anchors from the worm's vertical axis
+    SPREAD = 0.6,                   -- radians between the two anchors
+    DROP = 1.5,                     -- the second anchor sits this much lower
+    POINTS = 7,
+    SEG = { 1.3, 2.6 },             -- segment rest length at gut level 0 and 1
+    WIDTH = 2.2,
+    CORE = 0.6,                     -- the light core's width as a fraction of the width
+    EXTEND = 1.15,                  -- each ribbon runs this much beyond its segment so neighbours overlap
+    GRAVITY = -260,
+    DAMP = 0.92,                    -- velocity kept per step at 60 Hz
+    ITER = 4,
+    JUMP = 60,                      -- the worm moving further than this in a frame was teleported: the loop starts over
+}
+
+-- Vomiting blood: a worm at or below VOMIT.FRAC of its health heaves now and then while at rest.
+local VOMIT = {
+    FRAC = 0.25,
+    FIRST = { 3, 10 },              -- seconds until the first heave after getting there
+    EVERY = { 12, 30 },
+    SECS = 0.9,
+    RATE = 120,                     -- droplets per second at the peak, times the amount's bleed multiplier
+    PER_FRAME = 6,
+    MOUTH_Y = 9.5,                  -- above the feet
+    MOUTH_OUT = 6,                  -- in front of the axis
+    SPEED = { 45, 90 },
+    STAIN = 5,                      -- radius
+    STAIN_OUT = 11,                 -- how far in front of the feet the stain lands
+    GORE = 0.05,
+}
+
 -- Lens splatter.
 local LENS_MAX = 6
 local LENS_MIN_DAMAGE, LENS_NEAR, LENS_DEATH_NEAR = 25, 250, 500
@@ -99,14 +148,15 @@ local LENS_ALPHA = 0.85
 
 local COLOURS = {
     red   = { droplet = { 0.62, 0.03, 0.03 }, mist = { 0.30, 0.01, 0.01 }, stain = { 0.42, 0.02, 0.02 },
-              lens = { 0.55, 0.02, 0.02 } },
+              lens = { 0.55, 0.02, 0.02 }, gut = { 0.86, 0.52, 0.54 }, gutDark = { 0.52, 0.20, 0.24 } },
     green = { droplet = { 0.40, 0.80, 0.12 }, mist = { 0.18, 0.42, 0.05 }, stain = { 0.22, 0.48, 0.05 },
-              lens = { 0.32, 0.68, 0.08 } },
+              lens = { 0.32, 0.68, 0.08 }, gut = { 0.66, 0.72, 0.42 }, gutDark = { 0.30, 0.38, 0.14 } },
 }
 
 local DROPLET, MIST = 1, 2
 
 local sqrt, random, floor, min, max, abs = math.sqrt, math.random, math.floor, math.min, math.max, math.abs
+local sin, cos, pi = math.sin, math.cos, math.pi
 
 local function rnd(a, b) return a + random() * (b - a) end
 
@@ -166,10 +216,11 @@ for i = 1, STAIN_SLOTS do
     NAME_B[i] = "stain" .. (i - 1) .. "b"
 end
 -- Worm slots are numbered from 0, so slot n is at index n + 1.
-local WORM_A, WORM_B = {}, {}
+local WORM_A, WORM_B, WORM_C = {}, {}, {}
 for i = 1, SKIN_SLOTS do
     WORM_A[i] = "worm" .. (i - 1)
     WORM_B[i] = "worm" .. (i - 1) .. "b"
+    WORM_C[i] = "worm" .. (i - 1) .. "c"
 end
 
 -- ---------------------------------------------------------------- ground stains
@@ -435,7 +486,7 @@ local nExp = 0
 local hurtAt, hurtOpen = -100, false
 
 local function newSlot(x, y, z, health, alive)
-    return {
+    local s = {
         health = health, alive = alive, seen = frameId,
         px = x, py = y, pz = z, vx = 0, vy = 0, vz = 0, pt = now,
         ix = 0, iy = 0, iz = 0, iat = -100,
@@ -444,13 +495,26 @@ local function newSlot(x, y, z, health, alive)
         stainRadius = nil, stainAt = 0, restSince = nil,
         gore = 0, heading = 0,
         hmax = health, wound = 0, previewWound = 0,
+        frac = 1, eye = 0, eyeShow = 0, previewEyes = 0,
+        -- The gut is rolled once per slot, so once per match: whether this worm can show one and on which side.
+        hasGut = random() < GUT.CHANCE, gutAz = rnd(-GUT.AZ, GUT.AZ), gut = 0, previewGut = 0,
+        gutLive = false, gutPx = x, gutPy = y, gutPz = z,
+        gx = {}, gy = {}, gz = {}, hx = {}, hy = {}, hz = {},       -- the chain's points and their previous positions
+        vomitAt = nil, vomitStart = 0, vomitUntil = 0, vomitAcc = 0, -- vomitUntil is 0 when no heave is going on
     }
+    for i = 1, GUT.POINTS do
+        s.gx[i], s.gy[i], s.gz[i], s.hx[i], s.hy[i], s.hz[i] = 0, 0, 0, 0, 0, 0
+    end
+    return s
 end
 
--- Forgets damage and bleeding without a burst: for healing, a new round or a worm that came back.
+-- Forgets damage, bleeding, vomiting and the dangling gut without a burst: for healing, a new round or a worm that came
+-- back. The eye and gut levels follow health and the wound level on their own.
 local function resetSlot(s)
     s.credited, s.shownAt, s.bleedUntil, s.bleedRate, s.bleedAcc = 0, -100, 0, 0, 0
     s.stainRadius, s.restSince = nil, nil
+    s.vomitAt, s.vomitUntil, s.vomitAcc = nil, 0, 0
+    s.gutLive = false
 end
 
 local function requestStain(s, radius)
@@ -563,7 +627,13 @@ local function updateMotion(s, x, y, z)
     end
 end
 
--- Turns the blood pattern toward the direction the worm walks, the short way round.
+-- The worm's facing as a unit vector in x and z.
+local function facing(s)
+    return sin(s.heading), cos(s.heading)
+end
+
+-- Only for a Melange that does not report the worm's yaw: turns the blood pattern toward the direction the worm walks,
+-- the short way round.
 local function steerHeading(s, dt)
     local vx, vz = s.vx, s.vz
     local sp2 = vx * vx + vz * vz
@@ -631,26 +701,214 @@ local function settleHealth(s, drop)
 end
 
 -- The worm's wound level this frame: from its health less the damage already shown but not yet taken off by the game,
--- as a fraction of the highest health seen on the slot. Healing raises health, so the wounds close again.
+-- as a fraction of the highest health seen on the slot. Healing raises health, so the wounds close again. The fraction
+-- itself is kept in s.frac (1 when it cannot be worked out and for a dead worm) for the eyes and the vomiting.
 local function updateWound(s, dt)
     if not s.alive then
-        s.wound, s.previewWound = 0, 0
+        s.wound, s.previewWound, s.previewEyes, s.previewGut, s.frac = 0, 0, 0, 0, 1
         return
     end
     if s.health > s.hmax then s.hmax = s.health end
     local credited = s.credited
     if now - s.creditAt > CREDIT_SECS then credited = 0 end
     local w = 0
+    local frac = 1
     if s.hmax > 0 then
-        local frac = max(0, s.health - credited) / s.hmax
+        frac = max(0, s.health - credited) / s.hmax
         w = (WOUND_START - frac) / (WOUND_START - WOUND_FULL)
         if w < 0 then w = 0 elseif w > 1 then w = 1 end
     end
+    s.frac = frac
     if s.previewWound > 0 then
         s.previewWound = max(0, s.previewWound - PREVIEW_WOUND / PREVIEW_SECS * dt)
         if s.previewWound > w then w = s.previewWound end
     end
+    if s.previewEyes > 0 then s.previewEyes = max(0, s.previewEyes - dt / PREVIEW_SECS) end
+    if s.previewGut > 0 then s.previewGut = max(0, s.previewGut - dt / PREVIEW_SECS) end
     s.wound = w
+end
+
+-- The eye level sent to the shader: from the health fraction, faded out while the worm is thrown.
+local function updateEyes(s, dt)
+    if not s.alive then
+        s.eye, s.eyeShow = 0, 0
+        return
+    end
+    local level = (EYE.START - s.frac) / (EYE.START - EYE.FULL)
+    if level < 0 then level = 0 elseif level > 1 then level = 1 end
+    if s.previewEyes > level then level = s.previewEyes end
+    local step = EYE.FADE * dt
+    if s.vx * s.vx + s.vy * s.vy + s.vz * s.vz < REST_SPEED * REST_SPEED then
+        s.eyeShow = min(1, s.eyeShow + step)
+    else
+        s.eyeShow = max(0, s.eyeShow - step)
+    end
+    s.eye = level * s.eyeShow
+end
+
+-- The gut level, and the loop of intestines that hangs from the belly: a Verlet chain pinned at both ends to anchors on
+-- the worm, kept outside the worm's body and above the ground.
+local function updateGut(s, dt)
+    local level = 0
+    if s.alive and cfg.guts then
+        if s.hasGut and s.wound > GUT.START then level = min(1, (s.wound - GUT.START) / (1 - GUT.START)) end
+        if s.previewGut > level then level = s.previewGut end
+    end
+    s.gut = level
+    if level <= 0 then
+        s.gutLive = false
+        return
+    end
+    local px, py, pz = s.px, s.py, s.pz
+    local h = s.heading + s.gutAz
+    local ha, hb = h - GUT.SPREAD * 0.5, h + GUT.SPREAD * 0.5
+    local ax, ay, az = px + GUT.OUT * sin(ha), py + GUT.Y, pz + GUT.OUT * cos(ha)
+    local bx, by, bz = px + GUT.OUT * sin(hb), py + GUT.Y - GUT.DROP, pz + GUT.OUT * cos(hb)
+    local gx, gy, gz, hx, hy, hz = s.gx, s.gy, s.gz, s.hx, s.hy, s.hz
+    local n = GUT.POINTS
+    local jx, jy, jz = px - s.gutPx, py - s.gutPy, pz - s.gutPz
+    s.gutPx, s.gutPy, s.gutPz = px, py, pz
+    if not s.gutLive or jx * jx + jy * jy + jz * jz > GUT.JUMP * GUT.JUMP then
+        -- Starts as a straight line between the anchors, at rest.
+        for i = 1, n do
+            local f = (i - 1) / (n - 1)
+            local x, y, z = ax + (bx - ax) * f, ay + (by - ay) * f, az + (bz - az) * f
+            gx[i], gy[i], gz[i], hx[i], hy[i], hz[i] = x, y, z, x, y, z
+        end
+        s.gutLive = true
+        return
+    end
+    gx[1], gy[1], gz[1], gx[n], gy[n], gz[n] = ax, ay, az, bx, by, bz
+    local damp = GUT.DAMP ^ (dt * 60)
+    local fall = GUT.GRAVITY * dt * dt
+    for i = 2, n - 1 do
+        local x, y, z = gx[i], gy[i], gz[i]
+        gx[i], gy[i], gz[i] = x + (x - hx[i]) * damp, y + (y - hy[i]) * damp + fall, z + (z - hz[i]) * damp
+        hx[i], hy[i], hz[i] = x, y, z
+    end
+    local rest = GUT.SEG[1] + (GUT.SEG[2] - GUT.SEG[1]) * level
+    for _ = 1, GUT.ITER do
+        for i = 1, n - 1 do
+            local j = i + 1
+            local dx, dy, dz = gx[j] - gx[i], gy[j] - gy[i], gz[j] - gz[i]
+            local d = sqrt(dx * dx + dy * dy + dz * dz)
+            if d > 1e-6 then
+                -- The pinned end points do not move, so the free neighbour takes the whole correction.
+                local wa, wb = i == 1 and 0 or 1, j == n and 0 or 1
+                local tot = wa + wb
+                if tot > 0 then
+                    local k = (d - rest) / d / tot
+                    gx[i], gy[i], gz[i] = gx[i] + dx * k * wa, gy[i] + dy * k * wa, gz[i] + dz * k * wa
+                    gx[j], gy[j], gz[j] = gx[j] - dx * k * wb, gy[j] - dy * k * wb, gz[j] - dz * k * wb
+                end
+            end
+        end
+    end
+    local floorY = py + FEET_Y + 0.4
+    local sh, ch = sin(h), cos(h)
+    for i = 2, n - 1 do
+        local dx, dz = gx[i] - px, gz[i] - pz
+        local r2 = dx * dx + dz * dz
+        if r2 < GUT.OUT * GUT.OUT then
+            local r = sqrt(r2)
+            if r > 1e-4 then
+                gx[i], gz[i] = px + dx / r * GUT.OUT, pz + dz / r * GUT.OUT
+            else
+                gx[i], gz[i] = px + sh * GUT.OUT, pz + ch * GUT.OUT
+            end
+        end
+        if gy[i] < floorY then gy[i] = floorY end
+    end
+end
+
+-- A heave of vomiting: droplets from the mouth for VOMIT.SECS, then a stain in front of the worm.
+local function startHeave(s)
+    s.vomitStart, s.vomitUntil, s.vomitAcc = now, now + VOMIT.SECS, 0
+end
+
+local function updateVomit(s, dt)
+    if not (s.alive and cfg.vomit) then
+        s.vomitAt, s.vomitUntil, s.vomitAcc = nil, 0, 0
+        return
+    end
+    local rest = s.vx * s.vx + s.vy * s.vy + s.vz * s.vz < REST_SPEED * REST_SPEED
+    if s.frac <= VOMIT.FRAC then
+        if not s.vomitAt then s.vomitAt = now + rnd(VOMIT.FIRST[1], VOMIT.FIRST[2]) end
+        if s.vomitUntil == 0 and now >= s.vomitAt and rest then
+            startHeave(s)
+            s.vomitAt = now + rnd(VOMIT.EVERY[1], VOMIT.EVERY[2])
+        end
+    else
+        s.vomitAt = nil
+    end
+    if s.vomitUntil == 0 then return end
+    local fx, fz = facing(s)
+    if now >= s.vomitUntil then
+        s.vomitUntil, s.vomitAcc = 0, 0
+        -- A worm knocked into the air during the heave leaves no stain: it is no longer over that ground.
+        if rest then
+            placeStain(s.px + fx * VOMIT.STAIN_OUT, s.py + FEET_Y, s.pz + fz * VOMIT.STAIN_OUT, VOMIT.STAIN)
+        end
+        s.gore = min(1, s.gore + VOMIT.GORE)
+        return
+    end
+    -- A thrown worm does not spew, as its facing no longer says where its mouth points.
+    if not rest then return end
+    -- The rate swells and falls over the heave.
+    local progress = (now - s.vomitStart) / VOMIT.SECS
+    s.vomitAcc = s.vomitAcc + VOMIT.RATE * preset.bleed * sin(pi * min(1, max(0, progress))) * dt
+    local c = palette.droplet
+    local mx, my, mz = s.px + fx * VOMIT.MOUTH_OUT, s.py + VOMIT.MOUTH_Y, s.pz + fz * VOMIT.MOUTH_OUT
+    local n = 0
+    while s.vomitAcc >= 1 and n < VOMIT.PER_FRAME do
+        s.vomitAcc = s.vomitAcc - 1
+        n = n + 1
+        local speed = rnd(VOMIT.SPEED[1], VOMIT.SPEED[2])
+        local side = rnd(-12, 12)
+        local shade = rnd(0.65, 1.1)
+        spawn(DROPLET, mx + rnd(-1, 1), my + rnd(-1, 1), mz + rnd(-1, 1),
+              fx * speed + fz * side, rnd(-25, 15), fz * speed - fx * side, rnd(0.9, 2.0), rnd(0.5, 1.0),
+              min(1, c[1] * shade), min(1, c[2] * shade), min(1, c[3] * shade), DROPLET_ALPHA)
+    end
+    if s.vomitAcc > 2 then s.vomitAcc = 0 end
+end
+
+-- The gut ribbons: two camera-facing rectangles per segment, laid like the droplet kite but with square ends. Each is
+-- drawn a little longer than its segment so neighbours overlap.
+local function drawRibbons(s, width, col)
+    local gx, gy, gz = s.gx, s.gy, s.gz
+    local r, g, b = col[1], col[2], col[3]
+    local half = width * 0.5
+    for i = 1, GUT.POINTS - 1 do
+        local x1, y1, z1, x2, y2, z2 = gx[i], gy[i], gz[i], gx[i + 1], gy[i + 1], gz[i + 1]
+        local mx, my, mz = (x1 + x2) * 0.5, (y1 + y2) * 0.5, (z1 + z2) * 0.5
+        local k = 0.5 * GUT.EXTEND
+        local ax, ay, az = (x2 - x1) * k, (y2 - y1) * k, (z2 - z1) * k
+        local tx, ty, tz = CAM.px - mx, CAM.py - my, CAM.pz - mz
+        local sx, sy, sz = ay * tz - az * ty, az * tx - ax * tz, ax * ty - ay * tx
+        local sl = sqrt(sx * sx + sy * sy + sz * sz)
+        if sl > 1e-6 then
+            local w = half / sl
+            sx, sy, sz = sx * w, sy * w, sz * w
+            corner(q1, mx - ax - sx, my - ay - sy, mz - az - sz)
+            corner(q2, mx - ax + sx, my - ay + sy, mz - az + sz)
+            corner(q3, mx + ax + sx, my + ay + sy, mz + az + sz)
+            corner(q4, mx + ax - sx, my + ay - sy, mz + az - sz)
+            emitQuad(r, g, b, 1)
+        end
+    end
+end
+
+-- Draws every dangling gut. A worm's dark edges all go down before its light cores, so no core is covered by the edge
+-- of the next segment.
+local function drawGuts()
+    if not CAM.ok then return end
+    for _, s in pairs(slots) do
+        if s.gutLive and s.seen == frameId and s.alive then
+            drawRibbons(s, GUT.WIDTH, palette.gutDark)
+            drawRibbons(s, GUT.WIDTH * GUT.CORE, palette.gut)
+        end
+    end
 end
 
 local function trackWorms(worms, dt)
@@ -663,10 +921,16 @@ local function trackWorms(worms, dt)
             local health = tonumber(w.health) or 0
             local alive = w.alive == true
             local s = slots[slot]
+            -- The facing from the game, wrapped into -pi..pi; nil on a Melange that does not report it.
+            local yaw = tonumber(w.yaw)
+            if yaw and yaw - yaw ~= 0 then yaw = nil end    -- NaN or infinite
             if not s then
                 s = newSlot(x, y, z, health, alive)
                 slots[slot] = s
+                if yaw then s.heading = (yaw + pi) % (2 * pi) - pi end
                 updateWound(s, dt)
+                updateEyes(s, dt)
+                updateGut(s, dt)
             else
                 s.seen = frameId
                 updateMotion(s, x, y, z)
@@ -685,8 +949,15 @@ local function trackWorms(worms, dt)
                 end
                 s.health, s.alive = health, alive
                 if not alive then s.gore = 0 end
+                if yaw then
+                    s.heading = (yaw + pi) % (2 * pi) - pi
+                else
+                    steerHeading(s, dt)
+                end
                 updateWound(s, dt)
-                steerHeading(s, dt)
+                updateEyes(s, dt)
+                updateGut(s, dt)
+                updateVomit(s, dt)
                 emitBleed(s, dt)
                 settleStain(s)
             end
@@ -748,10 +1019,14 @@ local function trackWorms(worms, dt)
 end
 
 -- ---------------------------------------------------------------- blood and wounds on worms
--- Per worm slot (index slot + 1): what was last sent as the blood amount, wound level and heading, and the frame the
--- slot was last driven in. One random seed per match gives every worm its own wound places in the shader.
+-- Per worm slot (index slot + 1): what was last sent as the blood amount, wound level, heading, eye level and gut level,
+-- and the frame the slot was last driven in. One random seed per match gives every worm its own wound places in the shader.
 local skSentGore, skSentWound, skSentHead, skFrame = {}, {}, {}, {}
-for i = 1, SKIN_SLOTS do skSentGore[i], skSentWound[i], skSentHead[i], skFrame[i] = 0, 0, 0, 0 end
+local skSentEyes, skSentGut = {}, {}
+for i = 1, SKIN_SLOTS do
+    skSentGore[i], skSentWound[i], skSentHead[i], skFrame[i] = 0, 0, 0, 0
+    skSentEyes[i], skSentGut[i] = 0, 0
+end
 local skinCount = 0
 local matchSeed = random(0, 1000)
 
@@ -762,13 +1037,15 @@ end
 local function clearSkin()
     for i = 1, SKIN_SLOTS do
         sendParam(SKIN, WORM_B[i], 0, 0, 0)
-        skSentGore[i], skSentWound[i] = 0, 0
+        sendParam(SKIN, WORM_C[i], 0, 0, 0)
+        skSentGore[i], skSentWound[i], skSentHead[i], skSentEyes[i], skSentGut[i] = 0, 0, 0, 0, 0
     end
     skinCount = 0
     sendEnabled(SKIN, false)
 end
 
--- Sends the body centre and, when it changed enough, the blood amount, wound level and heading of one worm.
+-- Sends the body centre and, when they changed enough, the blood amount, wound level and heading of one worm, and its
+-- eye level, gut level and the side the gut is on.
 local function driveSkin(slot, s)
     local i = slot + 1
     skFrame[i] = frameId
@@ -780,23 +1057,31 @@ local function driveSkin(slot, s)
         skSentGore[i], skSentWound[i], skSentHead[i] = s.gore, wound, s.heading
         sendParam(SKIN, WORM_B[i], s.gore, wound, s.heading)
     end
+    local eye, gut = s.eye, s.gut
+    if abs(eye - skSentEyes[i]) > EYE.RESEND or abs(gut - skSentGut[i]) > GUT.RESEND
+        or (eye == 0) ~= (skSentEyes[i] == 0) or (gut == 0) ~= (skSentGut[i] == 0) then
+        skSentEyes[i], skSentGut[i] = eye, gut
+        sendParam(SKIN, WORM_C[i], eye, gut, s.gutAz)
+    end
 end
 
--- Runs once per frame after the worms were tracked: drives every living worm that has blood or a wound, zeroes the slots
--- of the rest and keeps the effect on only while there is something to paint.
+-- Runs once per frame after the worms were tracked: drives every living worm that has blood, a wound, black eyes or a
+-- gut, zeroes the slots of the rest and keeps the effect on only while there is something to paint.
 local function updateSkin()
     skinCount = 0
     if hasPostfx and preset and cfg.skin then
         for slot, s in pairs(slots) do
-            if s.seen == frameId and s.alive and (s.gore > 0 or s.wound > 0) and slot >= 0 and slot < SKIN_SLOTS then
+            if s.seen == frameId and s.alive and (s.gore > 0 or s.wound > 0 or s.eye > 0 or s.gut > 0)
+                and slot >= 0 and slot < SKIN_SLOTS then
                 driveSkin(slot, s)
             end
         end
     end
     for i = 1, SKIN_SLOTS do
-        if skFrame[i] ~= frameId and (skSentGore[i] ~= 0 or skSentWound[i] ~= 0) then
-            skSentGore[i], skSentWound[i] = 0, 0
+        if skFrame[i] ~= frameId and (skSentGore[i] ~= 0 or skSentWound[i] ~= 0 or skSentEyes[i] ~= 0 or skSentGut[i] ~= 0) then
+            skSentGore[i], skSentWound[i], skSentHead[i], skSentEyes[i], skSentGut[i] = 0, 0, 0, 0, 0
             sendParam(SKIN, WORM_B[i], 0, 0, 0)
+            sendParam(SKIN, WORM_C[i], 0, 0, 0)
         end
     end
     sendEnabled(SKIN, skinCount > 0 and preset ~= nil and cfg.skin ~= false)
@@ -843,6 +1128,7 @@ local function onWorld()
     end
     updateSkin()
     simulate(dt)
+    drawGuts()
     ageSplats(dt)
 end
 
@@ -852,6 +1138,9 @@ local function applySettings()
     local stains = wum.config.get("stains") ~= false
     local lens = wum.config.get("lens") ~= false
     local skin = wum.config.get("skin") ~= false
+    -- Turning either off takes effect at the next frame: updateGut drops the chains and updateVomit ends the heaves.
+    cfg.vomit = wum.config.get("vomit") ~= false
+    cfg.guts = wum.config.get("guts") ~= false
     local colour = wum.config.get("colour") or "red"
 
     if amount ~= cfg.amount then
@@ -937,6 +1226,8 @@ local function preview()
     -- Wounds too, so they can be seen: a level that decays back to what the worm's health gives.
     s.previewWound = PREVIEW_WOUND
     s.wound = max(s.wound, PREVIEW_WOUND)
+    s.previewEyes, s.previewGut = 1, 1
+    if cfg.vomit then startHeave(s) end
 end
 
 -- ---------------------------------------------------------------- start
@@ -956,12 +1247,13 @@ local function resend()
         end
     end
     for i = 1, SKIN_SLOTS do
-        if skFrame[i] == frameId and (skSentGore[i] > 0 or skSentWound[i] > 0) then
+        if skFrame[i] == frameId and (skSentGore[i] > 0 or skSentWound[i] > 0 or skSentEyes[i] > 0 or skSentGut[i] > 0) then
             -- The centre goes out at the next frame, which finds the cache empty; the amounts are forced here.
-            skSentGore[i], skSentWound[i] = -1, -1
+            skSentGore[i], skSentWound[i], skSentEyes[i], skSentGut[i] = -1, -1, -1, -1
         else
             sendParam(SKIN, WORM_A[i], 0, 0, 0)
             sendParam(SKIN, WORM_B[i], 0, 0, 0)
+            sendParam(SKIN, WORM_C[i], 0, 0, 0)
         end
     end
     local c = palette.stain
@@ -979,6 +1271,7 @@ local function zeroAll()
     for i = 1, SKIN_SLOTS do
         sendParam(SKIN, WORM_A[i], 0, 0, 0)
         sendParam(SKIN, WORM_B[i], 0, 0, 0)
+        sendParam(SKIN, WORM_C[i], 0, 0, 0)
     end
 end
 
