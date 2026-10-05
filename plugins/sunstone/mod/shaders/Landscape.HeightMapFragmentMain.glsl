@@ -36,6 +36,7 @@ uniform float sunstoneDetailFade;      // distance at which the detail has faded
 uniform float sunstoneGrassWrap;       // diffuse wrap on green surfaces
 uniform float sunstoneTransmit;        // back-transmission through green surfaces
 uniform float sunstonePatch;           // low-frequency brightness patches on green surfaces (+/- this fraction)
+uniform float sunstonePatchHue;        // warm and cool patches on green surfaces
 uniform float sunstoneGreenSpec;       // specular reduction on green surfaces
 uniform vec3 sunstoneSunTint;          // tint of the direct light
 uniform vec3 sunstoneShadowTint;       // tint of the ambient light inside shadows
@@ -238,7 +239,7 @@ vec3 Shoulder(vec3 c) {
     if (m <= 0.9) return c;
     float r = 0.9 + 0.1 * (1.0 - exp((0.9 - m) / 0.1));
     vec3 rolled = mix(c * (r / m), vec3(r), clamp((m - 0.9) / m * 1.5, 0.0, 1.0));
-    return mix(rolled, min(c, vec3(1.0)), 0.5);
+    return mix(rolled, min(c, vec3(1.0)), 0.75);
 }
 
 vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
@@ -289,6 +290,10 @@ vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
             nb = normalize(nb - sunstoneDetailBump * dw * (ge - nb * dot(ge, nb)));
             albedo *= 1.0 + sunstoneDetail * dw * dn.x;
             albedo *= 1.0 + sunstonePatch * green * 2.0 * (NoiseD(wuv / 80.0).x - 0.5);
+            float hp = NoiseD(wuv / 45.0 + 7.3).x;
+            vec3 hueTint = mix(mix(vec3(1.0), vec3(0.94, 1.0, 1.08), 1.0 - smoothstep(0.15, 0.5, hp)), vec3(1.12, 1.03, 0.76),
+                               smoothstep(0.5, 0.85, hp));
+            albedo *= mix(vec3(1.0), hueTint, sunstonePatchHue * green);
             detail = dn.x * dw;
             if (sunstoneDebug > 0.5 && sunstoneDebug < 1.5) return vec4(fract(pw / 100.0), 1.0);
         }

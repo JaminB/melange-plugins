@@ -11,7 +11,7 @@ vec3 Foliage(vec3 c, float amt) {
     float wH = smoothstep(110.0, 122.0, H) * (1.0 - smoothstep(140.0, 168.0, H)) * sg;
     float wC = smoothstep(112.0, 122.0, H) * (1.0 - smoothstep(140.0, 160.0, H)) * sg;
     H -= p_folShift * wH;
-    S = mix(S, min(S, 0.42 + (S - 0.42) * 0.5), wC);
+    S = mix(S, min(S, 0.42 + (S - 0.42) * 0.4), wC);
     return Hsv2Rgb(H / 360.0, S, mx * (1.0 - p_folValue * wC));
 }
 
@@ -21,7 +21,9 @@ vec3 Expand(vec3 lin, float sky) {
     float m = Max3(lin), sat = (m - Min3(lin)) / max(m, 1e-3);
     float white = 1.0 - smoothstep(0.05, 0.25, sat);
     float spec = smoothstep(0.85, 1.0, m) * white;
-    float W = mix(p_expandSurface + p_expandSpec * spec, p_expandSky, sky * white);
-    float v = clamp((m - 0.55) / 0.45, 0.0, 1.0);
+    // On the sky the range opens gradually with brightness and whiteness, so painted cloud rims stay soft.
+    float W = mix(p_expandSurface + p_expandSpec * spec, p_expandSky,
+                  sky * (1.0 - smoothstep(0.0, 0.45, sat)));
+    float v = sky > 0.5 ? smoothstep(0.35, 1.0, m) : clamp((m - 0.55) / 0.45, 0.0, 1.0);
     return lin * (1.0 + (W - 1.0) * v * v);
 }

@@ -35,6 +35,7 @@ uniform float p_whitePoint;
 uniform float p_whiteStart;
 uniform float p_whiteAmount;
 uniform float p_saturation;
+uniform float p_skySaturation;
 uniform float p_vibrance;
 uniform float p_lutAmount;
 uniform float p_look;
@@ -140,6 +141,7 @@ void main() {
 
     float grade = mix(1.0, p_skyGrade, sky);
     c = Saturation(c, grade);
+    c = clamp(mix(vec3(Luma(c)), c, mix(1.0, p_skySaturation, sky)), 0.0, 1.0);
 
     vec3 graded = mix(SampleLut(t_golden, c), SampleLut(t_dusk, c), clamp(p_look, 0.0, 1.0));
     c = mix(c, graded, p_lutAmount * grade * (1.0 - p_huePreserve * Cool(c)));

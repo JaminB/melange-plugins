@@ -24,6 +24,8 @@ uniform float p_fogDistance;
 uniform float p_heightFalloff;
 uniform float p_maxHaze;
 uniform float p_horizonHaze;
+uniform float p_horizonFalloff;
+uniform float p_hazeSaturation;
 uniform float p_desaturate;
 uniform float p_flatHaze;
 uniform float p_sunTint;
@@ -101,7 +103,8 @@ void main() {
     // Haze colour: the horizon, warmer on the sun's side and cooler opposite it.
     float side = 0.5 + 0.5 * dot(SafeNormalize(rayW.xz), SafeNormalize(sunW.xz));
     vec3 tint = mix(vec3(0.93, 0.97, 1.05), vec3(1.0, 0.93, 0.82), side * side);
-    vec3 hazeCol = pow(hz.rgb, vec3(2.2)) * mix(vec3(1.0), tint, p_sunTint * day);
+    vec3 hazeCol = pow(hz.rgb, vec3(2.2));
+    hazeCol = max(mix(vec3(Luma(hazeCol)), hazeCol, p_hazeSaturation), 0.0) * mix(vec3(1.0), tint, p_sunTint * day);
     float glowWide = pow(cs, 24.0) * 0.25 * p_sunGlow * day;
 
     vec3 outc = vec3(0.0);
@@ -111,33 +114,36 @@ void main() {
         float clouds = mix(1.0, day, seen);
         lin *= 1.0 - p_cloudShadow * smoothstep(0.4, 0.75, cloud) * clouds * (1.0 - smoothstep(4000.0, 8000.0, dist));
 
-        // Exponential height fog integrated along the view ray, relative to the camera's height.
+        // Exponential height fog integrated along the view ray, relative to the camera's height. Rays looking down
+        // from a high camera would gain density without limit, greying out nearby islands; they are capped.
         float k = offW.y / p_heightFalloff;
-        float along = abs(k) < 1e-3 ? 1.0 : min((1.0 - exp(-k)) / k, 4.0);
+        float along = abs(k) < 1e-3 ? 1.0 : min((1.0 - exp(-k)) / k, 1.25);
         float od = max(dist - p_fogStart, 0.0) / p_fogDistance * along;
         float d = dist / far;
         float maxH = mix(p_maxHaze, p_horizonHaze, smoothstep(0.15, 0.4, d));
         float haze = clamp(maxH * (1.0 - exp(-od)) * hz.a * p_fogAmount, 0.0, 1.0);
-        // Where the sea ends the haze reaches the horizon's own, so the sea meets the sky without a step.
-        haze = max(haze, clamp(p_horizonHaze * smoothstep(0.25, 0.45, d) * hz.a * p_fogAmount, 0.0, 1.0));
-        // Level surfaces (the sea, mostly) haze less and in their own hue, so a tinted sky does not shift the sea;
-        // both are released toward the horizon so the far sea meets the sky without a seam.
+        // Where the sea ends the haze reaches the horizon's own, so the sea meets the sky without a step. Only the
+        // sea: islands out there keep their colour under the ordinary fog.
+        haze = max(haze, clamp(p_horizonHaze * smoothstep(0.25, 0.45, d) * level * hz.a * p_fogAmount, 0.0, 1.0));
+        // Level surfaces (the sea, mostly) haze less, released toward the horizon so the far sea meets the sky
+        // without a step, and in their own hue most of the way, so the far sea stays blue rather than grey.
         float lv = level * (1.0 - smoothstep(0.15, 0.35, d));
         haze *= mix(1.0, p_flatHaze, lv);
         vec3 fc = mix(lin, vec3(Luma(lin)), haze * p_desaturate);
         vec3 target = hazeCol + p_sunColor * glowWide;
         float fy = Luma(fc);
         vec3 own = fc * (Luma(target) / max(fy, 1e-4));
-        target = mix(target, fy > 1e-3 ? own : target, lv);
+        target = mix(target, fy > 1e-3 ? own : target, level * mix(1.0, 0.6, smoothstep(0.15, 0.45, d)));
         outc = mix(fc, target, haze);
     }
     if (sky > 0.0) {
         vec3 s = Expand(pow(c, vec3(2.2)), 1.0);
-        s *= mix(1.0, mix(1.08, 0.88, smoothstep(0.0, 0.7, rayW.y)), p_skyGradient);
+        s *= mix(1.0, mix(1.12, 1.04, smoothstep(0.0, 0.6, rayW.y)), p_skyGradient);
         // Half the horizon haze above the horizon; the dome's rim below it is hazed fully, like the sea in front.
-        float band = clamp(p_horizonHaze * exp(-12.0 * max(rayW.y, 0.0)) * mix(1.0, 0.5, smoothstep(-0.02, 0.01, rayW.y))
+        float band = clamp(p_horizonHaze * exp(-p_horizonFalloff * max(rayW.y, 0.0)) * mix(1.0, 0.5, smoothstep(-0.02, 0.01, rayW.y))
                            * p_fogAmount * hz.a, 0.0, 1.0);
-        s = mix(s, hazeCol, band);
+        // The haze lightens the sky toward the horizon colour but never darkens it.
+        s = mix(s, hazeCol * max(1.0, Luma(s) / max(Luma(hazeCol), 1e-4)), band);
         float cosR = cos(radians(0.5 * p_sunSize));
         float disc = smoothstep(cosR - (1.0 - cosR) * 0.3, cosR, cosSun);
         float glow = glowWide + pow(cs, 600.0) * 2.0 * p_sunGlow * day;
