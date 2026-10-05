@@ -111,6 +111,6 @@ void main() {
     // Multiplying keeps the surface's own detail: the blood stains the texture instead of covering it, and the core
     // goes darker and thicker than the rim.
     vec3 tint = p_blood / max(max(p_blood.r, p_blood.g), max(p_blood.b, 1e-3));
-    vec3 soaked = scene.rgb * tint * mix(0.75, 0.4, core) + p_blood * 0.22 * (0.5 + core);
+    vec3 soaked = scene.rgb * tint * mix(0.6, 0.3, core) + p_blood * 0.3 * (0.5 + core);
     gl_FragColor = vec4(mix(scene.rgb, soaked, cov), scene.a);
 }

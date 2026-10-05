@@ -8,7 +8,7 @@ shipped — no game file, or anything derived from one.
 ## What it does
 
 - **Bursts**: the moment a worm is hurt, blood droplets are thrown from it, away from the explosion if there was one.
-  The number and speed of the droplets scale with the damage.
+  The number and speed of the droplets scale with the damage, and even a light hit throws a visible spray.
 - **Bleeding**: a wounded worm keeps dripping for a while after the hit.
 - **Death**: a worm that dies throws a larger burst.
 - **Blood on the worms**: a worm that was hit wears blood on its skin, and the blood stays on it as it moves. Each hit
@@ -72,10 +72,11 @@ an effect being switched on or off, which happens when the first blood appears a
 
 ## Cost
 
-Measured on a desktop Radeon RX 7800 XT at 1280x720 in a live match, with Mirage's per-effect timers and the
-sandbox's own timer: the stains pass takes about 0.02 ms of GPU time and the skin pass about 0.04 to 0.05 ms, and
-both are switched off while there is no blood. The script takes about 0.06 ms a frame with bloodied worms on screen,
-about 0.1 ms during a burst with a loop of intestine swinging, and under 0.01 ms with Blood set to Off. Re-measure
+Measured on a desktop Radeon RX 7800 XT at 1920x1080 in a live four-team match, with Mirage's per-effect timers and
+the sandbox's own timer: the stains pass takes about 0.04 ms of GPU time and the skin pass about 0.07 to 0.1 ms, and
+both are switched off while there is no blood. On Heavy the script takes about 0.1 ms a frame with bloodied worms on
+screen and 0.3 to 0.4 ms for the second or so of a large burst; on Absurd a burst that fills the particle pool takes
+about 0.9 ms. With Blood set to Off it takes under 0.01 ms. Re-measure
 with the *Mirage/Post-FX* panel on your own machine.
 
 ## Limits
@@ -94,6 +95,8 @@ with the *Mirage/Post-FX* panel on your own machine.
 - Wounds are placed from a per-match seed, not where the hit landed, and which worms have intestines to show is
   chosen at random each match.
 - Hats and held weapons inside a worm's volume take blood too.
+- A pixel takes the blood of one worm only, the one whose body it is deepest inside, so where two worms overlap on
+  screen the pattern of one stops at the other.
 - Up to 16 worms can wear blood and wounds at once.
 - No sound.
 

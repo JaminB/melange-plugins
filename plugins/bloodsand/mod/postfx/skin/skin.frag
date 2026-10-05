@@ -268,10 +268,28 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx,
     // Wounds bleed downward, so there is a little more on the upper half and less toward the base.
     field += 0.14 * clamp(L.y / 16.0, -1.0, 1.0);
 
-    float thr = 0.82 - 0.26 * amount;
+    float thr = 0.80 - 0.36 * amount;
     float c = smoothstep(thr, thr + 0.08, field) * mask;
     cov = max(cov, c);
     core = max(core, smoothstep(thr + 0.15, thr + 0.3, field) * mask);
+}
+
+// Chooses the worm a pixel belongs to. Worm() is long, and a shader that expands it once per slot is large enough that
+// some drivers link it without an error and then draw nothing with it, so only this short test runs for every slot and
+// Worm() runs once, for the slot it picks. best is the smallest value so far of the body ellipsoid's equation (below 1
+// is inside the body), and the other outputs are that slot's values.
+void Pick(vec3 P, vec3 centre, vec3 b, vec3 ex, float slotIdx,
+          inout float best, inout vec3 wc, inout vec3 wb, inout vec3 wex, inout float wslot) {
+    if (b.x <= 0.0 && b.y <= 0.0 && ex.x <= 0.0 && ex.y <= 0.0) return;
+    vec3 L = (P - (mg_view * vec4(centre, 1.0)).xyz) * mat3(mg_view);
+    float e = (L.x * L.x + L.z * L.z) / (9.5 * 9.5) + L.y * L.y / (16.0 * 16.0);
+    if (e < best) {
+        best = e;
+        wc = centre;
+        wb = b;
+        wex = ex;
+        wslot = slotIdx;
+    }
 }
 
 void main() {
@@ -303,24 +321,33 @@ void main() {
     // Face the camera, which sits at the view-space origin.
     if (dot(n, P) > 0.0) n = -n;
 
+    // One worm per pixel: the one whose body the pixel is deepest inside.
+    float best = 1.0, wslot = 0.0;
+    vec3 wc = vec3(0.0), wb = vec3(0.0), wex = vec3(0.0);
+    Pick(P, p_worm0, p_worm0b, p_worm0c, 0.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm1, p_worm1b, p_worm1c, 1.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm2, p_worm2b, p_worm2c, 2.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm3, p_worm3b, p_worm3c, 3.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm4, p_worm4b, p_worm4c, 4.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm5, p_worm5b, p_worm5c, 5.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm6, p_worm6b, p_worm6c, 6.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm7, p_worm7b, p_worm7c, 7.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm8, p_worm8b, p_worm8c, 8.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm9, p_worm9b, p_worm9c, 9.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm10, p_worm10b, p_worm10c, 10.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm11, p_worm11b, p_worm11c, 11.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm12, p_worm12b, p_worm12c, 12.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm13, p_worm13b, p_worm13c, 13.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm14, p_worm14b, p_worm14c, 14.0, best, wc, wb, wex, wslot);
+    Pick(P, p_worm15, p_worm15b, p_worm15c, 15.0, best, wc, wb, wex, wslot);
+    if (best >= 1.0) {
+        gl_FragColor = scene;
+        return;
+    }
+
     float cov = 0.0, core = 0.0, wnd = 0.0, deep = 0.0, rim = 0.0;
     float bruise = 0.0, socket = 0.0, gutCov = 0.0, gutShade = 0.0;
-    Worm(P, n, p_worm0, p_worm0b, p_worm0c, 0.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm1, p_worm1b, p_worm1c, 1.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm2, p_worm2b, p_worm2c, 2.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm3, p_worm3b, p_worm3c, 3.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm4, p_worm4b, p_worm4c, 4.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm5, p_worm5b, p_worm5c, 5.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm6, p_worm6b, p_worm6c, 6.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm7, p_worm7b, p_worm7c, 7.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm8, p_worm8b, p_worm8c, 8.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm9, p_worm9b, p_worm9c, 9.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm10, p_worm10b, p_worm10c, 10.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm11, p_worm11b, p_worm11c, 11.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm12, p_worm12b, p_worm12c, 12.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm13, p_worm13b, p_worm13c, 13.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm14, p_worm14b, p_worm14c, 14.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
-    Worm(P, n, p_worm15, p_worm15b, p_worm15c, 15.0, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
+    Worm(P, n, wc, wb, wex, wslot, cov, core, wnd, deep, rim, bruise, socket, gutCov, gutShade);
     cov *= p_strength;
     wnd *= p_strength;
     rim *= p_strength;

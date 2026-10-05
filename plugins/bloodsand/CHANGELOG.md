@@ -1,3 +1,11 @@
+## 1.1.1
+
+Fixes blood, wounds, black eyes and ground stains not being drawn at all on some machines: the shader that paints the
+worms was large enough that a graphics driver could accept it and then draw nothing with it, which also discarded the
+stains drawn before it. It now picks the one worm a pixel belongs to and does the long work once. Much more blood from
+ordinary hits: more and larger droplets, longer bleeding, larger and darker stains, and a first hit now leaves a worm
+clearly bloodied instead of speckled. Black eyes no longer fade out while a worm walks.
+
 ## 1.1.0
 
 Badly hurt worms now show it in three more ways. Their eyes blacken as health falls: one eye first, then both. Worms
