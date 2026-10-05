@@ -1,0 +1,195 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/JaminB/melange-plugins/schema/import-1.schema.json",
+  "title": "plugins/<id>/mod/import.json (importVersion 1)",
+  "description": "A local-content import recipe, referenced by mod/spice.json's importer.recipe. Describes a format-1 recipe for Melange's built-in local importer (docs/importers.md in the Melange repo). tools/store.py validates the same rules by hand (no JSON Schema library dependency); this file documents them for other tooling.",
+  "type": "object",
+  "required": [
+    "importVersion", "format", "id", "name", "content", "sources",
+    "reader", "select", "categories", "groups", "transform", "output"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "importVersion": { "const": 1 },
+    "format": { "type": "integer", "enum": [1] },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,47}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "content": {
+      "type": "object",
+      "required": ["title", "publisher", "termsUrl", "credit"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "publisher": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "termsUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "credit": { "type": "string", "minLength": 1, "maxLength": 300 }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "urls", "fileName", "size", "sha256"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "urls": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "items": { "type": "string", "format": "uri", "pattern": "^https://" }
+          },
+          "fileName": { "type": "string", "pattern": "^[A-Za-z0-9._ -]{1,64}\\.zip$" },
+          "size": { "type": "integer", "minimum": 1, "maximum": 536870912 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "reader": {
+      "type": "object",
+      "required": ["type", "root", "registry", "descriptors", "maps"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "w4-registry" },
+        "root": { "type": "string" },
+        "registry": { "type": "string" },
+        "titles": { "type": "array", "items": { "type": "string" } },
+        "descriptors": { "type": "string" },
+        "maps": { "type": "array", "items": { "type": "string" } },
+        "previews": { "type": "string" }
+      }
+    },
+    "select": {
+      "type": "object",
+      "required": ["levelType", "expect"],
+      "additionalProperties": false,
+      "properties": {
+        "levelType": { "oneOf": [ { "type": "integer", "minimum": 0, "maximum": 64 }, { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "integer", "minimum": 0, "maximum": 64 } } ] },
+        "skipKeySuffix": { "type": "string" },
+        "require": { "type": "array", "items": { "type": "string" } },
+        "exclude": { "type": "array", "maxItems": 64, "items": { "type": "string" } },
+        "vanilla": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "required": ["file", "sha256"],
+            "additionalProperties": false,
+            "properties": {
+              "file": { "type": "string", "minLength": 1 },
+              "sha256": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+              }
+            }
+          }
+        },
+        "expect": {
+          "type": "object",
+          "required": ["maps", "fromArchive", "fromGame"],
+          "additionalProperties": false,
+          "properties": {
+            "maps": { "type": "integer", "minimum": 0, "maximum": 256 },
+            "fromArchive": { "type": "integer", "minimum": 0 },
+            "fromGame": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "categories": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "scriptsEqual": { "type": "array", "items": { "type": "string" } },
+          "scriptsWithin": { "type": "array", "items": { "type": "string" } },
+          "default": { "type": "boolean" },
+          "hidden": { "type": "boolean" }
+        }
+      }
+    },
+    "modes": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 80 }
+    },
+    "groups": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "match": { "type": "array", "items": { "type": "string" } },
+          "vanilla": { "type": "boolean" },
+          "default": { "type": "boolean" }
+        }
+      }
+    },
+    "transform": {
+      "type": "object",
+      "required": ["stem", "textures", "scripts", "descriptor"],
+      "additionalProperties": false,
+      "properties": {
+        "stem": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "slugMax": { "type": "integer", "minimum": 1 },
+            "hashKeep": { "type": "integer", "minimum": 0 },
+            "hashHex": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "descriptor": { "const": "rebuild" },
+        "timeOfDay": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allowed": { "type": "array", "items": { "type": "string" } },
+            "fallback": { "type": "string" }
+          }
+        },
+        "title": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max": { "type": "integer", "minimum": 1 },
+            "fallback": { "type": "string" }
+          }
+        },
+        "author": { "type": "string" },
+        "textures": { "const": "vanilla" },
+        "scripts": { "const": "drop" },
+        "survivor": { "type": "boolean" },
+        "previews": { "type": "string" }
+      }
+    },
+    "output": {
+      "type": "object",
+      "required": ["packPrefix", "version", "perPack", "packName", "packDescription"],
+      "additionalProperties": false,
+      "properties": {
+        "packPrefix": { "type": "string" },
+        "version": { "type": "string" },
+        "perPack": { "type": "integer", "minimum": 1, "maximum": 32 },
+        "order": { "const": ["category", "fileName"] },
+        "newPackBefore": { "type": "array", "items": { "type": "string" } },
+        "packName": { "type": "string", "maxLength": 70, "pattern": "[{]n[}]" },
+        "packDescription": { "type": "string" }
+      }
+    }
+  }
+}
