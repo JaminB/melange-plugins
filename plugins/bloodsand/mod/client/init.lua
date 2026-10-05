@@ -96,6 +96,7 @@ local PREVIEW_SECS = 12
 local EYE = {
     START = 0.8,
     FULL = 0.3,
+    SPEED = 90,                     -- faster than this a worm counts as thrown; walking measures about 40
     FADE = 4,                       -- per second
     RESEND = 0.02,
 }
@@ -738,7 +739,7 @@ local function updateEyes(s, dt)
     if level < 0 then level = 0 elseif level > 1 then level = 1 end
     if s.previewEyes > level then level = s.previewEyes end
     local step = EYE.FADE * dt
-    if s.vx * s.vx + s.vy * s.vy + s.vz * s.vz < REST_SPEED * REST_SPEED then
+    if s.vx * s.vx + s.vy * s.vy + s.vz * s.vz < EYE.SPEED * EYE.SPEED then
         s.eyeShow = min(1, s.eyeShow + step)
     else
         s.eyeShow = max(0, s.eyeShow - step)
