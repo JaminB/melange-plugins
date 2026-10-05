@@ -12,7 +12,7 @@ local BASE = {
     hdr     = { foliage = 1, expandSurface = 2, expandSpec = 1, expandSky = 2.6, cloudShadow = 0.12, fogAmount = 1,
                 sunTint = 0.5, sunGlow = 1, sunDisc = 0, shafts = 0.22, dof = 1, bloom = 0.1, dirt = 0.4,
                 flare = 0.03, clarity = 0.4, exposure = 0.7, skyExposure = 0.45, vignette = 0.16, tsContrast = 1.15, saturation = 1,
-                vibrance = 0.15, lutAmount = 0.25, look = 0, skyGrade = 0.25, hazeSaturation = 1.7, skySaturation = 1.1, dither = 1,
+                vibrance = 0.15, lutAmount = 0.25, look = 0, whitePoint = 4, whiteAmount = 0.5, skyGrade = 0.25, hazeSaturation = 1.7, skySaturation = 1.1, dither = 1,
                 hazeFallback = 1, aerial = 0.5, horizonGlow = 0.3, skyDepth = 0.3, sunDir = { 0, 0.936, -0.351 } },
     lite    = { foliage = 0.7, expandSurface = 2, expandSpec = 3, exposure = 0.3, vignette = 0.12, tsContrast = 1.1,
                 saturation = 1, vibrance = 0.1, skyGrade = 0.25, dither = 1 },
@@ -129,14 +129,15 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- (night and dark skies). meadowCap = false keeps the meadow's own chroma (grass that is already yellow-green);
 -- tint scales the warm sun and cool shade tints (white snow). aerial is how far distant land turns sky blue;
 -- skyGlow = false keeps the sky's own gradient (no horizon glow or deeper zenith). waterDeep tints the deep sea and
--- waterReflect scales its sky reflection. sunGlow replaces the glow around the sun.
+-- waterReflect scales its sky reflection. sunGlow replaces the glow around the sun;
+-- whitePoint and whiteAmount keep bright sand below white.
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
 -- Ambient tint inside sun shadows: cool skylight, near neutral where it would turn snow blue.
 local SHADOW_TINT = { 0.85, 0.93, 1.14 }
 local THEMES = {
     ARABIAN     = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.14, 1.15, 1.22 }, ground = { 0.90, 0.85, 0.76 },
-                    foliage = 0.5, sunTint = 0.3, lut = 0.4, shadowDip = 0.4 },
+                    foliage = 0.5, sunTint = 0.3, lut = 0.4, shadowDip = 0.4, whitePoint = 9, whiteAmount = 0.3 },
     WILDWEST    = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.14, 1.15, 1.22 }, ground = { 0.88, 0.81, 0.72 },
                     foliage = 0.5, sunTint = 0.3, lut = 0.4, shadowDip = 0.4 },
     CAMELOT     = { specular = 0.05, gloss = 24, relief = 4, sky = { 1.14, 1.18, 1.28 }, ground = { 0.86, 0.84, 0.76 },
@@ -198,6 +199,8 @@ ADJUST.hdr = function(v, theme, preset, state)
     if theme.lut == false then v.lutAmount = 0 elseif theme.lut then v.lutAmount = v.lutAmount * theme.lut end
     if theme.shafts == false then v.shafts = 0 end
     if theme.sunGlow then v.sunGlow = theme.sunGlow end
+    if theme.whitePoint then v.whitePoint = theme.whitePoint end
+    if theme.whiteAmount then v.whiteAmount = theme.whiteAmount end
     if theme.clouds == false then v.cloudShadow = 0 end
     if theme.sunDir then v.sunDir = theme.sunDir end
     if theme.haze == false then v.hazeFallback = 0 end
