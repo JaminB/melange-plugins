@@ -8,8 +8,11 @@ vec3 Foliage(vec3 c, float amt) {
     float S = C / mx;
     float H = Hue(c);
     float sg = smoothstep(0.30, 0.50, S) * amt;
-    float wH = smoothstep(110.0, 122.0, H) * (1.0 - smoothstep(150.0, 170.0, H)) * sg;
-    float wC = smoothstep(112.0, 122.0, H) * (1.0 - smoothstep(148.0, 165.0, H)) * sg;
+    // Painted props (oil drums) are more saturated and yellower than any meadow; they keep their colour.
+    sg *= 1.0 - smoothstep(0.55, 0.65, S) * (1.0 - smoothstep(120.0, 130.0, H));
+    // Ramps in up to the meadow's hue, so yellower greens (tree canopies) move less than the grass.
+    float wH = smoothstep(110.0, 133.0, H) * (1.0 - smoothstep(150.0, 170.0, H)) * sg;
+    float wC = smoothstep(114.0, 133.0, H) * (1.0 - smoothstep(148.0, 165.0, H)) * sg;
     H -= p_folShift * wH;
     S = mix(S, min(S, 0.42 + (S - 0.42) * 0.4), wC);
     return Hsv2Rgb(H / 360.0, S, mx * (1.0 - p_folValue * wC));

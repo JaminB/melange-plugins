@@ -29,6 +29,8 @@ uniform float p_hazeSaturation;
 uniform float p_desaturate;
 uniform float p_flatHaze;
 uniform float p_sunTint;
+uniform float p_sunSide;
+uniform float p_hazeChroma;
 uniform float p_skyGradient;
 uniform vec3 p_sunDir;
 uniform vec3 p_sunColor;
@@ -105,6 +107,9 @@ void main() {
     vec3 tint = mix(vec3(0.93, 0.97, 1.05), vec3(1.0, 0.93, 0.82), side * side);
     vec3 hazeCol = pow(hz.rgb, vec3(2.2));
     hazeCol = max(mix(vec3(Luma(hazeCol)), hazeCol, p_hazeSaturation), 0.0) * mix(vec3(1.0), tint, p_sunTint * day);
+    // Light scattered toward the camera: the air is brighter on the sun's side, even with the sun high overhead.
+    float lobe = mix(1.0, mix(0.93, 1.12, side * side), clamp(p_sunTint * 2.0, 0.0, 1.0) * day * p_sunSide);
+    hazeCol *= lobe;
     float glowWide = pow(cs, 24.0) * 0.25 * p_sunGlow * day;
 
     vec3 outc = vec3(0.0);
@@ -133,12 +138,15 @@ void main() {
         vec3 target = hazeCol + p_sunColor * glowWide;
         float fy = Luma(fc);
         vec3 own = fc * (Luma(target) / max(fy, 1e-4));
-        target = mix(target, fy > 1e-3 ? own : target, level * mix(1.0, 0.6, smoothstep(0.15, 0.45, d)));
+        // The sea keeps its own hue most of the way; islands and props keep part of their colour at mid distance.
+        float keep = max(level * mix(1.0, 0.6, smoothstep(0.15, 0.45, d)), p_hazeChroma * (1.0 - smoothstep(0.1, 0.35, d)));
+        target = mix(target, fy > 1e-3 ? own : target, keep);
         outc = mix(fc, target, haze);
     }
     if (sky > 0.0) {
         vec3 s = Expand(pow(c, vec3(2.2)), 1.0);
         s *= mix(1.0, mix(1.12, 1.04, smoothstep(0.0, 0.6, rayW.y)), p_skyGradient);
+        s *= mix(1.0, lobe, exp(-3.0 * max(rayW.y, 0.0)));
         // Half the horizon haze above the horizon; the dome's rim below it is hazed fully, like the sea in front.
         float band = clamp(p_horizonHaze * exp(-p_horizonFalloff * max(rayW.y, 0.0)) * mix(1.0, 0.5, smoothstep(-0.02, 0.01, rayW.y))
                            * p_fogAmount * hz.a, 0.0, 1.0);

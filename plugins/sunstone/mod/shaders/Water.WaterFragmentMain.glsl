@@ -28,6 +28,7 @@ uniform float sunstoneWaterGlint;     // sun glint strength
 uniform float sunstoneWaterFoam;      // shore foam strength
 uniform float sunstoneWaterFoamWidth; // water depth (world units) the foam reaches
 uniform float sunstoneWaterRich;      // 0 the game's own brightness; 1 a deeper, more saturated sea with white glints
+uniform float sunstoneWaterLift;      // how far deep water takes the brightness of the game's blended water
 uniform float sunstoneSplit;          // pixels left of this x draw the game's own water (comparisons)
 uniform float sunstoneWaterSsr;          // strength of the screen-space reflection of the scenery
 uniform float sunstoneWaterSsrCap;       // most the scenery reflection may cover the sea
@@ -275,7 +276,11 @@ void main() {
     vec3 themeCol = texture2D(texture0, vec2(0.125), 8.0).rgb;
     float gameSpec;
     vec3 game = max(GameWater(uv0, t, gameSpec), 0.0);
-    vec3 deep = game * mix(sunstoneWaterDeep, vec3(1.0), sunstoneWaterRich);
+    // The game blends its water over what lies behind it; the deep colour takes that brightness in its own hue.
+    vec3 gameHere = mix(texture2D(mg_scene, uv).rgb, game, combinedWaterParams[3].z);
+    const vec3 lw = vec3(0.299, 0.587, 0.114);
+    float deepLift = clamp(dot(gameHere, lw) / max(dot(game, lw), 1e-3), 1.0, 1.6);
+    vec3 deep = game * mix(1.0, deepLift, sunstoneWaterLift) * mix(sunstoneWaterDeep, vec3(1.0), sunstoneWaterRich);
     // A rich sea is a deeper, more saturated version of the same hue; seas that are already vivid gain less.
     float deepHi = max(max(deep.r, deep.g), deep.b);
     float deepSat = (deepHi - min(min(deep.r, deep.g), deep.b)) / max(deepHi, 1e-3);
@@ -304,7 +309,6 @@ void main() {
     col *= 1.0 + clamp(dot(n.xz, l.xz) * 0.5, -0.07, 0.07) * (1.0 - far);
     // The shallow tint, the sky and the seabed would pull an olive or violet sea off its hue; a rich sea keeps the
     // hue of the game's own water here and only deepens it.
-    vec3 gameHere = mix(texture2D(mg_scene, uv).rgb, game, combinedWaterParams[3].z);
     col = mix(col, KeepHue(col, gameHere), sunstoneWaterRich);
 
     // Crests tilted toward the sun pass a little light through: a greener shade of the sea's own hue.
@@ -326,9 +330,12 @@ void main() {
     float nh = max(dot(n, h), 0.0);
     // A sharp sun sparkle on every facet that catches the sun, over a broader sheen along the sun path.
     // The broad sheen is what reads as a milky glare on a rich sea; the sparkle stays.
-    float sheen = pow(nh, 120.0) * 0.5 * (1.0 - 0.7 * sunstoneWaterRich);
-    float glint = (pow(nh, 700.0) * 14.0 + sheen) * (0.3 + 3.0 * fres) * step(0.0, l.y);
-    col = Glint(col, mix(globalDiffuse, vec3(1.0), 0.5 + 0.5 * sunstoneWaterRich) * glint * sunstoneWaterGlint * (1.0 - far * 0.6));
+    float sheen = pow(nh, 120.0) * 0.15 * (1.0 - 0.7 * sunstoneWaterRich);
+    float above = mix(1.0, 0.4, smoothstep(0.55, 0.9, v.y));
+    float glint = (pow(nh, 700.0) * 14.0 + sheen) * (0.3 + 3.0 * fres) * step(0.0, l.y) * above;
+    // Glints read as a cool white rather than the sun's warmth, which turns cream after grading.
+    vec3 glintCol = vec3(0.9, 0.95, 1.0);
+    col = Glint(col, glintCol * glint * sunstoneWaterGlint * (1.0 - far * 0.6));
     // Ripple crests tilted toward the camera catch the sky as small white flecks. Each comes from the finest
     // layer that is still above a pixel, so they stay small at every distance, and they are rarer on pale water
     // where they would read as blotches.
@@ -340,10 +347,12 @@ void main() {
     float fleck = smoothstep(0.45 + 0.15 * pale, 0.7 + 0.1 * pale, crest) * patchy * mid * (0.8 + fres) *
                   smoothstep(0.95, 0.5, v.y) * smoothstep(0.3, 0.9, texels) * (1.0 - 0.5 * pale);
     col = Glint(col, mix(sky, vec3(1.0), 0.85) * fleck * 0.35 * sunstoneWaterGlint);
-    // The game's own white glints.
-    // On a rich sea the game's soft glints get a crisp edge.
+    // The game's own glints: on a rich sea they get a crisp edge; seen from above, where they would stretch into
+    // broad pale streaks, they fade.
     gameSpec = mix(gameSpec, smoothstep(0.25, 0.75, gameSpec), sunstoneWaterRich);
-    col = Glint(col, vec3(gameSpec) * sunstoneWaterGlint * 0.8 * (1.0 - 0.5 * pale * (1.0 - sunstoneWaterRich)) * (1.0 - far * 0.5));
+    gameSpec = min(gameSpec * above, 0.6);
+    vec3 gameGlint = glintCol * gameSpec * sunstoneWaterGlint * 0.8 * (1.0 - 0.5 * pale * (1.0 - sunstoneWaterRich)) * (1.0 - far * 0.5);
+    col = Glint(col, gameGlint);
 
     vec2 wp = gl_TexCoord[0].xy;
     float shore = 1.0 - smoothstep(0.0, sunstoneWaterFoamWidth, depth);

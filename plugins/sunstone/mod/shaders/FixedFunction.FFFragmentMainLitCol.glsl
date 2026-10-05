@@ -37,6 +37,9 @@ vec3 Shoulder(vec3 c) {
     return mix(rolled, min(c, vec3(1.0)), 0.5);
 }
 
+// The rim light, kept apart so it can take on the surface's colour.
+vec3 rimLight = vec3(0.0);
+
 void Light(out vec3 base, out vec3 add) {
     vec3 n = normalize(gl_TexCoord[2].xyz);
     vec3 v = normalize(gl_TexCoord[1].xyz);
@@ -76,12 +79,14 @@ void Light(out vec3 base, out vec3 add) {
 
     float keep = 1.0 - clamp(dot(specCol, vec3(0.333)) * sunstoneSpecular * 0.5, 0.0, 0.5);
     base = lightDiffuseCol * mix(vec3(1.0), sunstoneSunTint, sunstoneTint) * sunstoneSunGain * diffuse * keep + ambient + emissive;
-    add = spec + rim + rimCol * gameRim * 0.5;
+    add = spec + rimCol * gameRim * 0.5;
+    // Weaker on surfaces facing up, which only meet the rim at grazing angles (lids, tops).
+    rimLight = rim * mix(1.0, 0.35, smoothstep(0.7, 1.0, sky));
 }
 
 void main() {
     vec3 base, add;
     Light(base, add);
     vec3 albedo = sunstoneLight > 9.5 ? vec3(0.5) : gl_Color.rgb;
-    gl_FragColor = vec4(clamp(Shoulder(base * albedo + add), 0.0, 1.0), gl_Color.a);
+    gl_FragColor = vec4(clamp(Shoulder(base * albedo + add + rimLight * mix(vec3(1.0), albedo / max(max(albedo.r, max(albedo.g, albedo.b)), 1e-3), 0.6)), 0.0, 1.0), gl_Color.a);
 }
