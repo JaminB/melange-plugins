@@ -12,7 +12,7 @@ local BASE = {
     hdr     = { foliage = 1, expandSurface = 2, expandSpec = 2, expandSky = 2.6, cloudShadow = 0.12, fogAmount = 1,
                 sunTint = 0.5, sunGlow = 1, sunDisc = 0, shafts = 0.35, dof = 1, bloom = 0.06, dirt = 0.4,
                 flare = 0.03, clarity = 0.4, exposure = 0.35, vignette = 0.16, tsContrast = 1.08, saturation = 1,
-                vibrance = 0.15, lutAmount = 0.25, look = 0, skyGrade = 0.25, hazeSaturation = 1.7, dither = 1 },
+                vibrance = 0.15, lutAmount = 0.25, look = 0, skyGrade = 0.25, hazeSaturation = 1.7, skySaturation = 1.1, dither = 1 },
     lite    = { foliage = 0.7, expandSurface = 2, expandSpec = 3, exposure = 0.3, vignette = 0.12, tsContrast = 1.1,
                 saturation = 1, vibrance = 0.1, skyGrade = 0.25, dither = 1 },
     smaa    = {},
@@ -121,6 +121,8 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- the LUT).
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
+-- Ambient tint inside sun shadows: cool skylight, near neutral where it would turn snow blue.
+local SHADOW_TINT = { 0.9, 0.96, 1.1 }
 local THEMES = {
     ARABIAN     = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.14, 1.15, 1.22 }, ground = { 0.90, 0.85, 0.76 },
                     foliage = 0.5, sunTint = 0.3 },
@@ -132,8 +134,9 @@ local THEMES = {
                     foliage = 1 },
     BUILDING    = { specular = 0.10, gloss = 40, relief = 2.5, sky = { 1.12, 1.15, 1.22 }, ground = { 0.84, 0.82, 0.80 },
                     foliage = 0.8 },
-    ARCTIC      = { specular = 0.12, gloss = 48, relief = 2.5, sky = { 1.10, 1.16, 1.28 }, ground = { 0.90, 0.92, 0.98 },
-                    foliage = 0, expandSurface = 1.4, expandSpec = 1, bloom = 0.04, exposure = -0.1 },
+    ARCTIC      = { specular = 0.12, gloss = 48, relief = 2.5, sky = { 1.12, 1.13, 1.15 }, ground = { 0.95, 0.95, 0.97 },
+                    shadowTint = { 0.97, 0.98, 1.02 }, foliage = 0, expandSpec = 1, bloom = 0.04, hazeSaturation = 1.2,
+                    skySaturation = 1 },
     ENGLAND     = { specular = 0.05, gloss = 24, relief = 4, sky = { 1.14, 1.18, 1.28 }, ground = { 0.86, 0.84, 0.76 },
                     foliage = 1 },
     HORROR      = { specular = 0.08, gloss = 32, relief = 4, sky = { 1.18, 1.16, 1.22 }, ground = { 0.94, 0.92, 0.96 },
@@ -170,6 +173,7 @@ ADJUST.hdr = function(v, theme, preset, state)
     v.fogAmount = v.fogAmount * (theme.fog or 1)
     if theme.sunTint then v.sunTint = theme.sunTint end
     if theme.hazeSaturation then v.hazeSaturation = theme.hazeSaturation end
+    if theme.skySaturation then v.skySaturation = theme.skySaturation end
     if theme.lut == false then v.lutAmount = 0 end
     if theme.shafts == false then v.shafts = 0 end
     if theme.clouds == false then v.cloudShadow = 0 end
@@ -218,6 +222,8 @@ local function applyLighting(l, m, on)
     landscapeParam("sunstoneRim", l.rim)
     landscapeParam("sunstoneSky", spread(m.sky, k))
     landscapeParam("sunstoneGround", spread(m.ground, k))
+    local st = m.shadowTint or SHADOW_TINT
+    landscapeParam("sunstoneShadowTint", st[1], st[2], st[3])
     landscapeParam("sunstoneSunGain", l.sunGain or 1)
     landscapeParam("sunstoneAmbientGain", l.ambientGain or 1)
     landscapeParam("sunstoneShadowAmbient", l.shadowAmbient or 0.2)
