@@ -67,7 +67,7 @@ own machine.
 ## Limits
 
 - Needs game build 1077 for game state. On any other build it does nothing.
-- Needs Melange 0.3.3 or later, for `wum.postfx.setTransient`.
+- Needs Melange 0.3.4 or later, for `wum.postfx.setTransient`.
 - Droplets are flat-colour shapes with no collision with the ground.
 - Blood and wounds on worms are painted from the depth buffer inside each worm's volume. They travel with the worm and
   turn with the direction it walks, but they do not follow the mesh's animation, and they do not turn when a worm
