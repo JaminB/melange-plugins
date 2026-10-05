@@ -11,6 +11,24 @@
   "screenshots": [],
   "versions": [
     {
+      "version": "1.1.1",
+      "released": "2026-10-05",
+      "melange": ">=0.3.5 <0.4.0",
+      "kind": "client-only",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/bloodsand-v1.1.1/bloodsand-1.1.1.zip",
+      "sha256": "64b67b26ccd01913b6144ccf1bc006c5b62a971f9f690d7d2114bb3fd10f480e",
+      "size": 94968,
+      "unpackedSize": 159835,
+      "files": 11,
+      "changelog": "Fixes blood, wounds, black eyes and ground stains not being drawn at all on some machines: the shader that paints the\nworms was large enough that a graphics driver could accept it and then draw nothing with it, which also discarded the\nstains drawn before it. It now picks the one worm a pixel belongs to and does the long work once. Much more blood from\nordinary hits: more and larger droplets, longer bleeding, larger and darker stains, and a first hit now leaves a worm\nclearly bloodied instead of speckled. Black eyes no longer fade out while a worm walks."
+    },
+    {
       "version": "1.1.0",
       "released": "2026-10-05",
       "melange": ">=0.3.5 <0.4.0",
