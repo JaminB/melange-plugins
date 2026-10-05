@@ -7,32 +7,30 @@ ever shipped.
 ## Quality and look
 
 A **Quality** setting (Off / Low / Subtle / Bold / Ultra) on the Mods page turns Sunstone's effects on together with
-sensible parameters; a **Look** setting (Golden / Dusk) picks which of the two colour-grading LUTs the Grade
-effect leans toward, and **Sunstone lighting** and **Sunstone water** turn the lighting and the water below on or
-off on their own. All apply live, no restart. Every effect still has its own toggle and parameters in the
-overlay's *Mirage/Post-FX* panel (and in `Melange.ini [MiragePostFX]`) if you want to go off the preset — a manual
-change there survives until you next change Quality or a match with a different theme starts.
+sensible parameters; a **Look** setting (Golden / Dusk) picks which of the two colour-grading LUTs the grade
+leans toward, **Sunstone lighting** and **Sunstone water** turn the lighting and the water below on or off on their
+own, and **Distance blur**, **Film grain** and **Lens effects** (dirt, flare and colour fringes) turn those off. All
+apply live, no restart. Every effect still has its own toggle and parameters in the overlay's *Mirage/Post-FX* panel
+(and in `Melange.ini [MiragePostFX]`) if you want to go off the preset — a manual change there survives until you
+next change Quality or a match with a different theme starts.
 
 | Quality | Effects on | Notes |
 |---|---|---|
 | Off | none | vanilla rendering: the game's own shaders and shadow map |
-| Low | SMAA, Sharpen, Grade, soft shadows, lighting without relief, water without foam | anti-aliasing, sharpening, a world grade, 2048² shadow map |
-| Subtle | + SSAO, Aerial perspective, Bloom, contact-hardening shadows, texture relief, shore foam | the near-neutral look of Sunstone 1.5; 2048² shadow map |
-| Bold (default) | the same effects, tuned to be seen | a remastered look: harder sun and deeper shadows, a strong rim on worms and props, clear contact shading, a confident grade with local contrast, haze that leaves the sea alone, a deep sea with crisp white glints; 4096² shadow map |
+| Low | SMAA, Sharpen, the single-pass colour and grade, soft shadows, lighting without relief, water without foam, scenery reflections or caustics | 2048² shadow map |
+| Subtle | + ambient occlusion, light and atmosphere (haze, sun glow, cloud shadows, a little bloom), a final dither, contact-hardening shadows, texture relief, shore foam, scenery reflections and caustics | close to the game's own look; 2048² shadow map |
+| Bold (default) | everything, including contact shadows, light shafts, distance blur, bloom, lens dirt and flare, colour fringes, film grain and a deeper sea | the modern look; 4096² shadow map |
 | Ultra (opt-in) | Bold without SMAA, plus 2x2 supersampling | Bold rendered at twice the resolution each way and scaled down: the cleanest edges and the steadiest textures and water, for a GPU with room to spare |
 
-Settings saved as Medium or High by earlier versions read as Bold.
-
-Measured on a mid-range desktop GPU at 1920x1080 (Mirage's per-effect timers, live match): **0.7 ms** for the whole Bold
-post-FX stack (SSAO 0.27, SMAA 0.13, bloom 0.10, grade 0.09, fog 0.07, sharpen 0.06). Re-measure with the
-*Mirage/Post-FX* panel or `gltrace.gpu` on your own machine.
+Settings saved as Medium or High by earlier versions read as Bold. The 1.7 fog, sky, bloom and grade effects are
+replaced by the light and atmosphere effect below and are switched off on upgrade.
 
 Ultra asks Melange for 2x2 supersampling (`wum.graphics.setSupersample`), so the game renders a 3840x2160 scene for a
-1920x1080 window. Same GPU, same paused frame: the whole frame takes about **7.5 ms** of GPU time against 3.9 ms on
-Bold and 3.3 ms on Off, the post-FX stack about 2.3 ms, and the scene and effect targets about 350 MB more video
-memory. Pixel-sized blurs, sharpening and fades follow the render scale, so Ultra keeps Bold's look. The HUD and text
-render at the higher resolution too. Switching back to another preset restores the game's own `/SSAA` and FXAA
-settings. A Melange without `wum.graphics.setSupersample` renders Ultra as Bold.
+1920x1080 window. Ambient occlusion and the light and atmosphere effect switch to their `_u` copies, which run their
+reduced-resolution passes at half the usual scale. Pixel-sized blurs, sharpening and fades follow the render scale,
+so Ultra keeps Bold's look. The HUD and text render at the higher resolution too. Switching back to another preset
+restores the game's own `/SSAA` and FXAA settings. A Melange without `wum.graphics.setSupersample` renders Ultra as
+Bold.
 
 ## Texture clarity
 
@@ -47,7 +45,7 @@ Trilinear=auto    ; auto | on | off
 LodBias=auto      ; auto | a number from -8 to 8
 ```
 
-## Grade and anti-aliasing
+## Anti-aliasing and sharpening
 
 Post-FX effects under `mod/postfx/`, all off until Quality turns them on:
 
@@ -56,15 +54,7 @@ Post-FX effects under `mod/postfx/`, all off until Quality turns them on:
 - **`sharpen`** (PostWorld): AMD FidelityFX Contrast Adaptive Sharpening, no upscale
   ([FidelityFX-CAS](https://github.com/GPUOpen-Effects/FidelityFX-CAS), MIT — `LICENSE.txt` in the folder). It
   fades out on surfaces right in front of the camera and leaves faint steps alone, so magnified textures do not
-  turn blocky; the grade's local contrast fades out near the camera the same way.
-- **`grade`** (PostWorld, so the HUD is never tinted): a filmic curve on luminance, exposure/contrast/saturation, a
-  blend between two colour-grading LUTs (`golden.png`, `dusk.png`, both generated by `tools/make_luts.py` from an
-  ASC CDL transform — pure code, never sampled from a game frame), a radial vignette and, on Bold, vibrance and
-  local contrast (luminance against a wide quarter-resolution blur of itself). Bright warm colours keep their own
-  chroma, so sand stays pale yellow, and shadows give back the saturation the curve adds. Blue, violet and purple
-  pixels keep their hue (a bright blue that leaves the range is scaled back rather than clipped, so it never turns
-  teal) and the sky dome is left ungraded, so skies and sea don't turn grey or milky; on themes
-  with a cool or violet palette by design (the Lunar film set, Horror) the LUT is left out entirely.
+  turn blocky; local contrast fades out near the camera the same way.
 
 ## Atmosphere
 
@@ -72,20 +62,17 @@ All distances are in the game's world units: a worm is about 30 units tall, scen
 camera, the sea runs out to the horizon and the sky dome is about 9400 units away (about 0.6 of the far plane).
 Sky pixels are found by that distance, so no effect darkens, fogs or blooms the sky by mistake.
 
-- **`ssao`** (PostWorld): ambient occlusion from the depth buffer — contact shadows where worms, crates and scenery
-  meet the ground, and in creases. A 16-unit radius, normals rebuilt from depth, a fixed per-pixel sample pattern
-  (no frame-to-frame shimmer), a bilateral blur that stops at depth edges, and a fade-out by 1500 units. It also
-  fades out within 80 units of the camera, so a camera down on a slope does not smear it dark.
-- **`fog`** (PostWorld, "Aerial perspective"): distant geometry fades a little toward the sky's own horizon colour,
-  read from the frame each time so it follows the theme, and loses some saturation. Height-aware (thinner looking
-  up, denser looking down); on Bold, level surfaces (the sea) take less of it than the cliffs and slopes, so
-  islands gain depth while the sea keeps its colour. Level surfaces haze toward the horizon's brightness in their
-  own hue, so a tinted sky does not shift the sea's hue. Capped, so the sea always stays water.
-- **`bloom`** (PostWorld): highlights — sun glints on water, explosions, specular hits — glow softly. A soft-knee
-  bright-pass on luminance at quarter resolution, two blur widths, and a screen blend that never clips. The sky
-  counts for a fifth, so bright clouds don't haze it.
-- **`sky`** (PostWorld): an analytic gradient and sun glow over the game's own sky dome. Off in every preset, since
-  its sun direction is fixed rather than the level's.
+- **`ssao`** (PostWorld): horizon-based ambient occlusion and short sun contact shadows from the depth buffer,
+  applied in linear light.
+- **`hdr`** (PostWorld, "Light, atmosphere and grade"): the world in linear light, height fog toward the sky's own
+  horizon colour that gives distant islands depth, a sky gradient and sun glow, cloud shadows, light shafts, distance
+  blur on far scenery, bloom, lens dirt and flare, then a hue-preserving display transform that rolls bright colours
+  softly to white, a colour-grading LUT (`golden.png`, `dusk.png`, generated by `tools/make_luts.py` from pure code)
+  and a dither. The textures it reads are generated by `tools/make_textures.py`. Themes where a part does not fit go
+  without it: no sun glow or light shafts on Horror, Lunar and War, no cloud shadows on Lunar, no warm LUT on cool or
+  violet themes.
+- **`lite`** (PostWorld): a single-pass version of the colour and grade for Low.
+- **`lens`** (PostWorld): colour fringes toward the corners, film grain and a final dither.
 
 ## Shadows
 
@@ -98,19 +85,17 @@ blocky and worm shadows are blobs. Sunstone asks Melange for a larger map (`grap
 - **Contact-hardening** (Subtle, Bold): a blocker estimate picks between a sharp and a soft kernel, so shadows are
   crisp where an object meets the ground and soften with distance from it.
 
-Both add a slope-scaled bias, and surfaces facing away from the sun shade themselves, which removes the stripes
-(acne) the game shows on grazing slopes. The sliders are in the overlay's *Mirage/Shaders* panel
-(`shaders/params.ini`): filter mode (0 is the game's own filter), penumbra spread, contact distance and bias.
-`Melange.ini` has the last word on the size:
+Both add a slope-scaled bias and an offset on steep receivers, and surfaces facing away from or edge-on to the sun
+shade themselves, which removes the stripes (acne) the game shows on grazing slopes and on steep ground close to the
+camera. The sliders are in the overlay's *Mirage/Shaders* panel (`shaders/params.ini`): filter mode (0 is the game's
+own filter), penumbra spread, contact distance and bias. `Melange.ini` has the last word on the size:
 
 ```ini
 [MirageShadows]
 ShadowMapSize=auto   ; auto | vanilla | 512 | 1024 | 2048 | 4096
 ```
 
-No measurable GPU cost on a mid-range desktop GPU at 720p (frame GPU time 4.1 ms with the game's 1024² filter and with
-4096² contact-hardening; noise ±0.3 ms). A 4096² map uses 64 MB of VRAM. Worms and props still cast shadows but
-do not receive them; that needs Melange work.
+A 4096² map uses 64 MB of VRAM. Worms and props still cast shadows but do not receive them; that needs Melange work.
 
 ## Lighting
 
@@ -120,7 +105,12 @@ of the landscape (`Landscape.LandscapeFragmentMain`, `Landscape.HeightMapFragmen
 (`FixedFunction.FFFragmentMain*Lit*`: worms, props, weapons) with original GLSL written against the same inputs:
 
 - **Hemispheric ambient**: surfaces facing up get the sky's light, surfaces facing down the bounce light off the
-  ground, so shaded sides of worms, rocks and cliffs keep their form. The tints come from a per-theme table.
+  ground, so shaded sides of worms, rocks and cliffs keep their form and worms and props sit on the ground with
+  darker undersides. The tints come from a per-theme table.
+- **Sun and shade**: a stronger sun and deeper cast shadows, with a warm sun and cooler shade on the themes that
+  suit it; shade keeps the colour of the surface rather than turning grey or violet.
+- **Grass and foliage**: meadows and leaves move from neon toward natural greens, with softer light through the
+  grass and fine detail on the ground. Off on Arctic, Lunar and Horror, whose colours are the theme's art.
 - **Energy-conserving Blinn-Phong**: a normalised highlight (narrow and bright on glossy surfaces, wide and faint on
   rough ones), with a Schlick-style rise at grazing angles. Models use the game's own specular colour and gloss per
   material; the landscape uses the theme's reflectance and gloss.
@@ -132,18 +122,11 @@ of the landscape (`Landscape.LandscapeFragmentMain`, `Landscape.HeightMapFragmen
 - **Highlight roll-off**: bright colours roll off toward white, as film does, instead of clipping per channel, so
   sand and stone keep the game's pale character rather than turning orange.
 
-The per-theme materials (reflectance, gloss, relief depth, sky and ground tints, and grade offsets such as Horror's
-exposure) are the `THEMES` table in
-`mod/client/init.lua`. The sliders in the *Mirage/Shaders* panel (`shaders/params.ini`) cover the same terms, plus
-`sunstoneLight` (0 is the game's lighting) and `sunstoneSplit`, which keeps the game's lighting left of a screen x
-for side-by-side comparisons. Off and the **Sunstone lighting** setting hand the programs back to the game.
-
-The landscape still gets the soft shadows above. Worms and props do not receive shadows yet.
-
-Measured on a mid-range desktop GPU at 1080p, same paused frame, median of 8 samples: frame GPU time 4.2 and 4.5 ms in two
-runs with Sunstone lighting, 4.3 ms with the game's lighting in the same shaders and 4.2 ms with the game's own
-shaders (noise ±0.4 ms), so the cost is below what the timer can resolve. Mirroring the game's shader
-parameters into the GLSL programs costs under 0.1 ms of CPU per frame.
+The per-theme materials (reflectance, gloss, relief depth, sky and ground tints, sun and shade tints, and grade
+offsets such as Horror's exposure) are the `THEMES` table in `mod/client/init.lua`. The sliders in the
+*Mirage/Shaders* panel (`shaders/params.ini`) cover the same terms, plus `sunstoneLight` (0 is the game's lighting)
+and `sunstoneSplit`, which keeps the game's lighting left of a screen x for side-by-side comparisons. Off and the
+**Sunstone lighting** setting hand the programs back to the game.
 
 ## Water
 
@@ -153,37 +136,44 @@ half-transparent, with no sense of depth and a lot of shimmer at grazing angles.
 the water draws:
 
 - **Depth and refraction**: the water's thickness along each view ray comes from the depth behind it. Shallow water
-  shows the sand and rocks below, gently bent by the waves; the light is absorbed with depth toward the game's own
-  water, computed from the game's own water terms (colour ramp, environment map and parameters) at run time, so
-  every theme keeps its sea, Horror's murky green included.
-- **Reflection**: a Fresnel blend toward the game's own sky (taking on the water's hue, so a pale horizon never
-  turns the sea cyan), looked up on screen where the reflected ray meets it, else at the horizon above the pixel.
-- **Glints**: the game's own white wave glints, a sharp sparkle and sheen from the level's sun, and small flecks on
-  ripple crests (fewer on pale water, so they never read as blotches). A slow rotated swell and a noise that varies
-  the wave height across the sea hide the normal map's repeat far out.
-- **Rich sea** (Bold): a deeper, more saturated version of the game's own water hue, with a calmer reflection and
-  crisp white glints that cover the water below them, so they stay white over sandy shallows. The colour keeps the
-  hue the game's own water would have at each pixel, so the shallow tint, sky and seabed never pull an olive or
-  pale cyan sea toward green or teal.
-- **Shore foam**: broken, slowly drifting foam where the water is shallow, from procedural noise computed in the
-  shader (no texture is shipped).
+  shows the sand and rocks below in the water's own hue, gently bent by the waves; the light is absorbed with depth
+  toward the game's own water, computed from the game's own water terms (colour ramp, environment map and
+  parameters) at run time, so every theme keeps its sea, Horror's murky green included.
+- **Caustics** (Subtle, Bold): faint moving light patterns on the floor of the shallows.
+- **Reflection**: the scenery above the water, found on screen and faded out softly beside cliffs and other
+  silhouettes, then a Fresnel blend toward the game's own sky (taking on the water's hue, so a pale horizon never
+  turns the sea cyan). Low reflects only the sky.
+- **Glints**: the game's own white wave glints, a sharp sparkle and sheen from the level's sun, sun-facing crests
+  and small flecks on ripple crests (fewer on pale water, so they never read as blotches). Facets and crests fade
+  out at glancing angles, so the far sea shows no pale bands. A slow rotated swell and a noise that varies the wave
+  height across the sea hide the normal map's repeat far out.
+- **Rich sea** (Bold): a deeper, more saturated version of the game's own water hue with crisp white glints. The
+  colour keeps the hue the game's own water would have at each pixel, so the shallow tint, sky and seabed never pull
+  an olive or pale cyan sea toward green or teal.
+- **Shore foam** (Subtle, Bold): light, broken, slowly drifting foam where the water is shallow, fading on steep
+  banks, from procedural noise computed in the shader (no texture is shipped).
 - **No shimmer**: each wave layer fades out where its texels shrink below a pixel.
 
 Sliders in the *Mirage/Shaders* panel (`shaders/params.ini`): deep and shallow tints, clarity, reflection, waves,
-refraction, glint, foam and rich sea; `sunstoneWater` 10, 11 and 12 show the water depth, the foam and the glints alone,
-and `sunstoneSplit` draws the game's own water left of a screen x for comparisons. The **Sunstone water** setting and Off hand the water back to the game; Low drops the foam.
+refraction, glint, foam, scenery reflections, caustics and rich sea; the `sunstoneWater` view shows the water depth,
+the foam, the glints, the reflections or the caustics alone, and `sunstoneSplit` draws the game's own water left of a
+screen x for comparisons. The **Sunstone water** setting and Off hand the water back to the game.
 
-Measured on a mid-range desktop GPU at 1080p, paused frames, median of 20 samples: frame GPU time with and without it is
-within the timer's noise (±0.1 ms) both with the sea covering a third of the screen and with little water in view,
-and the CPU time spent feeding GLSL programs does not change.
+## Cost
+
+Measured at 1920x1080 on a mid-range desktop GPU, paused frame, Off and Bold alternated: Bold adds about 1.5 ms of
+frame GPU time over Off. About 1 ms of that is the post-FX stack (ambient occlusion 0.34 ms, light and atmosphere
+0.41 ms, SMAA 0.12 ms, sharpening 0.06 ms, lens 0.04 ms); the rest is the lighting, shadows and water. Ultra, with its
+3840x2160 scene, adds about 6.9 ms over Off.
 
 ## Client-only
 
 `"kind": "client-only"` in `spice.json`. Mirage only touches GL state and shaders; no sim data, Tweak or
 CRC-listed file is touched by any of the above.
 
-## What's next
+## Known limits
 
-Supersampling needs framework work in Melange first and will ship in a later release, as may screen-space
-reflections of the scenery in the water. Worms and props receiving shadows needs Melange to hand them the shadow
-map.
+- Worms and props cast shadows but do not receive them; that needs Melange to hand them the shadow map.
+- Sunlit sand on Building and Wild West reads a little yellower than the game's own, and on Pirate a little redder.
+- After an upgrade from 1.7 the *Mirage/Post-FX* panel can still list the retired fog, sky, bloom and grade effects
+  as failed. They are switched off and do nothing.

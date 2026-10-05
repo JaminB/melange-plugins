@@ -1,3 +1,26 @@
+## 2.0.0
+
+- Natural grass and foliage: meadows and leaves move from neon toward real greens, while gas, barrels, water and sky
+  keep their colours. Set per theme, and off on Arctic, Lunar and Horror.
+- New light: a stronger sun, deep soft cast shadows without stripes on steep or grazing ground, worms and props
+  grounded by darker undersides and short contact shadows, and a warm sun with cooler shade where the theme suits it.
+- Atmosphere: haze that gives distant islands depth, a soft sun glow, drifting cloud shadows and, on Bold, light
+  shafts. Each is held back where it does not fit: no sun glow or shafts on Horror, Lunar and War.
+- Water: clear shallows that show the floor in the sea's own hue, caustics, reflections of the scenery with no seams
+  beside cliffs, calmer glints with no pale bands far out, and lighter shore foam without bright outlines.
+- Light and grade now work in linear light, with a new display transform that rolls bright colours softly to white,
+  bloom and a dither against banding. This replaces the separate grade, fog, sky glow and bloom effects of 1.7,
+  which are switched off on upgrade.
+- Ambient occlusion is horizon-based and applied in linear light.
+- Bold adds distance blur on far scenery, fine film grain and a lens finish (dirt, flare, colour fringes). New
+  Distance blur, Film grain and Lens effects settings turn them off.
+- Every theme keeps its character: Horror its olive sea, Arctic its white snow, Lunar its violet shade, Building its
+  grey stone, and bright sand stays below white.
+- Low uses a single-pass version of the new colour, and Low and Subtle are no darker than Off. Ultra runs the heavier
+  effects at half scale on the supersampled scene.
+- Measured at 1920x1080 on a mid-range desktop GPU, paused frame: Bold adds about 1.5 ms of frame GPU time over Off,
+  Ultra about 6.9 ms.
+
 ## 1.7.2
 
 - Runs on Melange 0.4. No other change.

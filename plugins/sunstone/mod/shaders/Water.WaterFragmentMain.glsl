@@ -17,7 +17,7 @@ uniform vec2 mg_renderScale;
 uniform vec3 globalLightDir;
 uniform vec3 globalDiffuse;
 
-uniform float sunstoneWater;          // 1 Sunstone; 10 shows the water depth, 11 the foam, 12 glint and flecks
+uniform float sunstoneWater;          // 1 Sunstone; 10 water depth, 11 foam, 12 glint and flecks, 13 reflections, 14 caustics
 uniform vec3 sunstoneWaterDeep;       // deep-water tint, multiplied by the theme's own water colour
 uniform vec3 sunstoneWaterShallow;    // tint of the light that crosses shallow water
 uniform float sunstoneWaterClarity;   // distance (world units) over which the light is absorbed
@@ -28,7 +28,18 @@ uniform float sunstoneWaterGlint;     // sun glint strength
 uniform float sunstoneWaterFoam;      // shore foam strength
 uniform float sunstoneWaterFoamWidth; // water depth (world units) the foam reaches
 uniform float sunstoneWaterRich;      // 0 the game's own brightness; 1 a deeper, more saturated sea with white glints
+uniform float sunstoneWaterLift;      // how far deep water takes the brightness of the game's blended water
 uniform float sunstoneSplit;          // pixels left of this x draw the game's own water (comparisons)
+uniform float sunstoneWaterSsr;          // strength of the screen-space reflection of the scenery
+uniform float sunstoneWaterSsrCap;       // most the scenery reflection may cover the sea
+uniform float sunstoneWaterSsrRange;     // longest reflected ray (world units)
+uniform float sunstoneWaterSsrThickness; // depth (fraction of the distance) a surface is assumed to have
+uniform float sunstoneWaterSsrEdge;      // width (pixels per step) of the fade beside silhouettes; 0 none
+uniform float sunstoneWaterCaustics;     // caustic light on the sea floor in the shallows
+uniform float sunstoneWaterCausticScale; // caustic cells per water texture repeat
+uniform float sunstoneWaterCrest;        // turquoise lift on crests facing the sun
+uniform float sunstoneWaterDispersion;   // red/blue split of the refraction (pixels)
+uniform float sunstoneWaterSmooth;       // blur of the colour ramp lookup (ramp texels), against contour lines
 
 float Hash(vec2 p) {
     p = fract(p * vec2(0.1031, 0.1030));
@@ -71,6 +82,40 @@ float SkyWeight(vec2 uv) {
     return sky * smoothstep(0.0, 0.04, min(e.x, e.y));
 }
 
+// The sky around uv, blurred and stretched vertically as rough water blurs a reflection, so the painted outlines of
+// the clouds do not come back as dark lines on the sea. Weight in w.
+vec4 SkyBlur(vec2 uv) {
+    const vec2 o[7] = vec2[7](vec2(0.0), vec2(-0.02, 0.015), vec2(0.02, 0.015), vec2(0.0, 0.04),
+                              vec2(-0.015, -0.025), vec2(0.015, -0.025), vec2(0.0, 0.07));
+    vec3 c = vec3(0.0);
+    float w = 0.0;
+    for (int i = 0; i < 7; ++i) {
+        float k = SkyWeight(uv + o[i]);
+        c += texture2D(mg_scene, uv + o[i]).rgb * k;
+        w += k;
+    }
+    return vec4(w > 1e-3 ? c / w : vec3(0.0), w / 7.0);
+}
+
+// The sky just above the horizon around uv: a wide row of taps weighted toward the middle, so something standing in
+// front of the horizon fades the colour in gradually instead of cutting it off at its silhouette. Weight in w.
+vec4 HorizonSky(vec2 uv) {
+    vec3 c = vec3(0.0);
+    float w = 0.0, tot = 0.0;
+    for (int i = -4; i <= 4; ++i) {
+        float dx = float(i) * 0.06;
+        float g = exp(-dx * dx * 12.0);
+        for (int j = 0; j < 2; ++j) {
+            vec2 p = uv + vec2(dx, 0.03 * float(j));
+            float k = SkyWeight(p) * g;
+            c += texture2D(mg_scene, p).rgb * k;
+            w += k;
+            tot += g;
+        }
+    }
+    return vec4(w > 1e-3 ? c / w : vec3(0.0), smoothstep(0.0, 0.35, w / tot));
+}
+
 vec2 Slope(vec2 uv) {
     vec3 s = texture2D(texture1, uv).xyz * 2.0 - 1.0;
     return s.xy / max(s.z, 0.2);
@@ -103,12 +148,114 @@ vec3 KeepHue(vec3 c, vec3 ref) {
     return mix(c, kept, smoothstep(0.004, 0.02, lr));
 }
 
-vec3 GameWater(vec2 uv, float t, out float spec) {
+// Eye-space position of the screen point uv at linear depth z.
+vec3 ViewAt(vec2 uv, float z) {
+    return vec3((uv * 2.0 - 1.0 + vec2(mg_proj[2][0], mg_proj[2][1])) * z / vec2(mg_proj[0][0], mg_proj[1][1]), -z);
+}
+
+// The scenery drawn before the sea, seen along the eye-space ray p + d * s: 14 even steps across the screen, then
+// 4 bisections. Rays fade out toward the screen edges and the end of their range; hits on the sky, on anything below
+// the water plane (the sea floor) and behind a surface thicker than assumed are dropped. Weight in w.
+vec4 Reflection(vec3 p, vec3 d, vec3 up) {
+    float len = sunstoneWaterSsrRange;
+    if (d.z > 0.0) len = min(len, (-p.z - 2.0 * mg_nearFar.x) / d.z);
+    if (len <= 1.0) return vec4(0.0);
+    vec4 c0 = mg_proj * vec4(p, 1.0);
+    vec4 c1 = mg_proj * vec4(p + d * len, 1.0);
+    float k0 = 1.0 / c0.w, k1 = 1.0 / c1.w;
+    vec2 s0 = c0.xy * k0 * 0.5 + 0.5;
+    vec2 ds = c1.xy * k1 * 0.5 + 0.5 - s0;
+    float end = 1.0;
+    if (abs(ds.x) > 1e-6) end = min(end, ((ds.x > 0.0 ? 1.0 : 0.0) - s0.x) / ds.x);
+    if (abs(ds.y) > 1e-6) end = min(end, ((ds.y > 0.0 ? 1.0 : 0.0) - s0.y) / ds.y);
+    if (end <= 0.0) return vec4(0.0);
+
+    float lo = 0.0, hi = -1.0, thick = 0.0;
+    float prevZ = c0.w;
+    for (int i = 1; i <= 14; ++i) {
+        float s = end * float(i) / 14.0;
+        float rz = 1.0 / mix(k0, k1, s);
+        float sz = Linear(textureLod(mg_depth, s0 + ds * s, 0.0).r);
+        thick = abs(rz - prevZ) + rz * sunstoneWaterSsrThickness;
+        if (rz > sz && rz - sz < thick) {
+            hi = s;
+            break;
+        }
+        lo = s;
+        prevZ = rz;
+    }
+    if (hi < 0.0) return vec4(0.0);
+    for (int i = 0; i < 4; ++i) {
+        float m = 0.5 * (lo + hi);
+        if (1.0 / mix(k0, k1, m) > Linear(textureLod(mg_depth, s0 + ds * m, 0.0).r)) hi = m;
+        else lo = m;
+    }
+
+    vec2 uv = s0 + ds * hi;
+    float rz = 1.0 / mix(k0, k1, hi);
+    float sz = Linear(textureLod(mg_depth, uv, 0.0).r);
+    vec2 e = min(uv, 1.0 - uv);
+    float w = smoothstep(0.0, 0.1, min(e.x, e.y));
+    // Hits beside a silhouette fade out over a few pixels, so the scenery's reflection blends into the sky's
+    // instead of ending in a hard seam.
+    if (sunstoneWaterSsrEdge > 0.0) {
+        vec2 px = sunstoneWaterSsrEdge * max(mg_renderScale.x, 1.0) / vec2(textureSize(mg_depth, 0));
+        const vec2 o[8] = vec2[8](vec2(-4.0, 0.0), vec2(4.0, 0.0), vec2(-11.0, 0.0), vec2(11.0, 0.0),
+                                  vec2(-20.0, 0.0), vec2(20.0, 0.0), vec2(0.0, 6.0), vec2(0.0, 14.0));
+        float same = 0.0;
+        for (int i = 0; i < 8; ++i) {
+            float zn = Linear(textureLod(mg_depth, uv + o[i] * px, 0.0).r);
+            same += 1.0 - smoothstep(0.04, 0.12, abs(zn - sz) / sz);
+        }
+        w *= smoothstep(0.5, 0.95, same / 8.0);
+    }
+    // Fraction of the ray's eye-space length travelled.
+    w *= 1.0 - smoothstep(0.6, 1.0, hi * k1 / mix(k0, k1, hi));
+    w *= 1.0 - smoothstep(0.5, 1.0, abs(rz - sz) / max(thick, 1e-3));
+    w *= step(sz, mg_nearFar.y * 0.4);
+    w *= smoothstep(0.5, 3.0, dot(ViewAt(uv, sz) - p, up));
+    // Rays turning back toward the camera meet the backs of things the depth copy does not have.
+    w *= 1.0 - smoothstep(0.2, 0.6, d.z);
+    return vec4(textureLod(mg_scene, uv, 0.0).rgb, w);
+}
+
+// Light focused by the waves onto the sea floor: the edges of drifting cells, bright where neighbouring cells meet.
+float Caustic(vec2 p, float t) {
+    p += vec2(Noise(p * 0.5 + t * 0.07), Noise(p * 0.5 - t * 0.05 + 19.1)) * 0.6;
+    vec2 i = floor(p), f = fract(p);
+    float d1 = 8.0, d2 = 8.0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            vec2 g = vec2(float(x), float(y));
+            vec2 h = vec2(Hash(i + g), Hash(i + g + 17.3));
+            vec2 o = g + 0.5 + 0.35 * sin(t * 0.6 + 6.2831853 * h) - f;
+            float d = dot(o, o);
+            if (d < d1) {
+                d2 = d1;
+                d1 = d;
+            } else if (d < d2) {
+                d2 = d;
+            }
+        }
+    }
+    float edge = 1.0 - smoothstep(0.0, 0.22, sqrt(d2) - sqrt(d1));
+    return edge * edge;
+}
+
+// The colour ramp at c, blurred along its diagonal over r texels.
+vec3 Ramp(vec2 c, float r) {
+    if (r <= 0.0) return texture2D(texture0, c).rgb;
+    vec2 o = vec2(r) / vec2(textureSize(texture0, 0));
+    return (texture2D(texture0, c - o).rgb + texture2D(texture0, c - 0.5 * o).rgb + texture2D(texture0, c).rgb +
+            texture2D(texture0, c + 0.5 * o).rgb + texture2D(texture0, c + o).rgb) * 0.2;
+}
+
+vec3 GameWater(vec2 uv, float t, float r, out float spec) {
     float st = t * 0.5;
     vec3 nm = normalize(MapNormal(uv * 5.0 + st * vec2(-0.3, 0.6)) * vec3(0.2, 0.2, 0.0) +
                         MapNormal(uv * -0.2 + st * vec2(0.0, 0.2)) + MapNormal(uv * -0.75 + st * vec2(-0.1, -0.2)));
     mat4 p = combinedWaterParams;
-    vec3 diffuse = texture2D(texture0, nm.gg * 0.25).rgb - texture2D(texture0, nm.bb * 2.0).rrr * p[3].w;
+    vec3 diffuse = Ramp(nm.gg * 0.25, r) - Ramp(nm.bb * 2.0, r).rrr * p[3].w;
     vec3 refl = pow(Env(nm * p[2].xyz), vec3(p[0].x)) * p[0].y;
     spec = clamp(pow(Env(nm * p[1].xyz).r, p[0].z) * p[3].x, 0.0, 1.0);
     return diffuse + refl;
@@ -121,7 +268,7 @@ void main() {
     float t = pausedTime;
     if (gl_FragCoord.x < sunstoneSplit) {
         float s;
-        gl_FragColor = vec4(GameWater(gl_TexCoord[0].xy, t, s) + s, combinedWaterParams[3].z);
+        gl_FragColor = vec4(GameWater(gl_TexCoord[0].xy, t, 0.0, s) + s, combinedWaterParams[3].z);
         return;
     }
 
@@ -156,14 +303,40 @@ void main() {
     vec2 offset = n.xz * sunstoneWaterRefract * clamp(through / 40.0, 0.0, 1.0) * (1.0 - far);
     vec2 ruv = uv + offset;
     float rraw = texture2D(mg_depth, ruv).r;
-    if (Linear(rraw) < zWater) ruv = uv;  // never refract something in front of the water
-    vec3 below = texture2D(mg_scene, ruv).rgb;
+    bool front = Linear(rraw) < zWater;
+    if (front) ruv = uv;  // never refract something in front of the water
+    // Red and blue bend a little less and more than green, along the refraction.
+    float olen = length(offset);
+    vec2 split = front || olen < 1e-6 ? vec2(0.0) : offset / olen * sunstoneWaterDispersion * max(mg_renderScale.x, 1.0) / size *
+                 clamp(olen * size.x * 0.25, 0.0, 1.0);
+    vec3 below = vec3(texture2D(mg_scene, ruv - split).r, texture2D(mg_scene, ruv).g, texture2D(mg_scene, ruv + split).b);
+
+    // Scenes without landscape (the menu) have no sun; a high one stands in.
+    vec3 l = dot(globalLightDir, globalLightDir) > 0.01 ? normalize(transpose(mat3(mg_view)) * globalLightDir)
+                                                        : normalize(vec3(0.3, 0.6, 0.5));
+    float sunY = clamp(dot(globalDiffuse, vec3(0.299, 0.587, 0.114)), 0.0, 1.0);
+
+    // Caustics on the floor seen through shallow water, placed where the view ray meets the floor so they stay put
+    // on it as the camera moves. The world-to-texture mapping of the water plane comes from the screen derivatives.
+    vec2 ex = dFdx(eye.xz), ey = dFdy(eye.xz), ux = dFdx(uv0), uy = dFdy(uv0);
+    float edet = ex.x * ey.y - ey.x * ex.y;
+    mat2 toUv = mat2(ux, uy) * mat2(ey.y, -ex.y, -ey.x, ex.x) / (abs(edet) > 1e-12 ? edet : 1e-12);
+    vec2 floorUv = (uv0 + toUv * (-v.xz * min(through, sunstoneWaterClarity * 3.0))) * sunstoneWaterCausticScale;
+    float caustW = sunstoneWaterCaustics * (1.0 - far) * step(0.0, l.y) * step(through, 1e4) *
+                   smoothstep(0.2, 1.5, depth) * (1.0 - smoothstep(sunstoneWaterClarity * 0.4, sunstoneWaterClarity * 1.2, depth)) *
+                   (1.0 - smoothstep(0.15, 0.4, length(fwidth(floorUv)) * max(mg_renderScale.x, 1.0)));
+    float caust = 0.0;
+    if (caustW > 0.001) caust = Caustic(floorUv, t);
+    below *= 1.0 + caust * caustW * (0.4 + 0.6 * sunY) * mix(globalDiffuse, vec3(1.0), 0.5);
 
     // The theme's own water colour (the ramp's average) keeps each theme's character.
     vec3 themeCol = texture2D(texture0, vec2(0.125), 8.0).rgb;
     float gameSpec;
-    vec3 game = max(GameWater(uv0, t, gameSpec), 0.0);
-    vec3 deep = game * mix(sunstoneWaterDeep, vec3(1.0), sunstoneWaterRich);
+    vec3 game = max(GameWater(uv0, t, sunstoneWaterSmooth, gameSpec), 0.0);
+    // The game blends its water over what lies behind it; the deep colour takes that brightness in its own hue.
+    vec3 gameHere = mix(texture2D(mg_scene, uv).rgb, game, combinedWaterParams[3].z);
+    // The blended colour itself, so the ramp's dark contour lines stay as faint as the game draws them.
+    vec3 deep = mix(game, gameHere, sunstoneWaterLift) * mix(sunstoneWaterDeep, vec3(1.0), sunstoneWaterRich);
     // A rich sea is a deeper, more saturated version of the same hue; seas that are already vivid gain less.
     float deepHi = max(max(deep.r, deep.g), deep.b);
     float deepSat = (deepHi - min(min(deep.r, deep.g), deep.b)) / max(deepHi, 1e-3);
@@ -171,39 +344,76 @@ void main() {
     deep = max(mix(vec3(deepY), deep, 1.0 + 0.3 * (1.0 - deepSat) * sunstoneWaterRich) * (1.0 - 0.4 * sunstoneWaterRich), 0.0);
     vec3 absorb = (1.0 - clamp(themeCol, 0.05, 0.95)) * 1.5 + 0.4;
     vec3 trans = exp(-absorb * through / sunstoneWaterClarity) * (1.0 - smoothstep(sunstoneWaterClarity * 0.5, sunstoneWaterClarity * 1.5, depth));
-    vec3 body = mix(deep, below * sunstoneWaterShallow, trans);
+    // The reflected sky and the floor seen through the water take on the water's own hue (the theme's average water
+    // colour: the ramp's own patches would print through).
+    vec3 deepAvg = themeCol * mix(sunstoneWaterDeep, vec3(1.0), sunstoneWaterRich);
+    vec3 hue = clamp(deepAvg / max(dot(deepAvg, vec3(0.299, 0.587, 0.114)), 0.05), 0.0, 2.0);
+    // Even a little water tints the floor, more with depth, so a pale floor reads as clear shallow water with a soft
+    // edge rather than a milky sheet.
+    vec3 seen = below * sunstoneWaterShallow * mix(vec3(1.0), hue, 0.3 + 0.45 * (1.0 - exp(-through / sunstoneWaterClarity)));
+    // The surface itself always scatters some of the water's colour, as the game's own blend does.
+    vec3 body = mix(deep, seen, trans * 0.7);
 
     // Sky-tinted reflection: the game's own sky where the reflected ray meets it on screen, else the sky at the
     // horizon above this pixel, else the theme's water colour lifted toward white.
-    vec3 r = reflect(-v, n);
+    // The reflected sky follows a calmer surface than the light, so the swell does not break it into blotches.
+    vec2 calm = clamp(slope * 0.1, -0.04, 0.04);
+    vec3 nc = normalize(vec3(calm.x, 1.0, calm.y));
+    vec3 r = reflect(-v, nc);
     r.y = max(r.y, 0.02);
     vec3 sky = mix(themeCol, vec3(1.0), 0.45);
     vec2 hor = ScreenOf(normalize(vec3(r.x, 0.04, r.z)));
-    sky = mix(sky, texture2D(mg_scene, hor).rgb, SkyWeight(hor));
-    vec2 mir = ScreenOf(r);
-    sky = mix(sky, texture2D(mg_scene, mir).rgb, SkyWeight(mir) * (1.0 - far * 0.5));
-    float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
-    // The reflected sky takes on the water's own hue, so a pale horizon does not turn the sea cyan.
-    vec3 hue = clamp(deep / max(dot(deep, vec3(0.299, 0.587, 0.114)), 0.05), 0.0, 2.0);
-    vec3 col = mix(body, sky * mix(vec3(1.0), hue, 0.5 + 0.35 * sunstoneWaterRich),
-                   clamp(fres * sunstoneWaterReflect, 0.0, (0.35 - 0.12 * far) * (1.0 - 0.3 * sunstoneWaterRich)));
+    if (sunstoneWaterSsrEdge > 0.0) {
+        vec4 hs = HorizonSky(hor);
+        sky = mix(sky, hs.rgb, hs.w);
+    } else {
+        sky = mix(sky, texture2D(mg_scene, hor).rgb, SkyWeight(hor));
+    }
+    vec4 mir = SkyBlur(ScreenOf(r));
+    // Mostly the horizon's colour: mirrored clouds, broken up by the swell, read as pale blotches on the sea.
+    sky = mix(sky, mir.rgb, mir.w * 0.25 * (1.0 - far * 0.5));
+    // Taken on the mean water plane: at glancing angles any tilt from the swell would print as large pale patches.
+    float fres = 0.02 + 0.98 * pow(1.0 - max(v.y, 0.0), 5.0);
+    // Over clear shallows the sea floor shows through and the sky's reflection would only lay a milky sheet on it.
+    float clear = dot(trans, vec3(1.0 / 3.0));
+    vec3 skyRefl = sky * mix(vec3(1.0), hue, 0.5 + 0.35 * sunstoneWaterRich);
+    float reflW = clamp(fres * sunstoneWaterReflect, 0.0, (0.35 - 0.12 * far) * (1.0 - 0.3 * sunstoneWaterRich)) * (1.0 - 0.6 * clear);
+    vec3 col = mix(body, skyRefl, reflW);
 
-    // Scenes without landscape (the menu) have no sun; a high one stands in.
-    vec3 l = dot(globalLightDir, globalLightDir) > 0.01 ? normalize(transpose(mat3(mg_view)) * globalLightDir)
-                                                        : normalize(vec3(0.3, 0.6, 0.5));
-    // Facets facing the sun read a little lighter, so the swell keeps its shape seen from above.
-    col *= 1.0 + clamp(dot(n.xz, l.xz) * 0.5, -0.07, 0.07) * (1.0 - far);
+    // Facets facing the sun read a little lighter, so the swell keeps its shape seen from above. At glancing views
+    // the facets crowd into pale horizontal bands, so it fades out there.
+    float facing = smoothstep(0.12, 0.45, v.y);
+    col *= 1.0 + clamp(dot(n.xz, l.xz) * 0.5, -0.07, 0.07) * (1.0 - far) * facing;
     // The shallow tint, the sky and the seabed would pull an olive or violet sea off its hue; a rich sea keeps the
     // hue of the game's own water here and only deepens it.
-    vec3 gameHere = mix(texture2D(mg_scene, uv).rgb, game, combinedWaterParams[3].z);
     col = mix(col, KeepHue(col, gameHere), sunstoneWaterRich);
+
+    // Crests tilted toward the sun pass a little light through: a greener shade of the sea's own hue.
+    float toSun = dot(n.xz, normalize(l.xz + vec2(1e-4)));
+    vec3 lift = clamp(hue * vec3(0.55, 1.15, 1.0), 0.0, 2.0);
+    col += lift * 0.06 * smoothstep(0.04, 0.16, toSun) * step(0.0, l.y) * (0.4 + 0.6 * sunY) * (1.0 - far) * facing * sunstoneWaterCrest;
+
+    // The scenery mirrored in the sea, kept below a cap so the sea keeps its own colour.
+    vec4 ssr = vec4(0.0);
+    float ssrMax = fres * 0.6 * sunstoneWaterSsr;
+    if (ssrMax > 0.002 && sunstoneWaterSsrCap > 0.0) {
+        vec3 pv = ViewAt(uv, zWater);
+        ssr = Reflection(pv, normalize(mat3(mg_view) * r), mg_view[1].xyz);
+    }
+    float ssrW = clamp(ssrMax * ssr.w, 0.0, sunstoneWaterSsrCap);
+    col = mix(col, ssr.rgb * mix(vec3(1.0), hue, 0.3), ssrW);
+
     vec3 h = normalize(l + v);
     float nh = max(dot(n, h), 0.0);
     // A sharp sun sparkle on every facet that catches the sun, over a broader sheen along the sun path.
     // The broad sheen is what reads as a milky glare on a rich sea; the sparkle stays.
-    float sheen = pow(nh, 120.0) * 0.5 * (1.0 - 0.7 * sunstoneWaterRich);
-    float glint = (pow(nh, 700.0) * 14.0 + sheen) * (0.3 + 3.0 * fres) * step(0.0, l.y);
-    col = Glint(col, mix(globalDiffuse, vec3(1.0), 0.5 + 0.5 * sunstoneWaterRich) * glint * sunstoneWaterGlint * (1.0 - far * 0.6));
+    float sheen = pow(nh, 120.0) * 0.15 * (1.0 - 0.7 * sunstoneWaterRich);
+    float above = mix(1.0, 0.75, smoothstep(0.55, 0.9, v.y));
+    float glint = (pow(nh, 700.0) * 14.0 + sheen) * (0.3 + 3.0 * fres) * step(0.0, l.y) * above;
+    // Glints read as a cool white rather than the sun's warmth, which turns cream after grading.
+    vec3 glintCol = vec3(0.9, 0.95, 1.0);
+    // The sun's own sparkle is kept smaller than the game's glints, so calm water never shows a broad glare patch.
+    col = Glint(col, glintCol * min(glint, 1.5) * sunstoneWaterGlint * 0.4 * (1.0 - far * 0.6));
     // Ripple crests tilted toward the camera catch the sky as small white flecks. Each comes from the finest
     // layer that is still above a pixel, so they stay small at every distance, and they are rarer on pale water
     // where they would read as blotches.
@@ -215,20 +425,30 @@ void main() {
     float fleck = smoothstep(0.45 + 0.15 * pale, 0.7 + 0.1 * pale, crest) * patchy * mid * (0.8 + fres) *
                   smoothstep(0.95, 0.5, v.y) * smoothstep(0.3, 0.9, texels) * (1.0 - 0.5 * pale);
     col = Glint(col, mix(sky, vec3(1.0), 0.85) * fleck * 0.35 * sunstoneWaterGlint);
-    // The game's own white glints.
-    // On a rich sea the game's soft glints get a crisp edge.
+    // The game's own glints: on a rich sea they get a crisp edge; seen from above, where they would stretch into
+    // broad pale streaks, they fade.
     gameSpec = mix(gameSpec, smoothstep(0.25, 0.75, gameSpec), sunstoneWaterRich);
-    col = Glint(col, vec3(gameSpec) * sunstoneWaterGlint * 0.8 * (1.0 - 0.5 * pale * (1.0 - sunstoneWaterRich)) * (1.0 - far * 0.5));
+    gameSpec = min(gameSpec * above, 0.85);
+    vec3 gameGlint = glintCol * gameSpec * sunstoneWaterGlint * 0.8 * (1.0 - 0.5 * pale * (1.0 - sunstoneWaterRich)) * (1.0 - far * 0.5);
+    col = Glint(col, gameGlint);
 
     vec2 wp = gl_TexCoord[0].xy;
     float shore = 1.0 - smoothstep(0.0, sunstoneWaterFoamWidth, depth);
     float lace = Fbm(wp * 4.0 + vec2(t * 0.05, -t * 0.03));
     float band = 0.5 + 0.5 * sin(depth / sunstoneWaterFoamWidth * 12.0 - t * 1.5 + lace * 4.0);
-    float foam = smoothstep(0.5, 0.72, lace * 0.8 + band * 0.35 * shore + shore * 0.2) * sqrt(shore);
-    foam = max(foam, smoothstep(0.4, 1.0, shore) * (0.55 + 0.45 * lace)) * (1.0 - far);
+    // Broken lace only: a solid band along the waterline would draw a bright outline around every island and shelf.
+    float foam = smoothstep(0.55, 0.8, lace * 0.8 + band * 0.3 * shore + shore * 0.1) * shore * (1.0 - far);
+    // Foam forms on shelving shores; against a steep bank, or where the depth jumps at a silhouette, it would only
+    // trace a thin bright outline.
+    float steep = fwidth(depth) / max(length(ex) + length(ey), 1e-3);
+    foam *= 1.0 - smoothstep(0.5, 1.5, steep);
     col = mix(col, vec3(0.95) * (0.6 + 0.4 * globalDiffuse), clamp(foam * sunstoneWaterFoam, 0.0, 0.9));
 
-    if (sunstoneWater > 11.5) col = vec3(glint, fleck, 0.0);
+    if (sunstoneWater > 15.5) col = vec3(reflW * 2.0);
+    else if (sunstoneWater > 14.5) col = skyRefl;
+    else if (sunstoneWater > 13.5) col = vec3(caust * caustW);
+    else if (sunstoneWater > 12.5) col = vec3(ssr.w, ssrW * 2.0, 0.0);
+    else if (sunstoneWater > 11.5) col = vec3(glint, fleck, 0.0);
     else if (sunstoneWater > 10.5) col = vec3(foam);
     else if (sunstoneWater > 9.5) col = vec3(clamp(depth / 100.0, 0.0, 1.0));
     gl_FragColor = vec4(col, 1.0);
