@@ -167,6 +167,13 @@ local function applySupersample(samples)
     end
 end
 
+-- The scene's size over the window's. The landscape reads it as a parameter: declaring Melange's mg_renderScale
+-- there would claim the frame's scene copy before the water, which needs depth and colour in it.
+local function renderScale()
+    local s = wum.graphics and wum.graphics.supersample and wum.graphics.supersample()
+    return (s and not s.multisampled and s.x) or 1
+end
+
 local last = {}
 
 local function apply()
@@ -178,9 +185,10 @@ local function apply()
         theme = themeKey(),
         lighting = wum.config.get("lighting") ~= false,
         water = wum.config.get("water") ~= false,
+        scale = renderScale(),
     }
     local same = true
-    for _, k in ipairs({ "quality", "look", "theme", "lighting", "water" }) do
+    for _, k in ipairs({ "quality", "look", "theme", "lighting", "water", "scale" }) do
         if last[k] ~= state[k] then same = false end
     end
     if same then return end
@@ -213,6 +221,7 @@ local function apply()
     applyShadows(preset.shadows)
     applySupersample(preset.supersample)
     applyLighting(preset.lighting, theme, state.lighting)
+    if wum.shaders then landscapeParam("sunstoneRenderScale", state.scale) end
     applyWater(preset.water, state.water)
 end
 
