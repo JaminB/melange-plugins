@@ -11,6 +11,24 @@
   "screenshots": [],
   "versions": [
     {
+      "version": "2.0.0",
+      "released": "2026-10-05",
+      "melange": ">=0.3.0 <0.5.0",
+      "kind": "client-only",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/sunstone-v2.0.0/sunstone-2.0.0.zip",
+      "sha256": "4efbeb77dd70a88f3466abab610e759625ab1e7904ec468b7231a9ab695d5054",
+      "size": 382088,
+      "unpackedSize": 567934,
+      "files": 79,
+      "changelog": "- Natural grass and foliage: meadows and leaves move from neon toward real greens, while gas, barrels, water and sky\n  keep their colours. Set per theme, and off on Arctic, Lunar and Horror.\n- New light: a stronger sun, deep soft cast shadows without stripes on steep or grazing ground, worms and props\n  grounded by darker undersides and short contact shadows, and a warm sun with cooler shade where the theme suits it.\n- Atmosphere: haze that gives distant islands depth, a soft sun glow, drifting cloud shadows and, on Bold, light\n  shafts. Each is held back where it does not fit: no sun glow or shafts on Horror, Lunar and War.\n- Water: clear shallows that show the floor in the sea's own hue, caustics, reflections of the scenery with no seams\n  beside cliffs, calmer glints with no pale bands far out, and lighter shore foam without bright outlines.\n- Light and grade now work in linear light, with a new display transform that rolls bright colours softly to white,\n  bloom and a dither against banding. This replaces the separate grade, fog, sky glow and bloom effects of 1.7,\n  which are switched off on upgrade.\n- Ambient occlusion is horizon-based and applied in linear light.\n- Bold adds distance blur on far scenery, fine film grain and a lens finish (dirt, flare, colour fringes). New\n  Distance blur, Film grain and Lens effects settings turn them off.\n- Every theme keeps its character: Horror its olive sea, Arctic its white snow, Lunar its violet shade, Building its\n  grey stone, and bright sand stays below white.\n- Low uses a single-pass version of the new colour, and Low and Subtle are no darker than Off. Ultra runs the heavier\n  effects at half scale on the supersampled scene.\n- Measured at 1920x1080 on a mid-range desktop GPU, paused frame: Bold adds about 1.5 ms of frame GPU time over Off,\n  Ultra about 6.9 ms."
+    },
+    {
       "version": "1.7.2",
       "released": "2026-10-05",
       "melange": ">=0.3.0 <0.5.0",
