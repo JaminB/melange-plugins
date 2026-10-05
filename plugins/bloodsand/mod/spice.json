@@ -1,0 +1,61 @@
+{
+  "spiceVersion": 1,
+  "id": "bloodsand",
+  "version": "1.1.2",
+  "name": "Bloodsand",
+  "authors": ["Melange"],
+  "description": "A client-only, cosmetic gore mod: worms spray blood when hit, bleed for a while and wear the blood on their skin, open gaping wounds and get black eyes as their health runs low, throw up blood and spill their intestines when nearly dead, leave stains on the ground, and heavy hits spatter the camera lens. Only reads game state and draws. No effect on the simulation.",
+  "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/bloodsand",
+  "kind": "client-only",
+  "melange": { "range": ">=0.3.5 <0.5.0" },
+  "permissions": { "unsafe": false, "filesystem": "none" },
+  "dependencies": [],
+  "conflicts": [],
+  "entry": { "client": "client/init.lua" },
+  "settings": [
+    {
+      "key": "amount",
+      "type": "enum",
+      "options": ["off", "light", "heavy", "absurd"],
+      "default": "heavy",
+      "label": "Blood"
+    },
+    {
+      "key": "skin",
+      "type": "bool",
+      "default": true,
+      "label": "Blood on worms"
+    },
+    {
+      "key": "vomit",
+      "type": "bool",
+      "default": true,
+      "label": "Worms throw up blood"
+    },
+    {
+      "key": "guts",
+      "type": "bool",
+      "default": true,
+      "label": "Intestines"
+    },
+    {
+      "key": "stains",
+      "type": "bool",
+      "default": true,
+      "label": "Blood on the ground"
+    },
+    {
+      "key": "lens",
+      "type": "bool",
+      "default": true,
+      "label": "Splatter on the lens"
+    },
+    {
+      "key": "colour",
+      "type": "enum",
+      "options": ["red", "green"],
+      "default": "red",
+      "label": "Blood colour"
+    }
+  ]
+}

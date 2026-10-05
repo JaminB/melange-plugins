@@ -1,0 +1,86 @@
+{
+  "storeVersion": 1,
+  "licence": "MIT",
+  "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/bloodsand",
+  "categories": [
+    "graphics"
+  ],
+  "gameBuilds": [
+    "1077"
+  ],
+  "screenshots": [],
+  "versions": [
+    {
+      "version": "1.1.2",
+      "released": "2026-10-05",
+      "melange": ">=0.3.5 <0.5.0",
+      "kind": "client-only",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/bloodsand-v1.1.2/bloodsand-1.1.2.zip",
+      "sha256": "4c9dace2243790fb9dc494f7fb6af65a3aa23fd27d04aca02c94f32273175018",
+      "size": 94969,
+      "unpackedSize": 159835,
+      "files": 11,
+      "changelog": "Runs on Melange 0.4. No other change."
+    },
+    {
+      "version": "1.1.1",
+      "released": "2026-10-05",
+      "melange": ">=0.3.5 <0.4.0",
+      "kind": "client-only",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/bloodsand-v1.1.1/bloodsand-1.1.1.zip",
+      "sha256": "64b67b26ccd01913b6144ccf1bc006c5b62a971f9f690d7d2114bb3fd10f480e",
+      "size": 94968,
+      "unpackedSize": 159835,
+      "files": 11,
+      "changelog": "Fixes blood, wounds, black eyes and ground stains not being drawn at all on some machines: the shader that paints the\nworms was large enough that a graphics driver could accept it and then draw nothing with it, which also discarded the\nstains drawn before it. It now picks the one worm a pixel belongs to and does the long work once. Much more blood from\nordinary hits: more and larger droplets, longer bleeding, larger and darker stains, and a first hit now leaves a worm\nclearly bloodied instead of speckled. Black eyes no longer fade out while a worm walks."
+    },
+    {
+      "version": "1.1.0",
+      "released": "2026-10-05",
+      "melange": ">=0.3.5 <0.4.0",
+      "kind": "client-only",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/bloodsand-v1.1.0/bloodsand-1.1.0.zip",
+      "sha256": "8296ac227e88bd4ebc5424ea0b8ac8fd5b2f11a160e46e213d424a3320d1753b",
+      "size": 94462,
+      "unpackedSize": 158732,
+      "files": 11,
+      "changelog": "Badly hurt worms now show it in three more ways. Their eyes blacken as health falls: one eye first, then both. Worms\nat a quarter of their health or less occasionally throw up blood. Some worms, picked at random each match, have their\nintestines out once they are badly wounded: coils in a torn belly and a loop hanging from it that swings as the worm\nmoves. Blood, wounds and the new marks now turn with the way a worm faces, not the way it last walked. Needs Melange\n0.3.5 or later, which gives plugins a worm's facing angle (`yaw` in `wum.game.worms()`). New settings: Worms throw up\nblood and Intestines; black eyes follow Blood on worms."
+    },
+    {
+      "version": "1.0.0",
+      "released": "2026-10-05",
+      "melange": ">=0.3.4 <0.4.0",
+      "kind": "client-only",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/bloodsand-v1.0.0/bloodsand-1.0.0.zip",
+      "sha256": "587ed31ed127bb0902a906f59df38ca564e0376c4d94193de00808d8178ddf56",
+      "size": 87103,
+      "unpackedSize": 131714,
+      "files": 11,
+      "changelog": "First release. Worms throw blood the moment they are hurt, away from the explosion and sized by the damage, bleed for\na while afterwards and burst when they die. Hit worms wear blood on their skin that stays with them as they move, and\nworms low on health open gaping wounds: up to five gashes with torn edges and running blood, which close again if the\nworm is healed. Blood stains the ground in a depth-projected Post-FX pass that follows the terrain, and heavy hits\nspatter the camera lens. Client-only and cosmetic: it reads worm health and positions and the game's damage and\nexplosion messages, and only draws. Needs Melange 0.3.4 or later for `wum.postfx.setTransient`, which lets it feed the\nPost-FX passes every frame without anything being written to `Melange.ini`. Settings: Blood (Off / Light / Heavy /\nAbsurd), Blood on worms, Blood on the ground, Splatter on the lens and Blood colour (Red / Green)."
+    }
+  ]
+}

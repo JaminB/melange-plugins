@@ -1,0 +1,16 @@
+{
+  "storeVersion": 1,
+  "licence": "MIT",
+  "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/caravan",
+  "categories": ["maps"],
+  "gameBuilds": ["1077"],
+  "screenshots": [],
+  "imports": [
+    {
+      "title": "Renewation HD 0.2A2",
+      "publisher": "mod.worms.pro",
+      "host": "mod.worms.pro",
+      "size": 153878165
+    }
+  ]
+}
