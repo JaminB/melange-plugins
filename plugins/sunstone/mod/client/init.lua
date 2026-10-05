@@ -35,7 +35,8 @@ local PRESETS = {
         smaa    = { enabled = true },
         sharpen = { enabled = true, sharpness = 0.4 },
         shadows = { size = 2048, mode = 1 },
-        lighting = { light = 1, relief = 0, rim = 0.2, modelRim = 0.3, shadows = true, detail = 0, detailBump = 0,
+        lighting = { light = 1, relief = 0, rim = 0.2, modelRim = 0.3, shadows = true, sunGain = 1.2, ambientGain = 1.05,
+                     detail = 0, detailBump = 0,
                      grassWrap = 0.3, transmit = 0.15, patch = 0.05, greenSpec = 0.7, tint = 1, groundDip = 0.25,
                      meadow = 36, leaves = 22 },
         water   = { enabled = true, waves = 0.3, glint = 0.5, foam = 0, ssr = 0, caustics = 0, crest = 0.6,
@@ -51,7 +52,8 @@ local PRESETS = {
         sharpen = { enabled = true },
         lens    = { enabled = true, ca = 0, grain = 0 },
         shadows = { size = 2048, mode = 2 },
-        lighting = { light = 1, relief = 1, rim = 0.3, modelRim = 0.45, shadows = true, detail = 0.04,
+        lighting = { light = 1, relief = 1, rim = 0.3, modelRim = 0.45, shadows = true, sunGain = 1.2, ambientGain = 1.05,
+                     detail = 0.04,
                      detailBump = 0.15, grassWrap = 0.3, transmit = 0.1, patch = 0.04, greenSpec = 0.7, tint = 0.6,
                      groundDip = 0.2, meadow = 36, leaves = 22 },
         water   = { enabled = true, waves = 0.35, glint = 0.6, foam = 0.8, ssr = 1, ssrCap = 0.4, caustics = 0.4,
@@ -123,7 +125,8 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- contact shadows, and whether the warm LUT, shafts and cloud shadows apply (themes cool or violet by design skip
 -- the LUT; a number scales it). sunDir is the world direction toward the theme's sun, read from the landscape's sun
 -- direction view (shaders/params.ini, sunstoneDebug 4). haze = false keeps the air off while no sky is on screen
--- (night and dark skies). meadowCap = false keeps the meadow's own chroma (grass that is already yellow-green). tint scales the warm sun and cool shade tints (white snow).
+-- (night and dark skies). meadowCap = false keeps the meadow's own chroma (grass that is already yellow-green);
+-- tint scales the warm sun and cool shade tints (white snow).
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
 -- Ambient tint inside sun shadows: cool skylight, near neutral where it would turn snow blue.
