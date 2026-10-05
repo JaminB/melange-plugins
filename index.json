@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 9,
+  "serial": 10,
   "plugins": [
     {
       "id": "bloodsand",
@@ -19,6 +19,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.1.2",
+          "released": "2026-10-05",
+          "melange": ">=0.3.5 <0.5.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/bloodsand-v1.1.2/bloodsand-1.1.2.zip",
+          "sha256": "4c9dace2243790fb9dc494f7fb6af65a3aa23fd27d04aca02c94f32273175018",
+          "size": 94969,
+          "unpackedSize": 159835,
+          "files": 11,
+          "changelog": "Runs on Melange 0.4. No other change."
+        },
         {
           "version": "1.1.1",
           "released": "2026-10-05",
