@@ -26,6 +26,7 @@ uniform vec3 p_sunColor;
 uniform float p_bloom;
 uniform float p_dirt;
 uniform float p_flare;
+uniform float p_expandSky;
 uniform float p_exposure;
 uniform float p_vignette;
 uniform float p_tsContrast;
@@ -70,10 +71,11 @@ float Cool(vec3 c) {
     return max(max(blue, purple) * sat, cloud);
 }
 
-// What of the wide bloom level lies above 1, at uv, faded toward the screen edge.
+// What of the wide bloom level lies above the brightest clouds (the sun and its glow), at uv, faded toward the
+// screen edge.
 vec3 Ghost(vec2 uv, float norm) {
     float edge = 1.0 - smoothstep(0.35, 0.5, length(uv - 0.5));
-    return max(texture2D(mg_pass_u3, uv).rgb / norm - 1.0, vec3(0.0)) * edge;
+    return max(texture2D(mg_pass_u3, uv).rgb / norm - (p_expandSky + 0.5), vec3(0.0)) * edge;
 }
 
 void main() {
@@ -117,7 +119,7 @@ void main() {
 
     if (p_dirt > 0.0 || p_flare > 0.0) {
         float n3 = BloomTotal(3.0);
-        vec3 lens = texture2D(mg_pass_u3, mg_uv).rgb / n3 * texture2D(t_dirt, mg_uv).r * p_dirt;
+        vec3 lens = max(texture2D(mg_pass_u3, mg_uv).rgb / n3 - 1.0, vec3(0.0)) * texture2D(t_dirt, mg_uv).r * p_dirt;
         if (p_flare > 0.0) {
             // Two ghosts mirrored through the centre and a halo ring.
             vec2 aspect = vec2(mg_resolution.x / mg_resolution.y, 1.0);
