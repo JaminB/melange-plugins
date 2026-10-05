@@ -1,0 +1,12 @@
+{
+  "storeVersion": 1,
+  "licence": "MIT",
+  "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/bloodsand",
+  "categories": [
+    "graphics"
+  ],
+  "gameBuilds": [
+    "1077"
+  ],
+  "screenshots": []
+}
