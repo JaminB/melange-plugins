@@ -11,6 +11,24 @@
   "screenshots": [],
   "versions": [
     {
+      "version": "1.7.1",
+      "released": "2026-10-05",
+      "melange": ">=0.3.0 <0.4.0",
+      "kind": "client-only",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/sunstone-v1.7.1/sunstone-1.7.1.zip",
+      "sha256": "c1e7e6aa536816519d7591b77c217dd0067158bd0c326be4c27514e29813ec80",
+      "size": 125730,
+      "unpackedSize": 221231,
+      "files": 42,
+      "changelog": "- Fixes the sea turning pale and losing its shallows and shore foam in a match once the camera moved."
+    },
+    {
       "version": "1.7.0",
       "released": "2026-10-03",
       "melange": ">=0.3.0 <0.4.0",
