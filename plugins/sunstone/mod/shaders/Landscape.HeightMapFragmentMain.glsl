@@ -19,6 +19,7 @@ uniform float sunstoneShadowMode;
 uniform float sunstoneShadowSoftness;  // kernel step in map texels (1-2); wider steps start to band
 uniform float sunstoneShadowContact;   // blocker distance (shadow depth) at which the penumbra is at its widest
 uniform float sunstoneShadowBias;      // receiver depth offset (shadow depth), grows on slopes
+uniform float sunstoneShadowSlope;     // further offset along the receiver's slope in the map (map texels)
 uniform float sunstoneLight;           // 0 game lighting, 1 Sunstone; + 10 shows the lighting on grey
 uniform vec3 sunstoneSky;              // ambient tint for surfaces facing up
 uniform vec3 sunstoneGround;           // ambient tint for surfaces facing down
@@ -108,7 +109,16 @@ const vec2 kSearch[8] = vec2[8](
     vec2(-0.71, -0.39), vec2(0.17, -0.94), vec2(0.83, -0.33), vec2(0.62, 0.55),
     vec2(-0.05, 0.74), vec2(-0.86, 0.43), vec2(-0.21, -0.12), vec2(0.36, 0.18));
 
-float Shadow(vec4 sp, float mode, float nl) {
+// The receiver's depth change per unit of map uv, from its screen-space derivatives (taken before any branch).
+vec2 ReceiverSlope(vec4 sp) {
+    vec3 p = sp.xyz / sp.w;
+    vec3 dx = dFdx(p), dy = dFdy(p);
+    float det = dx.x * dy.y - dx.y * dy.x;
+    if (abs(det) < 1e-14) return vec2(0.0);
+    return vec2(dy.y * dx.z - dx.y * dy.z, dx.x * dy.z - dy.x * dx.z) / det;
+}
+
+float Shadow(vec4 sp, float mode, float nl, vec2 slope) {
     vec3 p = sp.xyz / sp.w;
     if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 1.0;
     vec2 texel = 1.0 / shadowSize.xy;
@@ -118,7 +128,12 @@ float Shadow(vec4 sp, float mode, float nl) {
     // slope-scaled offset keeps grazing lit slopes clean.
     float facing = smoothstep(-0.02, 0.1, nl);
     if (facing <= 0.0) return 0.0;
-    p.z -= sunstoneShadowBias * (1.0 + 4.0 * (1.0 - clamp(nl, 0.0, 1.0)));
+    // Close to the camera one map texel spans many pixels, so a receiver at a grazing angle to the sun crosses
+    // its own depth within a texel: there the offset follows the receiver's slope across the kernel. Receivers
+    // facing the sun keep the small offset, so nothing right under its caster lights up.
+    float across = (abs(slope.x) + abs(slope.y)) / shadowSize.x;
+    float graze = 1.0 - smoothstep(0.15, 0.45, nl);
+    p.z -= sunstoneShadowBias * (1.0 + 4.0 * (1.0 - clamp(nl, 0.0, 1.0))) + min(sunstoneShadowSlope * across, 0.004) * graze;
 
     // Kernel7 spans 3.5 grid cells each side.
     float size = shadowSize.x;
@@ -303,12 +318,13 @@ vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
     float mode = sunstoneLight > 9.5 ? sunstoneLight - 10.0 : sunstoneLight;
     bool showShadow = sunstoneShadowMode > 9.5;
     float shadowMode = left ? 0.0 : (showShadow ? sunstoneShadowMode - 10.0 : sunstoneShadowMode);
+    vec2 slope = ReceiverSlope(gl_TexCoord[4]);
 
     vec3 albedo = sunstoneLight > 9.5 ? vec3(0.5) : tex.rgb;
     vec3 c;
     float lit;
     if (left || mode < 0.5) {
-        lit = Shadow(gl_TexCoord[4], shadowMode, dot(n, l));
+        lit = Shadow(gl_TexCoord[4], shadowMode, dot(n, l), slope);
         c = GameLight(n, v, l, lit, albedo);
     } else {
         if (sunstoneDebug > 3.5) return vec4(0.5 + 0.5 * (transpose(mat3(view)) * l), 1.0);
@@ -328,7 +344,7 @@ vec4 Shade(float vertexAlpha, vec4 vertexColour, bool useVertexColour) {
         // World-space detail: independent of the texture's texels, so it only adds where the texture is magnified
         // and fades with distance.
         float green = smoothstep(0.05, 0.15, tex.g - max(tex.r, tex.b));
-        lit = Shadow(gl_TexCoord[4], shadowMode, dot(n, l));
+        lit = Shadow(gl_TexCoord[4], shadowMode, dot(n, l), slope);
         // Full shift on open meadow, less on steep banks, on tree canopies (rounded: the normal turns quickly across
         // the surface) and in shade.
         float curve = length(fwidth(n)) / max(length(fwidth(p)), 1e-4);
