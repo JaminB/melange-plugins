@@ -11,6 +11,24 @@
   "screenshots": [],
   "versions": [
     {
+      "version": "1.1.0",
+      "released": "2026-10-05",
+      "melange": ">=0.3.5 <0.4.0",
+      "kind": "client-only",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/bloodsand-v1.1.0/bloodsand-1.1.0.zip",
+      "sha256": "8296ac227e88bd4ebc5424ea0b8ac8fd5b2f11a160e46e213d424a3320d1753b",
+      "size": 94462,
+      "unpackedSize": 158732,
+      "files": 11,
+      "changelog": "Badly hurt worms now show it in three more ways. Their eyes blacken as health falls: one eye first, then both. Worms\nat a quarter of their health or less occasionally throw up blood. Some worms, picked at random each match, have their\nintestines out once they are badly wounded: coils in a torn belly and a loop hanging from it that swings as the worm\nmoves. Blood, wounds and the new marks now turn with the way a worm faces, not the way it last walked. Needs Melange\n0.3.5 or later, which gives plugins a worm's facing angle (`yaw` in `wum.game.worms()`). New settings: Worms throw up\nblood and Intestines; black eyes follow Blood on worms."
+    },
+    {
       "version": "1.0.0",
       "released": "2026-10-05",
       "melange": ">=0.3.4 <0.4.0",
