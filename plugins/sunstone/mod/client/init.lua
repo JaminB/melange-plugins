@@ -128,7 +128,8 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- direction view (shaders/params.ini, sunstoneDebug 4). haze = false keeps the air off while no sky is on screen
 -- (night and dark skies). meadowCap = false keeps the meadow's own chroma (grass that is already yellow-green);
 -- tint scales the warm sun and cool shade tints (white snow). aerial is how far distant land turns sky blue;
--- skyGlow = false keeps the sky's own gradient (no horizon glow or deeper zenith). waterDeep tints the deep sea.
+-- skyGlow = false keeps the sky's own gradient (no horizon glow or deeper zenith). waterDeep tints the deep sea and
+-- waterReflect scales its sky reflection.
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
 -- Ambient tint inside sun shadows: cool skylight, near neutral where it would turn snow blue.
@@ -288,6 +289,7 @@ local function applyWater(w, on, theme)
             pcall(wum.shaders.setParam, "Water.cg", "WaterFragmentMain", name, value)
         end
         waterParam("sunstoneWaterWaves", w.waves)
+        waterParam("sunstoneWaterReflect", (w.reflect or 0.6) * (theme.waterReflect or 1))
         waterParam("sunstoneWaterGlint", w.glint)
         waterParam("sunstoneWaterFoam", w.foam)
         waterParam("sunstoneWaterRich", w.rich or 0)
