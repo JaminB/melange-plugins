@@ -144,7 +144,7 @@ local THEMES = {
     CAMELOT     = { specular = 0.05, gloss = 24, relief = 4, sky = { 1.12, 1.12, 1.12 }, ground = { 0.86, 0.84, 0.76 },
                     foliage = 1, tint = 0, shadeChroma = 0.25, sunDir = { 0, 0.742, -0.670 } },
     PREHISTORIC = { specular = 0.06, gloss = 20, relief = 5, sky = { 1.14, 1.18, 1.26 }, ground = { 0.86, 0.84, 0.76 },
-                    foliage = 1 },
+                    foliage = 1, tint = 0, shadeChroma = 0, sunDir = { 0.060, 0.492, -0.869 } },
     BUILDING    = { specular = 0.10, gloss = 40, relief = 2.5, sky = { 1.12, 1.15, 1.22 }, ground = { 0.84, 0.82, 0.80 },
                     foliage = 0.8 },
     ARCTIC      = { specular = 0.12, gloss = 48, relief = 2.5, sky = { 1.12, 1.13, 1.15 }, ground = { 0.95, 0.95, 0.97 },
