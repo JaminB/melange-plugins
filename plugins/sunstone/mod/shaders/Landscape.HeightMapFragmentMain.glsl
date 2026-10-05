@@ -124,9 +124,9 @@ float Shadow(vec4 sp, float mode, float nl, vec2 slope) {
     vec2 texel = 1.0 / shadowSize.xy;
     if (mode < 0.5) return EngineFilter(p, texel);
 
-    // Receivers facing away from the sun shade themselves; that also hides the depth stripes (acne) there. A
-    // slope-scaled offset keeps grazing lit slopes clean.
-    float facing = smoothstep(-0.02, 0.1, nl);
+    // Receivers facing away from the sun or edge-on to it shade themselves; that also hides the depth stripes (acne)
+    // there. A slope-scaled offset keeps grazing lit slopes clean.
+    float facing = smoothstep(0.0, 0.25, nl);
     if (facing <= 0.0) return 0.0;
     // Close to the camera one map texel spans many pixels, so a receiver at a grazing angle to the sun crosses
     // its own depth within a texel: there the offset follows the receiver's slope across the kernel. Receivers
