@@ -161,10 +161,10 @@ screen x for comparisons. The **Sunstone water** setting and Off hand the water 
 
 ## Cost
 
-Measured at 1920x1080 on a mid-range desktop GPU, paused frame, Off and Bold alternated: Bold adds about 1.9 ms of
-frame GPU time over Off. About 1 ms of that is the post-FX stack (ambient occlusion 0.36 ms, light and atmosphere
-0.42 ms, SMAA 0.10 ms, sharpening 0.06 ms, lens 0.04 ms); the rest is the lighting, shadows and water. Ultra, with its
-3840x2160 scene, adds about 5.6 ms over Off.
+Measured at 1920x1080 on a mid-range desktop GPU, paused frame, Off and Bold alternated: Bold adds about 1.5 ms of
+frame GPU time over Off. About 1 ms of that is the post-FX stack (ambient occlusion 0.34 ms, light and atmosphere
+0.41 ms, SMAA 0.12 ms, sharpening 0.06 ms, lens 0.04 ms); the rest is the lighting, shadows and water. Ultra, with its
+3840x2160 scene, adds about 6.9 ms over Off.
 
 ## Client-only
 

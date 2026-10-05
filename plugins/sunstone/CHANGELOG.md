@@ -18,8 +18,8 @@
   grey stone, and bright sand stays below white.
 - Low uses a single-pass version of the new colour, and Low and Subtle are no darker than Off. Ultra runs the heavier
   effects at half scale on the supersampled scene.
-- Measured at 1920x1080 on a mid-range desktop GPU, paused frame: Bold adds about 1.9 ms of frame GPU time over Off,
-  Ultra about 5.6 ms.
+- Measured at 1920x1080 on a mid-range desktop GPU, paused frame: Bold adds about 1.5 ms of frame GPU time over Off,
+  Ultra about 6.9 ms.
 
 ## 1.7.2
 
