@@ -334,7 +334,8 @@ void main() {
     float glint = (pow(nh, 700.0) * 14.0 + sheen) * (0.3 + 3.0 * fres) * step(0.0, l.y) * above;
     // Glints read as a cool white rather than the sun's warmth, which turns cream after grading.
     vec3 glintCol = vec3(0.9, 0.95, 1.0);
-    col = Glint(col, glintCol * glint * sunstoneWaterGlint * (1.0 - far * 0.6));
+    // The sun's own sparkle is kept smaller than the game's glints, so calm water never shows a broad glare patch.
+    col = Glint(col, glintCol * min(glint, 1.5) * sunstoneWaterGlint * 0.4 * (1.0 - far * 0.6));
     // Ripple crests tilted toward the camera catch the sky as small white flecks. Each comes from the finest
     // layer that is still above a pixel, so they stay small at every distance, and they are rarer on pale water
     // where they would read as blotches.
@@ -358,7 +359,8 @@ void main() {
     float lace = Fbm(wp * 4.0 + vec2(t * 0.05, -t * 0.03));
     float band = 0.5 + 0.5 * sin(depth / sunstoneWaterFoamWidth * 12.0 - t * 1.5 + lace * 4.0);
     float foam = smoothstep(0.5, 0.72, lace * 0.8 + band * 0.35 * shore + shore * 0.2) * sqrt(shore);
-    foam = max(foam, smoothstep(0.55, 1.0, shore) * (0.3 + 0.45 * lace)) * (1.0 - far);
+    // The solid band at the waterline fades out at mid distance, where it would draw a white outline around islands.
+    foam = max(foam, smoothstep(0.55, 1.0, shore) * (0.2 + 0.35 * lace) * (1.0 - smoothstep(300.0, 1500.0, dist))) * (1.0 - far);
     col = mix(col, vec3(0.95) * (0.6 + 0.4 * globalDiffuse), clamp(foam * sunstoneWaterFoam, 0.0, 0.9));
 
     if (sunstoneWater > 13.5) col = vec3(caust * caustW);
