@@ -123,7 +123,7 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- contact shadows, and whether the warm LUT, shafts and cloud shadows apply (themes cool or violet by design skip
 -- the LUT; a number scales it). sunDir is the world direction toward the theme's sun, read from the landscape's sun
 -- direction view (shaders/params.ini, sunstoneDebug 4). haze = false keeps the air off while no sky is on screen
--- (night and dark skies).
+-- (night and dark skies). meadowCap = false keeps the meadow's own chroma (grass that is already yellow-green).
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
 -- Ambient tint inside sun shadows: cool skylight, near neutral where it would turn snow blue.
@@ -150,7 +150,7 @@ local THEMES = {
     LUNAR       = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.08, 1.08, 1.12 }, ground = { 0.88, 0.88, 0.90 },
                     foliage = 0, haze = false, fog = 0.2, lut = false, shafts = false, clouds = false },
     PIRATE      = { specular = 0.06, gloss = 32, relief = 4, sky = { 1.16, 1.18, 1.28 }, ground = { 0.90, 0.85, 0.76 },
-                    foliage = 0.55, shadowDip = 0.6, sunDir = { 0.204, 0.692, -0.692 } },
+                    foliage = 0.28, meadowCap = false, shadowDip = 0.6, sunDir = { 0.204, 0.692, -0.692 } },
     WAR         = { specular = 0.04, gloss = 20, relief = 5, sky = { 1.12, 1.15, 1.22 }, ground = { 0.80, 0.77, 0.72 },
                     foliage = 0.8 },
 }
@@ -246,10 +246,10 @@ local function applyLighting(l, m, on, foliage)
     landscapeParam("sunstonePatch", l.patch or 0)
     landscapeParam("sunstonePatchHue", l.patchHue or 0)
     landscapeParam("sunstoneGreenSpec", l.greenSpec or 0)
-    landscapeParam("sunstoneGreenWarm", l.greenWarm or 0)
+    landscapeParam("sunstoneGreenWarm", (l.greenWarm or 0) * math.min(green, 1))
     landscapeParam("sunstoneTint", l.tint or 0)
     landscapeParam("sunstoneFoliage", (l.meadow or 0) * green)
-    landscapeParam("sunstoneFoliageCap", green > 0 and 1 or 0)
+    landscapeParam("sunstoneFoliageCap", (green > 0 and m.meadowCap ~= false) and 1 or 0)
     modelParam("sunstoneLight", lit)
     modelParam("sunstoneRim", l.modelRim)
     modelParam("sunstoneSky", spread(m.sky, k))
