@@ -17,7 +17,7 @@ local BASE = {
                 saturation = 1, vibrance = 0.1, skyGrade = 0.25, dither = 1 },
     smaa    = {},
     sharpen = { sharpness = 0.5, nearFade = 60, floor = 0.015 },
-    lens    = { ca = 1.2, grain = 0.025, dither = 1 },
+    lens    = { ca = 1.2, grain = 0.009, dither = 1 },
 }
 -- Effects with an Ultra variant (postfx/<name>_u, made by tools/make_variants.py) for a render scale of 2 or more.
 local VARIANTS = { ssao = true, hdr = true }
