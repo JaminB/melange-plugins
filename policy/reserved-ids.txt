@@ -13,3 +13,14 @@ deep-desert
 handshake
 levels
 weapons
+# caravan-1..caravan-9: local pack ids generated on a player's PC by the caravan importer plugin.
+# Never a store listing; a plugin can't claim one of these ids.
+caravan-1
+caravan-2
+caravan-3
+caravan-4
+caravan-5
+caravan-6
+caravan-7
+caravan-8
+caravan-9
