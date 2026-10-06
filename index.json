@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 12,
+  "serial": 13,
   "plugins": [
     {
       "id": "bloodsand",
@@ -135,6 +135,43 @@
           "publisher": "mod.worms.pro",
           "host": "mod.worms.pro",
           "size": 153878165
+        }
+      ]
+    },
+    {
+      "id": "kanly",
+      "name": "Kanly",
+      "authors": [
+        "Melange"
+      ],
+      "description": "Adds a Kanly game style (five-minute rounds, then fast-rising water, with a generous loadout) and four Kanly Weapon Factory presets to the vanilla menus, and replaces the sudden-death music with four Kanly tracks. Client-side: a host's style reaches the other players by the normal game protocol.",
+      "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kanly",
+      "licence": "MIT",
+      "categories": [
+        "gameplay"
+      ],
+      "gameBuilds": [
+        "1077"
+      ],
+      "screenshots": [],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "released": "2026-10-06",
+          "melange": ">=0.5.0 <0.6.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kanly-v1.0.0/kanly-1.0.0.zip",
+          "sha256": "aff78452dbc136eda65a39d1c79b15476ac09f6eedef6939f5f1f0cc4b5cd285",
+          "size": 16262869,
+          "unpackedSize": 16342543,
+          "files": 11,
+          "changelog": "First release. Adds the Kanly game style and four Weapon Factory presets (Kanly Red, Blue, Green and Yellow) to the\nvanilla menus, and replaces the sudden-death music with four Kanly tracks. Needs Melange 0.5.0 or later."
         }
       ]
     },
