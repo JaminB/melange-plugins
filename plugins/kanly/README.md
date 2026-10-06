@@ -26,11 +26,12 @@ Everything not listed here is as in Standard (100 health, two wins, 45 second tu
 | Setting | Kanly | Standard |
 | --- | --- | --- |
 | Round time | 5 minutes | 20 minutes |
-| Sudden death | 2 | 1 |
-| Water speed | 3 | 2 |
+| Sudden death | Raise Water | Raise Water |
+| Water rise speed | Fast | Medium |
 
-Sudden death 2 and water speed 3 are the strongest values the built-in styles use. The water starts to rise when the
-round clock runs out, and it rises fast.
+In the game's own style editor these are the Sudden Death and Water Rise Speed options (in the scheme data,
+`SuddenDeath` 0 is 1 Health, 1 is Raise Water and 2 is Draw Round; `WaterSpeed` 1 to 3 is Slow to Fast). When the
+round clock runs out the water starts to rise, and it rises fast.
 
 ### Loadout
 
@@ -98,6 +99,21 @@ Girder, Parachute) now have a finite count.
 
 All four are stock presets.
 
+## Sudden-death music
+
+When sudden death starts, the game's sudden-death track is replaced by the four Kanly tracks, in a random order per
+match, chained one after another. The first track is never the same as the previous match's first track. Each machine
+picks its own order, so players in the same match may hear different orders. The vanilla sudden-death commentary stays.
+
+| Title | Original title |
+| --- | --- |
+| Ash Ridge | Slaughter at Ash Ridge |
+| Ash Ridge Reprise | Slaughter at Ash Ridge (second mix) |
+| Alabaster Purge | The Alabaster Purge (violin) x Ashes of Elysium (piano) mashup |
+| Elysium Ashes | Ashes of Elysium (piano) x Ashes of Elysium mashup |
+
+The music files are the author's own work.
+
 ## Client-only
 
 `"kind": "client-only"` in `spice.json`, with no permissions (`unsafe` is false, `filesystem` is `none`). The plugin
@@ -111,6 +127,8 @@ lobby; this has not been verified.
 - Needs Melange 0.5.0 or later and game build 1077.
 - The style appears as a permanent built-in style: it cannot be edited or deleted in game.
 - The settings are fixed in the plugin's files; to change them edit `mod/schemes/kanly.json`.
+- The music is only heard by players with the plugin. Tracks are joined with a hard cut. Only the sudden-death slot
+  exists.
 - That the presets are listed in the team editor is expected to work the same way as the style but has not been
   verified in game.
 

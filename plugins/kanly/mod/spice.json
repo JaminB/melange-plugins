@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "name": "Kanly",
   "authors": ["Melange"],
-  "description": "Adds a Kanly game style (five-minute rounds, then fast-rising water, with a generous loadout) and four Kanly Weapon Factory presets to the vanilla menus. Client-side: a host's style reaches the other players by the normal game protocol.",
+  "description": "Adds a Kanly game style (five-minute rounds, then fast-rising water, with a generous loadout) and four Kanly Weapon Factory presets to the vanilla menus, and replaces the sudden-death music with four Kanly tracks. Client-side: a host's style reaches the other players by the normal game protocol.",
   "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kanly",
   "kind": "client-only",
   "melange": { "range": ">=0.5.0 <0.6.0" },
@@ -12,6 +12,12 @@
   "dependencies": [],
   "conflicts": [],
   "schemes": [{ "file": "schemes/kanly.json" }],
+  "music": [
+    { "slot": "suddenDeath", "file": "music/ash-ridge.mp3", "title": "Ash Ridge", "credit": "Slaughter at Ash Ridge" },
+    { "slot": "suddenDeath", "file": "music/ash-ridge-reprise.mp3", "title": "Ash Ridge Reprise", "credit": "Slaughter at Ash Ridge (second mix)" },
+    { "slot": "suddenDeath", "file": "music/alabaster-purge.mp3", "title": "Alabaster Purge", "credit": "The Alabaster Purge (violin) x Ashes of Elysium (piano) mashup" },
+    { "slot": "suddenDeath", "file": "music/elysium-ashes.mp3", "title": "Elysium Ashes", "credit": "Ashes of Elysium (piano) x Ashes of Elysium mashup" }
+  ],
   "factoryWeapons": [
     { "file": "weapons/red.json" },
     { "file": "weapons/blue.json" },

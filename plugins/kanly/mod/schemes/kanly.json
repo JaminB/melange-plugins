@@ -5,7 +5,7 @@
   "fields": {
     "TurnTime": 45000,
     "RoundTime": 300000,
-    "SuddenDeath": 2,
+    "SuddenDeath": 1,
     "WaterSpeed": 3
   },
   "weapons": {
