@@ -1,0 +1,7 @@
+{
+  "key": "FETXT.Kanly.Green",
+  "title": "Kanly Green",
+  "base": "FETXT.KneeTrembler",
+  "stock": true,
+  "cluster": { "Poison": true }
+}

@@ -1,0 +1,7 @@
+{
+  "key": "FETXT.Kanly.Red",
+  "title": "Kanly Red",
+  "base": "FETXT.WipeOut",
+  "stock": true,
+  "weapon": { "WormDamageMagnitude": 1.15 }
+}
