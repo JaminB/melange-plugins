@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 11,
+  "serial": 12,
   "plugins": [
     {
       "id": "bloodsand",
@@ -90,6 +90,51 @@
           "unpackedSize": 131714,
           "files": 11,
           "changelog": "First release. Worms throw blood the moment they are hurt, away from the explosion and sized by the damage, bleed for\na while afterwards and burst when they die. Hit worms wear blood on their skin that stays with them as they move, and\nworms low on health open gaping wounds: up to five gashes with torn edges and running blood, which close again if the\nworm is healed. Blood stains the ground in a depth-projected Post-FX pass that follows the terrain, and heavy hits\nspatter the camera lens. Client-only and cosmetic: it reads worm health and positions and the game's damage and\nexplosion messages, and only draws. Needs Melange 0.3.4 or later for `wum.postfx.setTransient`, which lets it feed the\nPost-FX passes every frame without anything being written to `Melange.ini`. Settings: Blood (Off / Light / Heavy /\nAbsurd), Blood on worms, Blood on the ground, Splatter on the lens and Blood colour (Red / Green)."
+        }
+      ]
+    },
+    {
+      "id": "caravan",
+      "name": "Caravan",
+      "authors": [
+        "Melange"
+      ],
+      "description": "Imports the maps of Renewation HD 0.2A2 into Melange on your PC, from mod.worms.pro or a zip you already have. Contains no maps itself.",
+      "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/caravan",
+      "licence": "MIT",
+      "categories": [
+        "maps"
+      ],
+      "gameBuilds": [
+        "1077"
+      ],
+      "screenshots": [],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "released": "2026-10-06",
+          "melange": ">=0.3.3 <0.5.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/caravan-v1.0.0/caravan-1.0.0.zip",
+          "sha256": "fa461d8a153c891eba129ffef246ce3d3e0bd73492258d35913336118ce41470",
+          "size": 4374,
+          "unpackedSize": 8826,
+          "files": 3,
+          "changelog": "First release: a recipe for Melange's local content importer that brings the 174 importable maps of Renewation HD\n0.2A2 into your own game folder. Downloads the official zip from mod.worms.pro (or uses a copy you already have),\nverifies its SHA-256, and generates map packs on your PC. Caravan itself contains no maps."
+        }
+      ],
+      "imports": [
+        {
+          "title": "Renewation HD 0.2A2",
+          "publisher": "mod.worms.pro",
+          "host": "mod.worms.pro",
+          "size": 153878165
         }
       ]
     },

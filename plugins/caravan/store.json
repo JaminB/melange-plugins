@@ -2,8 +2,12 @@
   "storeVersion": 1,
   "licence": "MIT",
   "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/caravan",
-  "categories": ["maps"],
-  "gameBuilds": ["1077"],
+  "categories": [
+    "maps"
+  ],
+  "gameBuilds": [
+    "1077"
+  ],
   "screenshots": [],
   "imports": [
     {
@@ -11,6 +15,26 @@
       "publisher": "mod.worms.pro",
       "host": "mod.worms.pro",
       "size": 153878165
+    }
+  ],
+  "versions": [
+    {
+      "version": "1.0.0",
+      "released": "2026-10-06",
+      "melange": ">=0.3.3 <0.5.0",
+      "kind": "client-only",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/caravan-v1.0.0/caravan-1.0.0.zip",
+      "sha256": "fa461d8a153c891eba129ffef246ce3d3e0bd73492258d35913336118ce41470",
+      "size": 4374,
+      "unpackedSize": 8826,
+      "files": 3,
+      "changelog": "First release: a recipe for Melange's local content importer that brings the 174 importable maps of Renewation HD\n0.2A2 into your own game folder. Downloads the official zip from mod.worms.pro (or uses a copy you already have),\nverifies its SHA-256, and generates map packs on your PC. Caravan itself contains no maps."
     }
   ]
 }
