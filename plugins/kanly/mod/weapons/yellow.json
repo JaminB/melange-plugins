@@ -1,0 +1,7 @@
+{
+  "key": "FETXT.Kanly.Yellow",
+  "title": "Kanly Yellow",
+  "base": "FETXT.ThePeaceBreaker",
+  "stock": true,
+  "weapon": { "Push": 0.8 }
+}

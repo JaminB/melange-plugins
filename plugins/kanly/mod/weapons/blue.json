@@ -1,0 +1,7 @@
+{
+  "key": "FETXT.Kanly.Blue",
+  "title": "Kanly Blue",
+  "base": "FETXT.ChatterBomb",
+  "stock": true,
+  "weapon": { "WormDamageMagnitude": 1.2, "LandDamageRadius": 0.6 }
+}

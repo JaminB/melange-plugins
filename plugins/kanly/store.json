@@ -1,0 +1,13 @@
+{
+  "storeVersion": 1,
+  "licence": "MIT",
+  "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kanly",
+  "categories": [
+    "gameplay"
+  ],
+  "gameBuilds": [
+    "1077"
+  ],
+  "screenshots": [],
+  "versions": []
+}
