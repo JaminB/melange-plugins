@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 14,
+  "serial": 15,
   "plugins": [
     {
       "id": "bloodsand",
@@ -210,6 +210,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "2.0.1",
+          "released": "2026-10-07",
+          "melange": ">=0.3.0 <0.6.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/sunstone-v2.0.1/sunstone-2.0.1.zip",
+          "sha256": "9d587951751e99f78c655de7b1259449e30be85b69eccc89fd098f70be4ede4b",
+          "size": 382089,
+          "unpackedSize": 567934,
+          "files": 79,
+          "changelog": "Runs on Melange 0.5. No other change."
+        },
         {
           "version": "2.0.0",
           "released": "2026-10-05",
