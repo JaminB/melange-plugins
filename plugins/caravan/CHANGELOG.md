@@ -1,3 +1,7 @@
+## 1.0.1
+
+Runs on Melange 0.5. No other change.
+
 ## 1.0.0
 
 First release: a recipe for Melange's local content importer that brings the 174 importable maps of Renewation HD
