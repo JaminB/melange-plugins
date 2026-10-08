@@ -32,14 +32,17 @@
 // Structure: one cheap test per slot (a world-space bounding sphere) collects at most three candidates, those that hold the
 // pixel deepest (the squared distance to the centre over the squared radius), which does not depend on the order of the
 // slots and changes smoothly across the screen, so the one that is dropped is the one fading out at its own edge. Sky,
-// silhouettes, pixels with no candidate and pixels too close to the camera leave early.
+// pixels with no candidate and pixels too close to the camera leave early. Only then is the surface normal worked out, for
+// each pixel from its own four neighbours (the side with the smaller depth step in each direction), not from dFdx and dFdy,
+// which a GPU takes over blocks of 2 by 2 pixels: a block normal cut every facet edge and silhouette into steps.
 //
 // Where it must not draw: blood lands on the surface the decal lies in, so a pixel is dropped when it is off the decal's
-// plane by more than a tolerance that grows slowly with the distance from the middle, when its normal (from the depth
-// buffer) does not agree with the decal's, when its neighbours two pixels away are not on its tangent plane (the edge of a
-// silhouette, smoke or anything else thin that writes depth), and when it is inside a worm's volume (a worm standing or
-// lying in a pool, hats, arms) unless it is on the decal's own plane, which is the floor itself. A decal fades out within
-// a few near-plane distances of the camera.
+// plane by more than a tolerance that grows with the distance from the middle (so a splat wraps round a pillar or a
+// curved rock, facet by facet, and its own outline is what ends it), when its normal turns more than about 60 degrees from
+// the decal's, when a neighbour lies well behind its tangent plane (the edge of a silhouette, smoke or anything else thin
+// that writes depth; a convex crease between two facets is far less than that), and when it is inside a worm's volume (a
+// worm standing or lying in a pool, hats, arms) and either faces another way than the decal or stands well off its plane:
+// the curved ground a worm lies on still takes blood. A decal fades out as the camera comes within a few tens of units.
 uniform sampler2D mg_scene;
 uniform sampler2D mg_depth;
 uniform mat4 mg_invProj;
@@ -61,11 +64,17 @@ uniform float p_gloss;
 varying vec2 mg_uv;
 
 const float PI = 3.14159265;
-// A worm is kept clear of blood inside an ellipsoid about its middle: this wide (it covers a worm lying down as well as
-// one standing) and this high (hats), and its pixels fade out between WORM_E0 and 1.
+// A worm is kept clear of blood inside an ellipsoid about its middle raised by WORM_UP: this wide (it covers a worm lying
+// down as well as one standing) and this high (a hat, a helmet or ears stand well above the head), and its pixels fade out
+// between WORM_E0 and 1.
 const float WORM_RH2 = 19.0 * 19.0;
-const float WORM_RV2 = 22.0 * 22.0;
+const float WORM_RV2 = 27.0 * 27.0;
+const float WORM_UP = 5.0;
 const float WORM_E0 = 0.72;
+// The camera fades the blood out nearer than NEAR_FULL world units, entirely at NEAR_NONE (the aim camera sits about 20
+// units from a rock in front of the worm; a close-up of a worm is 70 or more).
+const float NEAR_NONE = 18.0;
+const float NEAR_FULL = 48.0;
 
 float H21(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -171,7 +180,7 @@ void Merge(inout Fl acc, Fl n) {
 }
 
 // The smallest value of the equation of a worm's ellipsoid at Pw: under 1 is inside, and 9 when there is no worm.
-#define WM(W) if (W.w > 0.0) { vec3 q_ = Pw - W.xyz; e = min(e, dot(q_.xz, q_.xz) * (1.0 / WORM_RH2) + q_.y * q_.y * (1.0 / WORM_RV2)); }
+#define WM(W) if (W.w > 0.0) { vec3 q_ = Pw - W.xyz; q_.y -= WORM_UP; e = min(e, dot(q_.xz, q_.xz) * (1.0 / WORM_RH2) + q_.y * q_.y * (1.0 / WORM_RV2)); }
 float WormE(vec3 Pw) {
     float e = 9.0;
     if (p_wn > 0.5) {
@@ -200,8 +209,10 @@ void Shape(vec3 Pw, vec3 nW, float pxw, vec4 A, vec4 B, float wE, inout Fl acc) 
     float se = sin(el);
     vec3 N = vec3(se * cos(az), cos(el), se * sin(az));
 
-    // The surface must be the decal's: its normal must agree...
-    float ng = smoothstep(0.55, 0.85, dot(nW, N));
+    // The surface must be the decal's: its normal must not turn more than about 60 degrees from it (a facet of a pillar or a
+    // rock next to the one the blood hit takes it too; a wall standing on the floor does not)...
+    float nd = dot(nW, N);
+    float ng = smoothstep(0.2, 0.45, nd);
     if (ng <= 0.0) return;
 
     float rq = floor(B.w / 16384.0);
@@ -213,12 +224,12 @@ void Shape(vec3 Pw, vec3 nW, float pxw, vec4 A, vec4 B, float wE, inout Fl acc) 
     float R = max(rq * 0.1, 0.1);
     float isPool = step(1.5, type);
 
-    // ...and it must be on the decal's plane, within a tolerance that follows a gently curved surface (a little more with
-    // the distance from the middle) but not a worm's back or a wall behind the pool.
+    // ...and it must be on the decal's plane, within a tolerance that grows with the distance from the middle, as far as a
+    // pillar or a rock curves away from it under a splat (a surface of radius 25 is 2 units off at 10 from the middle).
     vec3 d = Pw - A.xyz;
     float h = dot(d, N);
     float dist = length(d - N * h);
-    float tolH = 0.9 + 0.08 * dist + 0.015 * R;
+    float tolH = 1.2 + 0.2 * dist + 0.02 * R;
     float hg = 1.0 - smoothstep(0.5 * tolH, tolH, abs(h));
     if (hg <= 0.0) return;
 
@@ -381,8 +392,12 @@ void Shape(vec3 Pw, vec3 nW, float pxw, vec4 A, vec4 B, float wE, inout Fl acc) 
     float mg = 0.15 + 0.5 * min(R, 3.0);
     if (max(fB, fF) < -mg) return;
 
-    // ---- where blood may not land: a worm's volume (the floor under it is still the floor) ----
-    float wm = 1.0 - (1.0 - smoothstep(WORM_E0, 1.0, wE)) * smoothstep(1.2, 3.0, abs(h));
+    // ---- where blood may not land: a worm's volume. The floor under it is still the floor, and so is curved ground that
+    // faces the way the decal does; the worm's body (facing another way) or anything high above the plane (a head, a hat)
+    // is not. ----
+    float wOff = smoothstep(1.5 + 0.06 * dist, 3.5 + 0.06 * dist, abs(h));
+    float wAway = max(1.0 - smoothstep(0.75, 0.92, nd), smoothstep(5.0, 8.0, abs(h)));
+    float wm = 1.0 - (1.0 - smoothstep(WORM_E0, 1.0, wE)) * wOff * wAway;
     float gate = ng * hg * wm;
     if (gate <= 0.0) return;
 
@@ -496,7 +511,10 @@ void Shade(vec3 Pv, float pxw, Fl a, float vis, inout vec3 col) {
     float tiltK = mix(0.42, 0.9, fr);
     float rimT = mix(rimU, 1.0, fr);
     float wet = (1.0 - dry) * p_gloss;
-    float tilt = (0.9 * (1.0 - rimT) * (1.0 - rimT) + tiltK * th * domeR) * (1.0 - 0.6 * dry);
+    // (A big blot is a film, not a bead: its middle is nearly flat however wide it is, so the dome is lower on a large one
+    // and a pool does not catch one round highlight in its middle like a jelly.)
+    float domeK = mix(clamp(3.0 / max(a.S, 0.1), 0.2, 1.0), 1.0, fr);
+    float tilt = (0.9 * (1.0 - rimT) * (1.0 - rimT) + tiltK * th * domeR * domeK) * (1.0 - 0.6 * dry);
     vec3 Nb = normalize(N + outw * tilt + (T * bump * 0.06 + Bt * bump2 * (0.12 + 0.04 * isPool)) * a.bf * (1.0 - dry));
     mat3 Rv = mat3(mg_view);
     vec3 Nv = Rv * Nb;
@@ -512,8 +530,10 @@ void Shade(vec3 Pv, float pxw, Fl a, float vis, inout vec3 col) {
     if (wet > 0.0) {
         // (A power of a number under the cut-off is under 1e-4 of what it is multiplied by: the tests keep the pows, which are
         // the dearest part, to the pixels that are lit.)
-        if (nh > 0.96) specAmt = pow(nh, 400.0) * 1.3 * wet;
-        if (nh2 > 0.96) specAmt += pow(nh2, 300.0) * 1.6 * wet;
+        // (On a wide, nearly flat film the tight lobe covers a large patch, so it is fainter there.)
+        float tightK = (0.35 + 0.65 * domeK) * wet;
+        if (nh > 0.96) specAmt = pow(nh, 400.0) * 1.3 * tightK;
+        if (nh2 > 0.96) specAmt += pow(nh2, 300.0) * 1.6 * tightK;
         // The shoulder catches the light on a wider lobe than the dome does, and only there, so it reads as a bright rim.
         float rimA = (1.0 - rimT) * (1.0 - rimT);
         if (rimA > 0.0) {
@@ -543,40 +563,29 @@ float ZAt(vec2 uv) {
     return abs((mg_invProj[2].z * zn + mg_invProj[3].z) / (mg_invProj[2].w * zn + mg_invProj[3].w));
 }
 
+// The point of the ray through uv, in view space, scaled to one unit of view depth (|z| = 1). The direction of a ray does
+// not depend on the depth in a perspective projection, so any stored depth will do.
+vec3 RayAt(vec2 uv, float depth) {
+    vec4 v = mg_invProj * vec4(vec3(uv, depth) * 2.0 - 1.0, 1.0);
+    vec3 p = v.xyz / v.w;
+    return p / max(abs(p.z), 1e-6);
+}
+
 void main() {
     vec4 scene = texture2D(mg_scene, mg_uv);
     float depth = texture2D(mg_depth, mg_uv).r;
     vec4 vp = mg_invProj * vec4(vec3(mg_uv, depth) * 2.0 - 1.0, 1.0);
     vec3 P = vp.xyz / vp.w;
-    // Derivatives are taken before any early return so that every pixel of a block takes part in them.
-    vec3 dPx = dFdx(P);
-    vec3 dPy = dFdy(P);
     float dP = length(P);
     if (p_strength <= 0.0 || depth >= 1.0 || dP > 0.5 * mg_nearFar.y) {
         gl_FragColor = scene;
         return;
     }
 
-    // The surface normal from the depth: a pixel across a silhouette or a depth jump is left alone.
-    if (length(dPx) + length(dPy) > 0.06 * dP + 0.5) {
-        gl_FragColor = scene;
-        return;
-    }
-    vec3 n = cross(dPx, dPy);
-    float nl = length(n);
-    if (nl < 1e-9) {
-        gl_FragColor = scene;
-        return;
-    }
-    n /= nl;
-    // Face the camera, which sits at the view-space origin.
-    if (dot(n, P) > 0.0) n = -n;
-
     // The pixel in world space. mg_view is the world-to-view matrix in column-major layout with translation, so
     // its upper 3x3 is the world-to-view rotation and v * mat3(mg_view), which is transpose(R) * v, turns a view-space
     // vector back to world axes.
     vec3 Pw = (P - mg_view[3].xyz) * mat3(mg_view);
-    vec3 nW = n * mat3(mg_view);
 
     vec4 cA0 = vec4(0.0), cA1 = vec4(0.0), cA2 = vec4(0.0);
     vec4 cB0 = vec4(0.0), cB1 = vec4(0.0), cB2 = vec4(0.0);
@@ -602,8 +611,37 @@ void main() {
         gl_FragColor = scene;
         return;
     }
+    // A decal fades out as the camera comes up to it (and the near plane, if it is far, pushes that out).
+    float nf = smoothstep(max(2.0 * mg_nearFar.x, NEAR_NONE), max(5.0 * mg_nearFar.x, NEAR_FULL), dP);
+    if (nf <= 0.0) {
+        gl_FragColor = scene;
+        return;
+    }
 
-    float pxw = length(dPx);
+    // The surface normal from the depth of the four neighbours: in each direction the difference on the side where the depth
+    // changes less, so an edge is never differenced across to what is behind it. A neighbour is at the depth ZAt gives along
+    // its own ray, which is this one's plus a pixel's worth of change.
+    vec2 px = mg_resolution.zw;
+    vec3 rP = P / max(abs(P.z), 1e-4);
+    vec3 rdx = RayAt(mg_uv + vec2(px.x, 0.0), depth) - rP;
+    vec3 rdy = RayAt(mg_uv + vec2(0.0, px.y), depth) - rP;
+    vec3 Pr = ZAt(mg_uv + vec2(px.x, 0.0)) * (rP + rdx);
+    vec3 Pl = ZAt(mg_uv - vec2(px.x, 0.0)) * (rP - rdx);
+    vec3 Pu = ZAt(mg_uv + vec2(0.0, px.y)) * (rP + rdy);
+    vec3 Pd = ZAt(mg_uv - vec2(0.0, px.y)) * (rP - rdy);
+    vec3 dx = abs(Pr.z - P.z) < abs(P.z - Pl.z) ? Pr - P : P - Pl;
+    vec3 dy = abs(Pu.z - P.z) < abs(P.z - Pd.z) ? Pu - P : P - Pd;
+    vec3 n = cross(dx, dy);
+    float nl = length(n);
+    if (nl < 1e-9) {
+        gl_FragColor = scene;
+        return;
+    }
+    n /= nl;
+    // Face the camera, which sits at the view-space origin.
+    if (dot(n, P) > 0.0) n = -n;
+    vec3 nW = n * mat3(mg_view);
+    float pxw = max(length(dx), 1e-5);
 
     // The kept ones, in no particular order: their blood is one fluid.
     Fl acc = FlNone();
@@ -615,35 +653,18 @@ void main() {
         vec4 B = k == 0 ? cB0 : (k == 1 ? cB1 : cB2);
         Shape(Pw, nW, pxw, A, B, wE, acc);
     }
-    // Only where there is blood to draw: is the surface around the pixel flat? (The taps cost a few reads.)
     if (acc.F < -0.5 * max(0.8 * pxw, 0.003 * acc.R)) {
         gl_FragColor = scene;
         return;
     }
-    // Is the surface around the pixel flat? The pixels two away on each side must not lie behind the tangent plane here: the
-    // edge of a silhouette (including the sky), smoke and other thin things that write depth fail this and get no blood,
-    // while the ground right next to something that stands in front of it is not touched by it.
-    // A neighbour two pixels away is at the depth ZAt gives along its ray (the ray is this one's plus two pixels' worth of
-    // change); how far behind the plane it lies is n . (P - P').
-    // The way the pixel's ray runs, scaled to one unit of depth, and how it changes from pixel to pixel (from the derivatives
-    // of P, which are good here: the quad passed the test above).
-    float zabs = max(abs(P.z), 1e-4);
-    float zsgn = P.z < 0.0 ? -1.0 : 1.0;
-    vec3 rP = P / zabs;
-    vec3 rdx = (dPx - rP * (zsgn * dPx.z)) / zabs;
-    vec3 rdy = (dPy - rP * (zsgn * dPy.z)) / zabs;
-    // A decal fades out as the camera comes up to it: from 1.5 to 4 near-plane distances (but never past 12 and 30 units).
-    float nf = smoothstep(min(1.5 * mg_nearFar.x, 12.0), min(4.0 * mg_nearFar.x, 30.0), dP);
-    vec2 o2 = mg_resolution.zw * 2.0;
-    float nP = dot(n, P);
-    float nr = dot(n, rP);
-    float nx2 = 2.0 * dot(n, rdx);
-    float ny2 = 2.0 * dot(n, rdy);
-    float dev = nP - ZAt(mg_uv + vec2(o2.x, 0.0)) * (nr + nx2);
-    dev = max(dev, nP - ZAt(mg_uv - vec2(o2.x, 0.0)) * (nr - nx2));
-    dev = max(dev, nP - ZAt(mg_uv + vec2(0.0, o2.y)) * (nr + ny2));
-    dev = max(dev, nP - ZAt(mg_uv - vec2(0.0, o2.y)) * (nr - ny2));
-    float vis = nf * (1.0 - smoothstep(1.0 * pxw, 3.0 * pxw, dev));
+    // Is this a surface, not the edge of something in front of another? A neighbour must not lie well behind the tangent
+    // plane here: the edge of a silhouette (the sky included), smoke and other thin things that write depth fail this and get
+    // no blood, while the ground right next to something that stands in front of it is not touched by it. A convex crease
+    // between two facets puts its far neighbour behind the plane by less than a pixel's width, so the limit is a fraction of
+    // the distance to the camera, far above that and far below any silhouette.
+    float dev = max(max(dot(n, P - Pr), dot(n, P - Pl)), max(dot(n, P - Pu), dot(n, P - Pd)));
+    float j0 = 0.008 * abs(P.z) + 2.0 * pxw + 0.1;
+    float vis = nf * (1.0 - smoothstep(j0, 2.5 * j0, dev));
     vec3 col = scene.rgb;
     Shade(P, pxw, acc, vis, col);
     gl_FragColor = vec4(col, scene.a);
