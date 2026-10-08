@@ -27,25 +27,33 @@ all the worms that die in it, so a blast that kills the whole pack does not spen
 
 Blood trails and pools (the new setting "Pools & trails", on by default, which needs Blood on the ground). A worm below
 two thirds of its health leaves a line of drips behind it as it walks, and below a quarter of it a smear where it drags
-itself: dark and glossy in the middle, thin at the old end, with the dry-brush gaps and ragged edges of a smear, laid on
-the ground under the worm (slopes included, with Melange 0.6's `wum.game.landRay`). A worm that is dying, or hurt and
+itself, laid on the ground under the worm (slopes included, with Melange 0.6's `wum.game.landRay`). The drips are beads of
+every size, one every 8 to 15 units in clusters with bare stretches between, now and then a big splat with a satellite drop
+behind it, each a few units across, so that the line reads from the usual play distance. The smear is a stripe of the worm's
+own width, streaked along the drag with thicker, darker edges, thinner and drier the further the worm has dragged itself
+since its last hit (a hit brings fresh blood), now and then broken for a body length, and pieces are laid overlapping so
+that it is one continuous stripe, not dashes. A worm that is dying, or hurt and
 lying still, slowly grows a pool under it over six to eight seconds, which stays wet while it spreads and dries later; and
 after a worm blows up its grave sits in a pool with smears running out of it and a spatter of splats around.
 Light, Heavy and Absurd scale the size, the number of trail pieces (5, 8 and 12) and the smears round a grave (2, 3 and 5).
 A trail is a straight strip that the worm lengthens as it goes, two new decal kinds of the stains pass (a dotted line of
 drips, and a smear), so it costs a decal slot for every 30 to 50 units and not one for each step; the oldest goes first.
-The pass stays within 2% of its old cost (measured with native GL at 1080p) and keeps its 32 slots: 48 would have cost
+The pass stays within 2% of its old cost (5% in a view full of drip pieces; measured with native GL at 1080p) and keeps its 32 slots: 48 would have cost
 21% more with everything in use. Melange's CreateGravestoneMessage has no decoder, so the grave is where the worm was
 last seen.
 
-Arterial spurts. A worm below about a third of its health spurts blood from its deepest open wounds in time with a
+Arterial spurts. A worm below about a third of its health spurts blood from its deepest open wound in time with a
 heartbeat (1.1 to 1.6 beats a second, faster the lower it is, slightly irregular, often with a weaker second beat): each
-beat is a short pressurised arc of sprite droplets, dense at the wound and thinning along the arc, a fine mist puff and a
-weak dribble between the beats. The jets follow the worm as it moves and turns, land through the existing droplet
+beat is a pressurised stream, a continuous arc of thin dark-red tubes of blood (a new sprite, `bs_jet.png`, no glint) laid
+at a steady rate along the arc and closer together than they are long, thinning and breaking into beads at the far end,
+a few beads flying ahead of it, a short sputter after the beat, a fine mist puff at the wound and a weak dribble between
+the beats. The jets follow the worm as it moves and turns, land through the existing droplet
 collision and leave splats and streaks, pause while the worm is thrown or falling and come back stronger after it lands,
-start stronger after a new hit and weaken and stop on a dying worm. One wound spurts on Light, two on Heavy and three on
-Absurd. The previewed worm spurts for a few seconds. They follow the Blood setting and have no setting of their own.
-The wound sites that the code computes (`woundSites`) are now where `skin.frag` draws the gashes: it used to put them
+start stronger after a new hit and weaken and stop on a dying worm. One wound spurts on Light and Heavy, two on Absurd. The
+previewed worm spurts for a few seconds. They follow the Blood setting and have no setting of their own.
+The gashes (and so the spurts) now sit on the middle of the body, not the head: their elevation runs from -0.6 to 0.4 radians
+about the body's middle, from -0.35 to 0.75 before (the highest wounds were at three quarters of the worm's height, under
+its head), which puts them 6 to 16 units above the feet. The wound sites that the code computes (`woundSites`) are now where `skin.frag` draws the gashes: it used to put them
 up to 0.14 of a unit direction off (a unit or two at the upper wounds) and the belly opening about a unit and a half too
 high, because the shader finds a gash along the ray from the body's middle in the ellipsoid's own space.
 

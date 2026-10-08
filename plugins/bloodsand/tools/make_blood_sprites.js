@@ -5,6 +5,10 @@
 //   bs_drop1.png, bs_drop2.png   64x128   a wet droplet, for a sprite stretched along its velocity: tail at v = 0 (the first row of the
 //                                         image), head at v = 1, a rounded head, a tapering tail, a dark meniscus rim, a baked glint.
 //                                         drop1 is the fat teardrop (short streaks), drop2 the slim one (long streaks).
+//   bs_jet.png                   32x128   one piece of a pressurised jet of blood (the arterial spurts): a straight tube of an even width, a
+//                                         soft tail that fades in so that overlapping pieces join into one stream, a rounded head, dark
+//                                         edges, a faint wet sheen along it and no glint. Many of them, spaced closer than their length,
+//                                         are the stream.
 //   bs_clot1..4.png              64x64    round, lumpy clots with irregular outlines, lit like a wet gel (diffuse, rim, two speculars)
 //   bs_mist1..3.png              128x128  a soft round puff of fine mist: radial fall-off broken up by noise
 //   bs_steam1..2.png             128x128  a billowing puff for steam and smoke: lit from above left, so it has volume
@@ -187,6 +191,39 @@ function makeDrop(p) {
     // the tail is thin liquid: less opaque
     let a = alpha * (0.58 + 0.42 * smooth(0.04, 0.45, s)) * 0.97;
     return [clamp(val, 0, 1.15), a];
+  }, TAIL_AT_TOP);
+}
+
+// ---------------------------------------------------------------- jet
+// A piece of a stream: tail at v = 0, head at v = 1. The width is even from 0.16 to 0.9 along it, so that pieces laid end over
+// end make a tube; the tail thins and fades in (alpha under a half until 0.25), the head is a half ellipse.
+function makeJet() {
+  const W = 32, H = 128, half = W / 2;
+  const wAt = (s) => {
+    if (s <= 0.02 || s >= 0.985) return 0;
+    if (s > 0.9) { const t = (s - 0.9) / 0.085; return 0.86 * Math.sqrt(Math.max(0, 1 - t * t)); }
+    if (s < 0.2) return 0.86 * (0.72 + 0.28 * smooth(0.02, 0.2, s));
+    return 0.86;
+  };
+  return render(W, H, (u, v, px, py) => {
+    const x = px + 0.5, s = v;
+    const w = wAt(s) * half;
+    const dx = Math.abs(x - half);
+    // distance inside the outline in texels (the edge slope is small except at the head, which the ellipse covers)
+    let d = w - dx;
+    if (w === 0) d = -1;
+    if (s > 0.9) d = Math.min(d, (0.985 - s) * H * 0.7);
+    const alpha = smooth(-0.8, 1.0, d);
+    const t = w > 0 ? clamp((x - half) / w, -1, 1) : 0;       // across the tube, -1 left .. 1 right
+    const nz = Math.sqrt(Math.max(0, 1 - t * t));
+    // a cylinder lit from the upper left, darker toward the edges (the meniscus), a little lighter in the middle
+    const diff = 0.52 + 0.30 * nz + 0.16 * Math.max(0, -t * 0.65 + nz * 0.45);
+    const edge = Math.exp(-Math.max(d, 0) / 2.2) * 0.34;
+    const sheen = 0.10 * Math.exp(-Math.pow((t + 0.38) / 0.16, 2));
+    let val = diff - edge + sheen;
+    // thin, see-through tail
+    const a = alpha * (0.34 + 0.66 * smooth(0.02, 0.28, s));
+    return [clamp(val * 0.92, 0, 1), a];
   }, TAIL_AT_TOP);
 }
 
@@ -392,6 +429,7 @@ function makeGlint() {
 const files = {
   'bs_drop1.png': () => makeDrop({ s0: 0.03, hc: 0.66, s1: 0.975, wmax: 0.84, pw: 1.35, glint: 0.8 }),
   'bs_drop2.png': () => makeDrop({ s0: 0.02, hc: 0.78, s1: 0.98, wmax: 0.56, pw: 1.1, glint: 0.88 }),
+  'bs_jet.png': () => makeJet(),
   'bs_clot1.png': () => makeClot(1),
   'bs_clot2.png': () => makeClot(2),
   'bs_clot3.png': () => makeClot(3),

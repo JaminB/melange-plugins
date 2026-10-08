@@ -32,19 +32,24 @@ shipped — no game file, or anything derived from one.
 - **Arterial spurts**: a worm below about a third of its health (stronger the lower it goes, with no setting of its own:
   it follows Blood) spurts blood from its deepest open wounds in time with its heartbeat, 1.1 beats a second at the
   threshold and 1.6 at the lowest, each interval a little different and about half the beats followed by a weaker second
-  one. A beat is a pulse of about a fifth of a second: a pressurised arc (a narrow stream of fast, long-lived droplets that
-  carries furthest, and a wider spray of slow ones that is dense at the wound, so the arc thins along its length), a puff
-  of fine mist at the wound, and a weak dribble from the deepest wound between the pulses. The jet leaves each wound along
-  its outward normal, lifted a little and tilted a little differently at every pulse, and is worked out again every frame
-  from where the worm's wounds are, so it follows the worm as it walks and turns. Light spurts from one wound, Heavy
-  from up to two and Absurd from up to three (the second only once the worm is well below the threshold, the third lower
-  still), with more and faster droplets as Blood goes up. The droplets are ordinary particles, so they land through the
-  terrain collision and leave splats and streaks. Nothing spurts while the worm is thrown or falling (faster than 90
+  one. A beat is a pulse of about a fifth of a second: a pressurised stream. Every frame of it the wound sends out pieces of
+  stream (particles drawn as thin tubes of dark blood along their velocity, with a texture of their own, `bs_jet.png`, which
+  has no glint) at a steady rate, each placed where it would be had it left at its own moment inside the frame, so that
+  they are evenly spaced along one arc and closer together than their length (about one every one and a half units, each
+  four to six long) however long the frame took; the pressure sets how fast and wide they are (the stream swells and
+  thins), and as a piece ages it thins and shortens, the older ones sooner, so that the far end breaks up into beads. A few
+  beads fly on ahead, a short sputter of weak broken pieces follows the pulse, a puff of fine mist leaves the wound, and a
+  weak dribble runs from it between the pulses. The jet leaves the wound along its outward normal, lifted a little and
+  tilted a little differently at every pulse, and is worked out again every frame from where the worm's wounds are, so it
+  follows the worm as it walks and turns. The gashes are on the middle of the body (6 to 16 units above the feet). Light and
+  Heavy spurt from the deepest wound, Absurd from up to two (the second only once the worm is well below the threshold), with
+  more and faster pieces as Blood goes up. The pieces are ordinary particles, so they land through the terrain collision and
+  leave splats and streaks. Nothing spurts while the worm is thrown or falling (faster than 90
   units a second sideways or 80 vertically), since its facing no longer says where its wounds are, and it resumes a
   third of a second after it lands with a stronger first pulse. A new hit brings an extra pulse at once and stronger,
   longer, quicker ones for one to three and a half seconds, more for a bigger hit. A dying worm (health 0, waiting for the
   game to blow it up) goes on for six seconds with weakening, slowing pulses and then stops; the death burst takes over.
-  Spurts draw on the frame's spawn budget after the bursts (at most 14, 30 or 52 particles a frame between all the worms),
+  Spurts draw on the frame's spawn budget after the bursts (at most 14, 22 or 44 particles a frame between all the worms),
   never fill more than 60% of the pool and send nothing to the post-FX passes. The Preview button makes the previewed
   worm spurt for six seconds.
 - **Death**: a worm that dies throws a larger burst, with more mist and a ring of heavy clots that carry past the smoke
@@ -161,17 +166,23 @@ shipped — no game file, or anything derived from one.
   instead. The setting is **Gibs**; Preview throws some (a very big hit's worth, and a death's worth on every
   third press).
 - **Pools and trails** (the setting of that name; it needs Blood on the ground): a worm below two thirds of its health
-  leaves a line of drips on the ground as it walks, and below a quarter of it a smear where it drags itself, darker and
-  glossier in the middle, with the dry-brush gaps and ragged edges of a hand pulled across the floor, thin at its old end
-  and blunt at the worm. The trail is read off the worm's own path (a ray down to the ground under it every couple of
+  leaves a line of drips on the ground as it walks, and below a quarter of it a smear where it drags itself. The drips are
+  beads of every size with now and then a big splat (a tenth of them) and sometimes a small drop behind, one every 8 to 15
+  units, in clusters with bare stretches between, three to ten units across, so that they read from the play distance. The
+  smear is a stripe of the worm's own width (about nine units), streaked along the drag by ridges of thicker and thinner
+  blood, with thick, dark, ragged edges, thin only at its very start; it runs thinner and drier the further the worm has
+  dragged itself since its last hit (down to 60% of its width over about five hundred units, a hit brings fresh blood), and is
+  now and then broken for a body length. The trail is read off the worm's own path (a ray down to the ground under it every couple of
   units, so it follows slopes): one trail piece is a straight strip that the worm lengthens step by step, up to about 50
-  units of drips or 36 of smear, and then a new piece starts where it left off (also when the worm turns or goes back), so
-  a trail costs one of the 32 decal slots for every 30 to 50 units walked, and not one for each step. The pieces are
+  units of drips or 64 of smear, and then a new piece starts where it left off (also when the worm turns or goes back; a smear
+  piece starts twelve units back on the one before it, so that the stripe has no neck between them), so a trail costs one of
+  the 32 decal slots for every 30 to 60 units walked, and not one for each step. The pieces are
   decals of their own kinds (3, a dotted line of drips of every size, none in some places; 4, a smear), the pass draws
   them in the same one fluid as the splats and pools, so a trail runs into a pool it meets, and a trail dries like any
   blood (a thin smear a little sooner). The most pieces there may be is 5 on Light, 8 on Heavy and 12 on Absurd; the
-  oldest goes first, and a new piece may push out a splat that is more than about fifteen seconds old when all 32 slots
-  are in use. A worm that is dying (its health is gone and the game is about to blow it up, which may be seconds away) grows a
+  oldest goes first, and a trail that goes on takes the slot of a splat of any age when all 32 are in use (the sphere each piece
+  sends the pass is also 35% wider than it needs, so that where splats crowd, the pass, which keeps the three decals that hold
+  a pixel deepest, does not leave the piece out). A worm that is dying (its health is gone and the game is about to blow it up, which may be seconds away) grows a
   pool under it over about six seconds to 15 to 20 units across the radius on Heavy, and a worm below 30% of its health that
   lies still for a second and a half grows one over about eight seconds (6 to 14 units of radius, the more the less
   health it has), once for each place it lies in; both stay wet while they spread and dry afterwards like any pool.
