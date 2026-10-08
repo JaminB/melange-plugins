@@ -26,10 +26,16 @@ shipped — no game file, or anything derived from one.
 - **Intestines**: about two worms in five, picked at random each match, have their belly torn open once they are
   badly wounded (around a third of their health). The skin pass paints the opening and the coils inside it, and a loop
   of intestine hangs from it and swings as the worm moves. The loop is a short chain drawn as ribbons.
-- **Ground stains**: a burst can leave a stain on the ground under the worm. Stains are a second depth-projected
-  Post-FX pass, `bloodsand/stains` (PostWorld, order 50, so before Sunstone's effects). It has 8 slots and recycles
-  the oldest first. Because it is projected from the depth buffer it follows the terrain, and a stain disappears
-  where the terrain under it is destroyed. Stains only land on surfaces that face up, not on walls.
+- **Ground decals**: blood that reaches the terrain stays there. A droplet that hits the ground or a wall leaves a
+  splat shaped by the way it came in (a round splat with satellite specks when it came down steeply, a teardrop
+  streak when it came in low, with drips that run down a wall), and a burst or a heave leaves a pool under the worm
+  that spreads over about two seconds. Fresh blood is wet and glossy, thick in the middle and thin at the edge; over
+  30 to 60 seconds it dries to a dark matte brown with a clotted rim, and a pool cracks. The decals are a
+  depth-projected Post-FX pass, `bloodsand/stains` (PostWorld, order 50, so before Sunstone's effects), with 32 slots
+  on floors, walls and overhangs; the oldest and smallest are recycled first and a speck never pushes out a big blot.
+  Because it is projected from the depth buffer it follows the terrain, and a decal disappears where the terrain under
+  it is destroyed. Droplets only collide with the terrain on a Melange that has `wum.game.landRay` (0.6); on an older
+  one there are only pools, as before. The Post-FX panel has two settings for the pass: drying time and wet gloss.
 - **Lens splatter**: heavy hits near the camera splash blood across the lens, fading over a few seconds.
 
 ## Settings
