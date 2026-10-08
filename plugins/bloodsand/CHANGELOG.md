@@ -62,6 +62,14 @@ smoke of the hit and the bleeding, with nothing at the death itself), it throws 
 it may overspend a frame's spawn budget, waits longer in the queue and makes room in a full pool, and its pool goes down
 in the crater the worm leaves. Bigger stains from big hits and a bigger death pool.
 
+Skin pass: only skin takes anything. A classifier on the scene colour (the ratios of green and blue to red, which light
+only scales, with the blue limit rising where sun clips the red) gives each pixel 0 to 1 skin, and everything painted on
+the worm (blood, wounds, scorch, the belly, black eyes) is multiplied by it, on the whole body: helmets, hats, glasses,
+headbands, bunny ears and the eyes stay clean, and the edge is soft. The blood is no longer a marbled coat: it is soaked
+round the wounds and the place the worm was hit, runs down in streaks that thin to a bead, is smeared and spattered on the
+hit side and thin elsewhere; none of it is placed from the depth buffer's facets. Black eyes are a clear ring hugging each
+eye white (found from the screen, so it follows the head), darkest under the eye, with a lit lip above.
+
 Seen in the game and put right: blood on a pillar or a faceted rock is no longer cut into strips at the facet edges (a
 decal takes surface turned up to about 60 degrees from its own and near its plane by a tolerance that grows away from
 the middle, and every pixel's normal comes from its own neighbours, so no edge steps in twos); an explosion's crater

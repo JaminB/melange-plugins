@@ -1349,7 +1349,7 @@ local function newSlot(x, y, z, health, alive)
         credited = 0, creditAt = -100, shownAt = -100,
         bleedUntil = 0, bleedRate = 0, bleedAcc = 0,
         stainRadius = nil, stainAt = 0, restSince = nil,
-        gore = 0, heading = 0,
+        gore = 0, hitQ = 0, heading = 0,    -- hitQ: 1..32, the side of the body the last hit came from (0 unknown), for the skin shader
         hmax = health, wound = 0, previewWound = 0,
         frac = 1, eye = 0, eyeShow = 0, previewEyes = 0,
         -- The gut is rolled once per slot, so once per match: whether this worm can show one and on which side.
@@ -2049,6 +2049,10 @@ local function burst(s, damage, dx, dy, dz, death, sig)
     else
         addBleed(s, damage)
         s.gore = min(1, max(s.gore, GORE_FIRST) + damage / GORE_DAMAGE)
+        -- The blood goes along (dx, dz), so the hit came from the opposite side. A fall or a hit straight down has no side.
+        if dx * dx + dz * dz > 0.04 then
+            s.hitQ = 1 + floor((math.atan(-dx, -dz) % (2 * pi)) / (2 * pi) * 32) % 32
+        end
     end
     if death or damage >= STAIN_MIN_DAMAGE then
         requestStain(s, death and STAIN_DEATH or min(STAIN_MAX, STAIN_BASE + damage * STAIN_PER_DAMAGE))
@@ -3471,10 +3475,12 @@ local function driveSkin(slot, s)
     skinCount = skinCount + 1
     sendParam(SKIN, WORM_A[i], s.px + s.vx * SKIN_LEAD, s.py + CENTRE_Y + s.vy * SKIN_LEAD, s.pz + s.vz * SKIN_LEAD)
     local wound = s.wound
-    if abs(s.gore - skSentGore[i]) > GORE_RESEND or abs(wound - skSentWound[i]) > WOUND_RESEND
+    -- The blood amount carries the side of the last hit: 2 * its bin (1..32) added to the amount, which the shader splits again.
+    local gore = s.gore > 0 and s.gore + 2 * s.hitQ or 0
+    if abs(gore - skSentGore[i]) > GORE_RESEND or abs(wound - skSentWound[i]) > WOUND_RESEND
         or (wound == 0) ~= (skSentWound[i] == 0) or abs(s.heading - skSentHead[i]) > HEADING_RESEND then
-        skSentGore[i], skSentWound[i], skSentHead[i] = s.gore, wound, s.heading
-        sendParam(SKIN, WORM_B[i], s.gore, wound, s.heading)
+        skSentGore[i], skSentWound[i], skSentHead[i] = gore, wound, s.heading
+        sendParam(SKIN, WORM_B[i], gore, wound, s.heading)
     end
     local eye, gut = s.eye, s.gut
     if abs(eye - skSentEyes[i]) > EYE.RESEND or abs(gut - skSentGut[i]) > GUT.RESEND
