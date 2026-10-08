@@ -9,7 +9,10 @@
 //         flowPack = phi * 4096 + e      the direction the blood ran, an angle in the tangent frame, and how stretched
 //                                        the splat is (0..4), both 12 bits
 //         birth                          p_clock when the blood landed (the decal dries as p_clock moves on)
-//         tsPack   = r * 16384 + (type * 16 + thick) * 256 + seed   radius in tenths, 1 splat or 2 pool, thickness 0..15
+//         tsPack   = r * 16384 + (type * 16 + thick) * 256 + seed   radius in tenths, 1 splat or 2 pool or 3 trail piece,
+//                                thickness 0..15. A trail piece (r is its half-width, e its length, half of it being 2 + 20 e
+//                                world units, phi the direction to the head, see Streak) has 48 + 8 * smear + thick (0..7)
+//                                in place of type * 16 + thick: smear 0 is a line of drips, 1 a smear.
 // All the integers are below 2^24 so they survive being floats. The seed (0..255) also picks the outline of the blot: how
 // many lobes it has, how lumpy and how long it is, how many satellite drops and specks it throws and how thickly.
 //   wN = (x, y, z, 1)            the middle of the body of worm N (slot N), 0 in w when there is no such worm;
@@ -198,6 +201,92 @@ float WormE(vec3 Pw) {
     return e;
 }
 
+// A trail piece (type 3: a dotted line of drips, type 4: a smear), which Bloodsand's Lua lengthens step by step as a worm
+// crawls on: a straight strip, centred on the decal's middle, the head (where the worm is) at +a and the old end at -a, c
+// across it. R is its half-width (for drips the size of a drip), the half length is 2 + 20 E, thick (0..1) is the density
+// of the drips or the thickness of the smear. It is blood like any other: it joins the one fluid (Fl, Merge), so a trail
+// runs into a pool or a splat it meets, and it dries the same way (a thin smear a little faster).
+//   drips: along the strip in cells 3 (R + 1) long, each holding a drip or not (thick says how many do), at a place across the
+//          strip and of a size the cell picks, an oval with a tail toward the old end (it ran as the worm went on);
+//   smear: a ribbon whose width swells and shrinks, long thin tail at the old end, a blunt head, dry-brush gaps (more at the
+//          edges and the old end) along the stripes of the drag, thickest and so darkest in the middle.
+void Streak(float u, float v, float a, float c, float cp, float sp, float h, float dist, float nd, float ng, float hg, float wE,
+            vec3 N, vec3 T, vec3 Bt, float R, float E, float seed, float thick, float type, float age, inout Fl acc) {
+    float Lh = 2.0 + 20.0 * E;
+    if (abs(a) > Lh + 1.5 || abs(c) > 2.2 * R + 1.5) return;
+    float F = -1.0e3;       // the distance to the edge of the blood, positive inside
+    float Rl = 1.0;         // the size of the blot around the pixel
+    float dm = 0.0;
+    float fr = 0.0;         // 1 for a drip (a round bead), 0 for the smear
+    float kth = 0.65;
+    vec2 out2 = vec2(0.0);  // the way the surface tilts, in (u, v)
+    if (type < 3.5) {
+        float cs = 3.0 * (R + 1.0);
+        float id = floor((a + Lh) / cs);
+        vec3 hs = H23(vec2(id + seed * 7.0, seed * 1.3 + 3.0));
+        if (hs.x < 0.15 + 0.75 * thick) {
+            float hr = H21(vec2(id * 1.7 + seed, 9.9));
+            float rd = R * (0.4 + 0.5 * hr * hr + 0.35 * step(0.88, hr));
+            float a0 = (id + 0.4 + 0.3 * hs.y) * cs - Lh;
+            float c0 = (hs.z - 0.5) * R * 1.6;
+            vec2 dd = vec2(a - a0, c - c0);
+            if (abs(a0) < Lh - 0.5) F = rd - length(vec2(dd.x / (dd.x < 0.0 ? 1.6 : 1.0), dd.y));
+            Rl = rd;
+            vec2 g = dd / max(length(dd), 1e-4);
+            out2 = vec2(g.x * cp - g.y * sp, g.x * sp + g.y * cp);
+            kth = 0.62 + 0.25 * hr;
+        }
+        fr = 1.0;
+    } else {
+        float sA = a / Lh;
+        float prof = VN(vec2(a * 0.09 + seed * 3.7, seed * 0.31 + 2.0));
+        float prof2 = VN(vec2(a * 0.4 + seed * 1.9, 5.5));
+        float w = R * (0.55 + 0.45 * prof) * (0.85 + 0.3 * prof2);
+        float tapO = smoothstep(-1.0, -0.5, sA);
+        float wt = w * tapO;
+        float stripe = VN(vec2(a * 0.17 + seed * 3.1, c * 1.8 + seed));
+        float q = abs(c) / max(wt, 0.05);
+        float patch = VN(vec2(a * 0.06 + seed * 5.3, 1.7));      // where the hand pressed hard and where it skimmed
+        float gap = smoothstep(0.45, 0.85, q * (0.6 + 0.6 * (1.0 - patch)) + (0.5 - stripe) * 1.1 + (1.0 - tapO) * 0.7);
+        float fib = VN(vec2(a * 0.28 + seed * 2.3, c * 2.8 + seed * 0.7));
+        float skim = (1.0 - smoothstep(0.16, 0.32, fib)) * smoothstep(0.3, 0.8, (1.0 - patch) + (1.0 - tapO));   // lines the drag skipped
+        F = min(wt - abs(c), (Lh - a) + 0.35 * R * (VN(vec2(c * 2.0 + seed, 3.3)) - 0.5))
+          - gap * w * 0.9 - skim * w * 0.8 + 0.25 * R * (VN(vec2(a * 1.3 + seed, c * 0.9)) - 0.5);
+        Rl = max(wt, 0.7 * R);
+        dm = clamp(q, 0.0, 1.5);
+        kth = (0.55 + 0.45 * thick) * (0.75 + 0.25 * stripe) * (0.8 + 0.2 * tapO);
+        float across = clamp(c / max(wt, 0.1), -1.0, 1.0);
+        out2 = vec2(-sp, cp) * across * 0.35;
+    }
+    float mg = 0.15 + 0.5 * min(R, 3.0);
+    if (F < -mg) return;
+
+    // ---- where blood may not land: as for any decal (see Shape) ----
+    float wOff = smoothstep(1.5 + 0.06 * dist, 3.5 + 0.06 * dist, abs(h));
+    float wAway = max(1.0 - smoothstep(0.75, 0.92, nd), smoothstep(5.0, 8.0, abs(h)));
+    float wm = 1.0 - (1.0 - smoothstep(WORM_E0, 1.0, wE)) * wOff * wAway;
+    float gate = ng * hg * wm;
+    if (gate <= 0.0) return;
+
+    float dryRaw = clamp(age * 1.4 / max(p_dryTime, 1.0), 0.0, 1.0);
+    Fl o;
+    o.F = F;
+    o.R = Rl;
+    o.S = fr > 0.5 ? max(R, 0.8) : 2.5 * R;       // (a smear is a film: a low dome, a flat highlight)
+    o.uv = vec2(u, v) + seed * R * vec2(1.37, 2.11);
+    o.bf = 1.0;
+    o.dm = dm;
+    o.kth = kth;
+    o.fr = fr;
+    o.dryT = dryRaw * dryRaw * (3.0 - 2.0 * dryRaw);
+    o.lum = 0.4 + 0.2 * H21(vec2(seed, 31.7));
+    o.pool = 0.0;
+    o.gate = gate;
+    o.nrm = N;
+    o.outw = T * out2.x + Bt * out2.y;
+    Merge(acc, o);
+}
+
 // One decal at the pixel: Pw is the pixel in world space, nW the surface normal there (world), pxw the size of a pixel in
 // world units. Adds what the decal contributes (its body, and the satellite, speck or drip nearest the pixel) to acc.
 // wE is the worm test (WormE) at the pixel.
@@ -248,6 +337,13 @@ void Shape(vec3 Pw, vec3 nW, float pxw, vec4 A, vec4 B, float wE, inout Fl acc) 
     float a = u * cp + v * sp;       // along the flow, the tail is at +a
     float c = -u * sp + v * cp;      // across it
     float age = max(p_clock - B.z, 0.0);
+    if (type > 2.5) {
+        // (a trail piece: the 6 bits after the radius are 3, then 0 drips or 1 smear, then a thickness of 3 bits)
+        float sub = tt - 48.0;
+        float sm = step(8.0, sub);
+        Streak(u, v, a, c, cp, sp, h, dist, nd, ng, hg, wE, N, T, Bt, R, E, seed, (sub - sm * 8.0) / 7.0, 3.0 + sm, age, acc);
+        return;
+    }
 
     // ---- shape ----
     float La = R * (1.0 + E);

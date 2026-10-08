@@ -139,6 +139,27 @@ shipped — no game file, or anything derived from one.
   feet. If the pass cannot run (an older Melange, or a driver that fails to draw it) each gib is drawn as a flat sprite
   instead. The setting is **Gibs and organs**; Preview throws some (a very big hit's worth, and a death's worth on every
   third press).
+- **Pools and trails** (the setting of that name; it needs Blood on the ground): a worm below two thirds of its health
+  leaves a line of drips on the ground as it walks, and below a quarter of it a smear where it drags itself, darker and
+  glossier in the middle, with the dry-brush gaps and ragged edges of a hand pulled across the floor, thin at its old end
+  and blunt at the worm. The trail is read off the worm's own path (a ray down to the ground under it every couple of
+  units, so it follows slopes): one trail piece is a straight strip that the worm lengthens step by step, up to about 50
+  units of drips or 36 of smear, and then a new piece starts where it left off (also when the worm turns or goes back), so
+  a trail costs one of the 32 decal slots for every 30 to 50 units walked, and not one for each step. The pieces are
+  decals of their own kinds (3, a dotted line of drips of every size, none in some places; 4, a smear), the pass draws
+  them in the same one fluid as the splats and pools, so a trail runs into a pool it meets, and a trail dries like any
+  blood (a thin smear a little sooner). The most pieces there may be is 5 on Light, 8 on Heavy and 12 on Absurd; the
+  oldest goes first, and a new piece may push out a splat that is more than about fifteen seconds old when all 32 slots
+  are in use. A worm that is dying (its health is gone and the game is about to blow it up, which may be seconds away) grows a
+  pool under it over about six seconds to 15 to 20 units across the radius on Heavy, and a worm below 30% of its health that
+  lies still for a second and a half grows one over about eight seconds (6 to 14 units of radius, the more the less
+  health it has), once for each place it lies in; both stay wet while they spread and dry afterwards like any pool.
+  The death explosion's crater takes them like any other decal. A moment after a worm blows up (1.1 seconds, when the
+  gravestone has come down) its grave gets a wet pool, smears that run out of it (3 on Heavy, 5 on Absurd) and a spatter of
+  splats around. Melange has a decoder for no message that says where the stone lands (CreateGravestoneMessage is on its
+  list of names but its payload is empty), so the grave is taken to be where the worm was last seen. Light, Heavy and
+  Absurd scale the sizes, the number of pieces, the drip density and the grave's smears and spatter; the colour setting
+  colours everything. Without `wum.game.landRay` the ground under a worm is a plane at its feet.
 - **Lens splatter**: heavy hits near the camera, and a death, splash blood across the lens, fading over a few seconds. It
   is a Post-FX pass, `bloodsand/lens` (PostWorld, order 60), so it is drawn before the HUD and the minimap and the timer
   stay clear. Where a splat is, the picture is bent as if by a wet droplet, blurred a little, tinted and darkened (clear
@@ -160,6 +181,7 @@ On the Mods page:
 | Intestines | on / off | on | the torn belly and the length of intestine that comes out of it |
 | Gibs and organs | on / off | on | meat, bone and organs thrown by deaths and very big hits, and the bits of meat that fly with them |
 | Blood on the ground | on / off | on | the decals pass: splats, drips and pools, and the droplets' collision with the terrain |
+| Pools & trails | on / off | on | blood trails behind hurt worms, pools under dying and badly hurt ones, and the gore round a grave (needs Blood on the ground) |
 | Splatter on the lens | on / off | on | the camera lens splatter (the lens pass, or the flat fallback) |
 | Blood colour | Red / Green | Red | the colour of droplets, decals, blood on worms, wounds, guts and lens splatter |
 
@@ -261,6 +283,12 @@ four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0
   because a pixel now combines three decals and shades once instead of shading each of four. Working out the normal
   from each pixel's own neighbours (instead of the 2 by 2 block derivatives) adds 3 to 7% in the harness (0.149 to 0.158
   ms with four decals, 0.354 to 0.371 ms with 32). Before that change the game measured 0.22 to 0.26 ms with blood about.
+  The trail pieces of 1.3 (a branch for kinds 3 and 4 in the same pass) cost 0 to 2% in the same harness and the same
+  native GL timing (nothing on the ground 0.078 ms before and after, four decals 0.158 and 0.160, nine decals and three
+  trail pieces 0.203 and 0.206, 32 splats and pools 0.366 and 0.371), and 24 splats and pools with 8 trail pieces
+  take 0.34 ms, less than 32 splats. A raise to 48 slots was measured and not taken: 32 splats and pools with 16 trail
+  pieces take 0.44 ms and 48 splats and pools 0.46 ms (+21%, the slots above 32 are tested by every pixel of the screen
+  whether anything is there or not).
 - **Script**: in a stress test with six worms and explosions, weapon sprays and previews back to back, an average of
   about 0.4 ms a frame on Heavy and 0.45 ms on Absurd. At rest on Heavy, with eight worms of which four are badly hurt
   (gutted, vomiting, bleeding done) and the decals down, about 43000 to 47000 VM instructions and 0.24 ms a frame in the
@@ -343,6 +371,11 @@ Re-measure with the *Mirage/Post-FX* panel on your own machine.
   ground below them, but they do not collide with other worms or with walls, and at most four gutted worms (the closest
   to the camera) are drawn at once. They are lit by a fixed key light and the camera, not the level's lights. Where the
   opening sits on the belly was set by eye and may need adjusting.
+- Trails are straight pieces along the worm's path (a path that turns makes a new piece at each corner, which can show
+  as a slight kink), and they and every other decal share the 32 slots: in a long fight the bursts' splats push the older
+  pieces out, so trails show best in a quiet turn. The pools under dying and badly hurt worms are laid at the worm's feet
+  and a death explosion's crater takes them. The grave is where the worm was last seen, not where the stone lands, and
+  the smears round it are straight lines on the ground there (on a crater's slope the part off the plane is not drawn).
 - Decals are projected from the depth buffer: there are 32 of them, and a pixel combines at most three. Where more than
   three overlap, the ones that hold the pixel least deeply are dropped (a pool with many splats on it can still show a
   hard edge here and there), and a decal vanishes where the terrain under it is destroyed (an explosion's crater takes

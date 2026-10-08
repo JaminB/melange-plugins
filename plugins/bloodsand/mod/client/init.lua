@@ -331,7 +331,7 @@ for i = 1, SKIN_SLOTS do
 end
 
 -- ---------------------------------------------------------------- ground decals
--- == Decals == 32 slots of splats (kind 1) and pools (kind 2), each on a surface of any orientation. A slot is two vec4
+-- == Decals == 32 slots of splats (kind 1), pools (kind 2) and trail pieces (kinds 3 and 4, see "Pools & trails" below), each on a surface of any orientation. A slot is two vec4
 -- params, "dNa" = (x, y, z, bound) and "dNb" = (normal, flow, birth, size-and-kind), packed as stains.frag documents.
 -- The Lua keeps the data and owns recycling: the one blood last landed in longest ago goes first (size counts for a little,
 -- so that the slots keep the latest splats of every size and not the biggest few), and a speck does not push out a pool.
@@ -350,6 +350,8 @@ local DECALS = { rayUsed = 0, rayOK = false, frame = 0, prevHeavy = 0, prevLight
 do
 local DS = { live = {}, x = {}, y = {}, z = {}, nx = {}, ny = {}, nz = {}, np = {}, r = {}, rt = {}, e = {}, phi = {},
              birth = {}, seed = {}, kind = {}, thick = {}, dirtyA = {}, dirtyB = {}, sentRq = {}, r0 = {}, t0 = {},
+             -- trail pieces (kinds 3 and 4): the allocation counter that tells a piece from the one that took its slot, the two ends, the length last sent
+             gen = {}, sx = {}, sy = {}, sz = {}, ex = {}, ey = {}, ez = {}, slen = {}, hold = {},
              -- the worms the shader keeps blood off (params "w0".."w15"): where each was last sent, and the frame it was last seen
              wx = {}, wy = {}, wz = {}, wlive = {}, wseen = {}, wtop = 0,
              -- the pools waiting to go down (placeStain): where, how big and when
@@ -362,7 +364,8 @@ end
 for i = 1, STAIN_SLOTS do
     DEC_A[i], DEC_B[i] = "d" .. (i - 1) .. "a", "d" .. (i - 1) .. "b"
     DS.live[i], DS.dirtyA[i], DS.dirtyB[i], DS.sentRq[i] = false, false, false, -1
-    for _, k in ipairs({ "x", "y", "z", "nx", "ny", "nz", "np", "r", "rt", "e", "phi", "birth", "seed", "kind", "thick", "r0", "t0" }) do
+    for _, k in ipairs({ "x", "y", "z", "nx", "ny", "nz", "np", "r", "rt", "e", "phi", "birth", "seed", "kind", "thick", "r0", "t0",
+                         "gen", "sx", "sy", "sz", "ex", "ey", "ez", "slen", "hold" }) do
         DS[k][i] = 0
     end
 end
@@ -454,6 +457,10 @@ local function decalSend(i)
         local bound
         if kind == 2 then
             bound = DEC.POOL_BOUND * rt
+        elseif kind >= 3 then
+            -- a trail piece: rt is its half-width and e its length, (half length - 2) / 20 (stains.frag, Streak)
+            local lh = 2 + 20 * e
+            bound = sqrt(lh * lh + (2.2 * rt + 1) * (2.2 * rt + 1)) + 1.5
         else
             bound = DEC.BOUND * rt * (1 + e)
             if isWall(DS.ny[i]) then bound = bound + DEC.RUN * rt end
@@ -464,7 +471,9 @@ local function decalSend(i)
     if DS.dirtyB[i] then
         local rq = min(1023, floor(DS.r[i] * 10 + 0.5))
         local flow = q12(DS.phi[i] / (2 * pi)) * 4096 + q12(e / 4)
-        local ts = rq * 16384 + (kind * 16 + DS.thick[i]) * 256 + DS.seed[i]
+        -- (the type takes two bits: a trail piece is type 3, its kind 3 or 4 the bit above its 3-bit thickness)
+        local tk = kind < 3 and kind * 16 + DS.thick[i] or 48 + (kind - 3) * 8 + min(7, DS.thick[i])
+        local ts = rq * 16384 + tk * 256 + DS.seed[i]
         sendVec4(STAINS, DEC_B[i], DS.np[i], flow, DS.birth[i], ts)
         DS.sentRq[i] = rq
         DS.dirtyB[i] = false
@@ -476,7 +485,10 @@ end
 -- ones kept are meant to be the latest ones, with all the sizes there were. A new decal is not put in the place of one
 -- that is under DEC.MIN_LIFE seconds old (a pool is).
 local function decalWeight(i)
-    return (0.3 + 2 * math.exp(-(fxClock - DS.birth[i]) / 25)) * (1 + 0.04 * min(DS.rt[i], 40)) * (DS.kind[i] == 2 and 1.6 or 1)
+    local w = (0.3 + 2 * math.exp(-(fxClock - DS.birth[i]) / 25)) * (1 + 0.04 * min(DS.rt[i], 40)) * (DS.kind[i] == 2 and 1.6 or 1)
+    -- (a trail piece told to be held, a grave's smears, is worth three times as much until then)
+    if DS.kind[i] >= 3 and fxClock < DS.hold[i] then w = w * 3 end
+    return w
 end
 
 -- Puts a decal (kind 1 splat, 2 pool) with the blood landing at (hx, hy, hz) and its shape centred at (cx, cy, cz). A decal
@@ -487,7 +499,7 @@ local function decalAdd(kind, hx, hy, hz, cx, cy, cz, nx, ny, nz, r, e, phi, thi
     local best, bestD, bestReach
     for i = 1, STAIN_SLOTS do
         -- A pool only joins a pool; a splat joins either.
-        if DS.live[i] and (kind == 1 or DS.kind[i] == 2) and DS.nx[i] * qx + DS.ny[i] * qy + DS.nz[i] * qz > 0.85 then
+        if DS.live[i] and DS.kind[i] <= 2 and (kind == 1 or DS.kind[i] == 2) and DS.nx[i] * qx + DS.ny[i] * qy + DS.nz[i] * qz > 0.85 then
             local mx, my, mz = DS.nx[i], DS.ny[i], DS.nz[i]
             local dx, dy, dz = hx - DS.x[i], hy - DS.y[i], hz - DS.z[i]
             local h = dx * mx + dy * my + dz * mz
@@ -547,6 +559,7 @@ local function decalAdd(kind, hx, hy, hz, cx, cy, cz, nx, ny, nz, r, e, phi, thi
     DS.nx[slot], DS.ny[slot], DS.nz[slot], DS.np[slot] = qx, qy, qz, np
     DS.rt[slot], DS.e[slot], DS.phi[slot], DS.kind[slot], DS.thick[slot], DS.r0[slot] = r, e, phi, kind, thick, r
     DS.t0[slot] = fxClock
+    DS.gen[slot] = DS.gen[slot] + 1
     DS.r[slot] = r * (kind == 2 and 0.15 or 0.6)
     DS.birth[slot] = fxClock
     DS.seed[slot] = random(0, 255)
@@ -591,6 +604,107 @@ local function decalSplat(x, y, z, nx, ny, nz, vx, vy, vz, size)
     end
     local thick = min(15, max(4, floor(size * 3.5 + 2 + random() * 4 - 2)))
     return decalAdd(1, x, y, z, x + fx, y + fy, z + fz, nx, ny, nz, min(r, DEC.SPLAT_MAX), e, phi, thick)
+end
+
+-- == Pools & trails: decal support == trail pieces (kind 3: a dotted line of drips, kind 4: a smear) and growing pools.
+-- A piece is a straight strip on the surface from a start point along a unit direction, length len; the shader (stains.frag,
+-- Streak) draws it centred between the ends, its half-width being rt. Pieces never merge with anything, they count against
+-- a cap (the trail cap of the amount) and the oldest goes first, they are the first thing a splat can push out of a full set
+-- of slots, and a piece is told from the one that took its slot by its generation (gen).
+DEC.TRAIL_PUSH = 1.6            -- a piece pushes out a splat whose worth (decalWeight) is under this, when the slots are full
+DEC.TRAIL_SEND = 1.2            -- a piece's length is sent again when it grew this much
+
+-- Starts a piece at (sx, sy, sz) on a surface of unit normal (nx, ny, nz). kind 3 or 4; hw the half-width (the size of the
+-- drips for 3); thick 0..7 (the density of the drips for 3); cap the most pieces there may be. Returns the slot and its
+-- generation, or nil. Send it its direction and length with DECALS.trailSet at once. When every slot is in use it takes the
+-- place of the least valuable splat worth under push (DEC.TRAIL_PUSH when not given), or of the oldest piece; hold seconds,
+-- when given, keep other decals from taking its place so easily (decalWeight).
+function DECALS.trailNew(kind, sx, sy, sz, nx, ny, nz, hw, thick, cap, push, hold)
+    local qx, qy, qz, np = quantNormal(nx, ny, nz)
+    local nTrail, oldest, oldestT, free = 0, nil, nil, nil
+    for i = 1, STAIN_SLOTS do
+        if DS.live[i] then
+            if DS.kind[i] >= 3 then
+                nTrail = nTrail + 1
+                if not oldest or DS.t0[i] < oldestT then oldest, oldestT = i, DS.t0[i] end
+            end
+        elseif not free then
+            free = i
+        end
+    end
+    local slot
+    if nTrail >= cap and oldest then
+        slot = oldest
+    elseif free then
+        slot = free
+        decCount = decCount + 1
+    else
+        local lowest
+        for i = 1, STAIN_SLOTS do
+            if DS.kind[i] == 1 and (push or fxClock - DS.t0[i] >= DEC.MIN_LIFE) then
+                local w = decalWeight(i)
+                if w < (push or DEC.TRAIL_PUSH) and (not lowest or w < lowest) then slot, lowest = i, w end
+            end
+        end
+        slot = slot or oldest
+        if not slot then return nil end
+    end
+    DS.live[slot] = true
+    DS.x[slot], DS.y[slot], DS.z[slot] = sx, sy, sz
+    DS.nx[slot], DS.ny[slot], DS.nz[slot], DS.np[slot] = qx, qy, qz, np
+    DS.rt[slot], DS.r[slot], DS.r0[slot], DS.e[slot], DS.phi[slot] = hw, hw, hw, 0, 0
+    DS.kind[slot], DS.thick[slot] = kind, max(0, min(7, thick))
+    DS.t0[slot], DS.birth[slot] = fxClock, fxClock
+    DS.gen[slot] = DS.gen[slot] + 1
+    DS.hold[slot] = fxClock + (hold or 0)
+    DS.seed[slot] = random(0, 255)
+    DS.sx[slot], DS.sy[slot], DS.sz[slot], DS.ex[slot], DS.ey[slot], DS.ez[slot], DS.slen[slot] = sx, sy, sz, sx, sy, sz, -100
+    DS.dirtyA[slot], DS.dirtyB[slot] = true, true
+    return slot, DS.gen[slot]
+end
+
+-- Is this still the piece it was (not recycled, not taken away by a crater)?
+function DECALS.trailAlive(slot, gen)
+    return DS.live[slot] and DS.gen[slot] == gen and DS.kind[slot] >= 3 or false
+end
+
+-- Sets the piece's start, unit direction and length (its length changes as a worm crawls on). Sent to the shader when the
+-- length changed by DEC.TRAIL_SEND, or when force is set (the piece is finished). The head end is fresh blood: the
+-- piece is wet again from now. Returns false when the piece is gone.
+function DECALS.trailSet(slot, gen, sx, sy, sz, dx, dy, dz, len, force)
+    if not (DS.live[slot] and DS.gen[slot] == gen and DS.kind[slot] >= 3) then return false end
+    if not force and abs(len - DS.slen[slot]) < DEC.TRAIL_SEND then return true end
+    local lh = max(2, len * 0.5)
+    local tx, ty, tz, bx, by, bz = tangentFrame(DS.nx[slot], DS.ny[slot], DS.nz[slot])
+    DS.phi[slot] = math.atan(dx * bx + dy * by + dz * bz, dx * tx + dy * ty + dz * tz) % (2 * pi)
+    DS.e[slot] = min(4, (lh - 2) / 20)
+    DS.x[slot], DS.y[slot], DS.z[slot] = sx + dx * lh, sy + dy * lh, sz + dz * lh
+    DS.sx[slot], DS.sy[slot], DS.sz[slot] = sx, sy, sz
+    DS.ex[slot], DS.ey[slot], DS.ez[slot] = sx + dx * len, sy + dy * len, sz + dz * len
+    DS.slen[slot] = len
+    DS.birth[slot] = fxClock
+    DS.dirtyA[slot], DS.dirtyB[slot] = true, true
+    return true
+end
+
+-- The generation of a pool in this slot, to give back to poolGrow (nil when the slot is not a pool).
+function DECALS.poolKey(slot)
+    if slot and DS.live[slot] and DS.kind[slot] == 2 then return DS.gen[slot] end
+end
+
+-- Makes a pool at least radius r (it spreads there as pools do), and with fresh keeps it wet. False when it is gone.
+function DECALS.poolGrow(slot, key, r, fresh)
+    if not (DS.live[slot] and DS.kind[slot] == 2 and DS.gen[slot] == key) then return false end
+    r = min(DEC.POOL_MAX, r)
+    if r > DS.rt[slot] then
+        DS.rt[slot] = r
+        DS.dirtyA[slot] = true
+    end
+    if fresh and fxClock - DS.birth[slot] > 1 then
+        DS.birth[slot] = fxClock
+        DS.dirtyB[slot] = true
+    end
+    return true
 end
 
 -- Frame step of the decals: advances the clock the shader dries them by, spreads the new ones out, sends what changed.
@@ -791,7 +905,17 @@ function DECALS.blast(x, y, z, landR)
     for i = 1, STAIN_SLOTS do
         if DS.live[i] then
             local dx, dy, dz = DS.x[i] - x, DS.y[i] - y, DS.z[i] - z
-            if dx * dx + dy * dy + dz * dz < r * r then
+            local hit = dx * dx + dy * dy + dz * dz < r * r
+            if not hit and DS.kind[i] >= 3 then
+                -- a trail piece goes when either end is in the crater
+                dx, dy, dz = DS.sx[i] - x, DS.sy[i] - y, DS.sz[i] - z
+                hit = dx * dx + dy * dy + dz * dz < r * r
+                if not hit then
+                    dx, dy, dz = DS.ex[i] - x, DS.ey[i] - y, DS.ez[i] - z
+                    hit = dx * dx + dy * dy + dz * dz < r * r
+                end
+            end
+            if hit then
                 DS.live[i], DS.dirtyA[i] = false, true
                 decCount = decCount - 1
             end
@@ -3411,6 +3535,342 @@ local function updateVomit(s, dt)
     if s.vomitAcc > 2 then s.vomitAcc = 0 end
 end
 
+-- == Pools & trails ============================================================================================
+-- A worm below two thirds of its health leaves a trail of blood drips as it walks, and below a quarter a smear where it drags
+-- itself; a worm that is dying, or hurt and lying still, grows a pool under it over several seconds; and the gravestone
+-- ends up in a pool with smears and spatter around it. All of it is decals (see "== Decals ==": trail pieces of kinds 3
+-- and 4, which a worm extends step by step so that a trail costs a slot per 30 to 50 units and not one per step, and
+-- DECALS.poolGrow). It follows the setting "Pools & trails" (cfg.pools) and needs "Blood on the ground". Without landRay the
+-- ground is a plane at the worm's feet. The game's CreateGravestoneMessage has no decoder in Melange (its payload is empty and
+-- it says nowhere the stone lands), so the grave is where the worm was last seen, after the death explosion.
+local PT = {}
+do
+local PTC = {
+    DRIP_FRAC = 2 / 3,          -- a worm below this share of its health drips as it walks...
+    SMEAR_FRAC = 0.25,          -- ...and below this one drags a smear
+    POOL_FRAC = 0.3,            -- a worm this hurt that lies still grows a pool
+    STEP = 2.5,                 -- the trail is extended each time the worm has moved this far
+    MOVE_MIN = 10, MOVE_MAX = 170, RISE_MAX = 80,   -- a worm walking or crawling: horizontal speed in this window, hardly any vertical speed
+    LAT_TOL = 1.4,              -- a trail piece is straight: a point further than this off its line starts a new piece
+    FIT_LEN = 12,               -- ...once it is this long; until then its line follows the worm
+    MAX_LEN = { 54, 36 },       -- the longest a piece of drips and a piece of smear grow (the shader reaches 82 each way)
+    GAP_MAX = 14,               -- a step longer than this was a jump, not a walk
+    STILL_SECS = 1.5, STILL_SPEED = 15, POOL_SAME = 10,
+    GROW_SECS = 8,              -- a pool under a hurt worm spreads to its size in about this long...
+    DYING_SECS = 6,             -- ...a dying worm's in this
+    DYING_POOL = { 15, 20 },    -- radii, at Heavy
+    GRAVE_DELAY = 1.1, GRAVE_POOL = 16, GRAVE_SECS = 5, GRAVE_HOLD = 8,
+    GROW_MAX = 12, GRAVE_MAX = 4,
+}
+-- Per amount: the most trail pieces there may be (of the 32 slots), the pool size, trail width and drip density factors, the smears
+-- around a grave and the specks of spatter.
+local LEVEL = {
+    light  = { cap = 5,  pool = 0.7, width = 0.85, dens = 0.8,  smears = 2, splats = 3 },
+    heavy  = { cap = 8,  pool = 1.0, width = 1.0,  dens = 1.0,  smears = 3, splats = 6 },
+    absurd = { cap = 12, pool = 1.5, width = 1.25, dens = 1.25, smears = 5, splats = 11 },
+}
+local grow, graves = {}, {}      -- the pools that are spreading, and the graves waiting for their pool
+
+local function level() return LEVEL[cfg.amount] or LEVEL.heavy end
+
+local function active()
+    return cfg.pools and cfg.stains and hasPostfx and preset and not STAINS.failed
+end
+
+-- The tangent frame of stains.frag (the Lua twin of tangentFrame in the decals section): T along the surface, B across.
+local function tframe(nx, ny, nz)
+    local rx, ry, rz = 0, 1, 0
+    if abs(ny) > 0.9 then rx, ry, rz = 1, 0, 0 end
+    local tx, ty, tz = ry * nz - rz * ny, rz * nx - rx * nz, rx * ny - ry * nx
+    local l = sqrt(tx * tx + ty * ty + tz * tz)
+    if l < 1e-6 then return 1, 0, 0, 0, 0, 1 end
+    tx, ty, tz = tx / l, ty / l, tz / l
+    return tx, ty, tz, ny * tz - nz * ty, nz * tx - nx * tz, nx * ty - ny * tx
+end
+
+-- The ground under (x, y, z): its height and unit normal, found from up units above to down units below with a ray; nil for none
+-- (or a wall), false when the frame's rays are spent (ask again next frame). Without landRay it is the plane at y.
+local function groundAt(x, y, z, up, down)
+    if not DECALS.rayOK then return y, 0, 1, 0 end
+    local t, nx, ny, nz = DECALS.cast(x, y + up, z, x, y - down, z, true)
+    if t then
+        if ny < 0.5 then return nil end
+        return y + up - (up + down) * t, nx, ny, nz
+    end
+    if nx == "budget" then return false end
+    if nx == "unavailable" then return y, 0, 1, 0 end
+    return nil
+end
+
+-- ------------------------------------------------------------------ pools
+local function addGrower(slot, r0, r1, secs, fresh)
+    local key = DECALS.poolKey(slot)
+    if not key then return nil end
+    if #grow >= PTC.GROW_MAX then table.remove(grow, 1) end
+    local g = { slot = slot, key = key, t0 = now, secs = secs, r0 = r0, r1 = r1, cur = r0, fresh = fresh }
+    grow[#grow + 1] = g
+    return g
+end
+
+-- A pool at (x, y, z) that grows from radius r0 to r1 in secs (and stays wet while it does). The worm's state st remembers it, so
+-- that a worm that goes on lying there (or starts dying there) makes the same pool bigger and does not start another.
+local function startPool(st, x, y, z, r0, r1, secs, fresh)
+    local g = st.grow
+    if g and (g.x - x) * (g.x - x) + (g.z - z) * (g.z - z) < PTC.POOL_SAME * PTC.POOL_SAME and DECALS.poolKey(g.slot) == g.key then
+        g.r0, g.t0, g.secs, g.r1, g.fresh = g.cur, now, secs, max(g.r1, r1), fresh
+        if g.done then
+            g.done = nil
+            if #grow >= PTC.GROW_MAX then table.remove(grow, 1) end
+            grow[#grow + 1] = g
+        end
+        return
+    end
+    local slot = requestPool(x, y, z, r0 / 0.9)
+    if not slot then return end
+    g = addGrower(slot, r0, r1, secs, fresh)
+    if g then
+        g.x, g.z = x, z
+        st.grow = g
+    end
+end
+
+-- ------------------------------------------------------------------ trails
+-- Sends the worm's piece with its true length now (growing pieces are throttled); closePiece also lets go of it, so that the
+-- worm starts another next time, where flush leaves it to go on with the same one.
+local function flush(st)
+    if st.slot then DECALS.trailSet(st.slot, st.gen, st.sx, st.sy, st.sz, st.dx, st.dy, st.dz, st.len, true) end
+    st.flushed = true
+end
+
+local function closePiece(st)
+    flush(st)
+    st.slot = nil
+end
+
+-- A step of the worm's trail: it is now at (gx, gy, gz) on a surface of unit normal (nx, ny, nz), and was at (st.lx, st.ly, st.lz)
+-- the step before. The piece it is on (mode 3 drips, 4 smear) is lengthened along its line, or a new one started from the last point
+-- when the worm turned, went back, outgrew the piece, changed from drips to a smear, or the piece was recycled.
+local function extend(st, mode, gx, gy, gz, nx, ny, nz, frac, L)
+    local maxLen = PTC.MAX_LEN[mode - 2]
+    for _ = 1, 2 do
+        if st.slot and (st.mode ~= mode or not DECALS.trailAlive(st.slot, st.gen)) then st.slot = nil end
+        if not st.slot then
+            local sx, sy, sz = st.lx, st.ly, st.lz
+            if not sx then return end
+            local vx, vy, vz = gx - sx, gy - sy, gz - sz
+            local vl = sqrt(vx * vx + vy * vy + vz * vz)
+            if vl < 1 or vl > PTC.GAP_MAX then return end
+            local hw, thick
+            if mode == 3 then
+                local sev = min(1, (PTC.DRIP_FRAC - frac) / (PTC.DRIP_FRAC - PTC.SMEAR_FRAC))
+                hw = rnd(0.9, 1.5) * L.width
+                thick = floor((0.5 + 6.5 * sev) * L.dens + 0.5)
+            else
+                local sev = min(1, 1 - frac / PTC.SMEAR_FRAC)
+                hw = (1.5 + 1.3 * sev) * L.width * rnd(0.9, 1.15)
+                thick = 3 + floor(4 * sev + 0.5)
+            end
+            local slot, gen = DECALS.trailNew(mode, sx, sy, sz, nx, ny, nz, hw, thick, L.cap)
+            if not slot then return end
+            st.slot, st.gen, st.mode, st.len = slot, gen, mode, 0
+            st.sx, st.sy, st.sz = sx, sy, sz
+            st.dx, st.dy, st.dz = vx / vl, vy / vl, vz / vl
+        end
+        local vx, vy, vz = gx - st.sx, gy - st.sy, gz - st.sz
+        local vl2 = vx * vx + vy * vy + vz * vz
+        local t = vx * st.dx + vy * st.dy + vz * st.dz
+        if st.len < PTC.FIT_LEN and vl2 > 1 then
+            -- A young piece is still being aimed: its line is the chord to the worm while that stays within about 25 degrees
+            -- of it, so that a little jitter in the first steps does not tilt a piece of 50 units off the path.
+            local vl = sqrt(vl2)
+            local nx, ny, nz = vx / vl, vy / vl, vz / vl
+            if nx * st.dx + ny * st.dy + nz * st.dz > 0.9 then
+                st.dx, st.dy, st.dz = nx, ny, nz
+                t = vl
+            end
+        end
+        local lat2 = vl2 - t * t
+        if t >= st.len - 0.5 and lat2 <= PTC.LAT_TOL * PTC.LAT_TOL and t <= maxLen then
+            if t > st.len then st.len = t end
+            DECALS.trailSet(st.slot, st.gen, st.sx, st.sy, st.sz, st.dx, st.dy, st.dz, st.len)
+            st.flushed = false
+            return
+        end
+        closePiece(st)
+    end
+end
+
+-- Runs for every worm the file tracks (trackWorms), after its state was updated.
+function PT.track(s, dt)
+    if not active() then return end
+    local st = s.trl
+    if not st then
+        st = {}
+        s.trl = st
+    end
+    if s.dead or not s.alive then
+        closePiece(st)
+        st.lx = nil
+        return
+    end
+    local L = level()
+    local vx, vy, vz = s.vx, s.vy, s.vz
+    local hs2 = vx * vx + vz * vz
+    if s.dying then
+        -- Its health is gone and the game is about to blow it up: the blood spreads under it while it waits.
+        closePiece(st)
+        st.lx = nil
+        if not st.dying then
+            st.dying = true
+            startPool(st, s.px, s.py + FEET_Y, s.pz, 2.5, rnd(PTC.DYING_POOL[1], PTC.DYING_POOL[2]) * L.pool, PTC.DYING_SECS, true)
+        end
+        return
+    end
+    st.dying = nil
+    local frac = s.frac
+    -- Hurt and lying still: a pool, once per place.
+    if frac < PTC.POOL_FRAC and hs2 + vy * vy < PTC.STILL_SPEED * PTC.STILL_SPEED then
+        st.still = st.still or now
+        if now - st.still >= PTC.STILL_SECS then
+            local g = st.grow
+            if not (g and (g.x - s.px) * (g.x - s.px) + (g.z - s.pz) * (g.z - s.pz) < PTC.POOL_SAME * PTC.POOL_SAME) then
+                startPool(st, s.px, s.py + FEET_Y, s.pz, 2.5, (6 + 8 * (1 - frac / PTC.POOL_FRAC)) * L.pool, PTC.GROW_SECS, true)
+            end
+        end
+    else
+        st.still = nil
+    end
+    -- A trail while it walks or crawls.
+    if frac >= PTC.DRIP_FRAC then
+        closePiece(st)
+        st.lx = nil
+        return
+    end
+    if hs2 > PTC.MOVE_MIN * PTC.MOVE_MIN and hs2 < PTC.MOVE_MAX * PTC.MOVE_MAX and abs(vy) < PTC.RISE_MAX then
+        local cx, cz = st.cx, st.cz
+        if not cx or (s.px - cx) * (s.px - cx) + (s.pz - cz) * (s.pz - cz) >= PTC.STEP * PTC.STEP then
+            local gy, nx, ny, nz = groundAt(s.px, s.py + FEET_Y, s.pz, 10, 12)
+            if gy == false then return end
+            st.cx, st.cz = s.px, s.pz
+            if gy == nil then
+                closePiece(st)
+                st.lx = nil
+            else
+                extend(st, frac < PTC.SMEAR_FRAC and 4 or 3, s.px, gy, s.pz, nx, ny, nz, frac, L)
+                st.lx, st.ly, st.lz = s.px, gy, s.pz
+            end
+        end
+    elseif st.slot and not st.flushed then
+        flush(st)
+    end
+end
+
+-- A worm's death burst has just gone off: its grave gets a pool, smears and spatter a moment later (see PT.tick).
+function PT.death(s)
+    if not active() then return end
+    local st = s.trl
+    if st then closePiece(st) end
+    if #graves >= PTC.GRAVE_MAX then table.remove(graves, 1) end
+    graves[#graves + 1] = { x = s.px, y = s.py + FEET_Y, z = s.pz, at = now + PTC.GRAVE_DELAY, stage = 0, k = 0 }
+end
+
+-- Once a frame: the pools spread, the graves get their gore.
+function PT.tick(dt)
+    local i = 1
+    while i <= #grow do
+        local g = grow[i]
+        local t = min(1, (now - g.t0) / g.secs)
+        local r = g.r0 + (g.r1 - g.r0) * (1 - (1 - t) * (1 - t))
+        g.cur = r
+        if DECALS.poolGrow(g.slot, g.key, r, g.fresh and t < 1) and t < 1 then
+            i = i + 1
+        else
+            g.done = true
+            table.remove(grow, i)
+        end
+    end
+    i = 1
+    while i <= #graves do
+        local G = graves[i]
+        local drop = false
+        if now >= G.at then
+            local L = level()
+            if G.stage == 0 then
+                -- The pool the stone sits in and the smears that run out of it. The ground is looked for from well above (the
+                -- explosion dug a crater under it) to well below.
+                local gy, nx, ny, nz = groundAt(G.x, G.y, G.z, 40, 120)
+                if gy == nil then
+                    drop = true
+                elseif gy ~= false then
+                    G.stage, G.gy, G.Rp = 1, gy, PTC.GRAVE_POOL * L.pool
+                    local slot = requestPool(G.x, gy, G.z, 4, nx, ny, nz)
+                    if slot then addGrower(slot, 3.6, G.Rp, PTC.GRAVE_SECS, true) end
+                    local tx, ty, tz, bx, by, bz = tframe(nx, ny, nz)
+                    local a0, n = rnd(0, 2 * pi), L.smears
+                    for k = 0, n - 1 do
+                        local a = a0 + k * 2 * pi / n + rnd(-0.35, 0.35)
+                        local ca, sa = cos(a), sin(a)
+                        local dx, dy, dz = tx * ca + bx * sa, ty * ca + by * sa, tz * ca + bz * sa
+                        local d0 = G.Rp * rnd(0.25, 0.5)
+                        local sx, sy, sz = G.x + dx * d0, gy + dy * d0, G.z + dz * d0
+                        local sl, gen = DECALS.trailNew(4, sx, sy, sz, nx, ny, nz, rnd(1.8, 3.2) * L.width, random(5, 7), L.cap + n, 4, PTC.GRAVE_HOLD)
+                        if sl then DECALS.trailSet(sl, gen, sx, sy, sz, dx, dy, dz, min(PTC.MAX_LEN[2], G.Rp * rnd(0.8, 1.4)), true) end
+                    end
+                end
+            else
+                -- Spatter round it, a few specks a frame (a new splat is limited per frame anyway).
+                local n = 0
+                while G.k < L.splats and n < 3 do
+                    G.k, n = G.k + 1, n + 1
+                    local a = rnd(0, 2 * pi)
+                    local d = G.Rp * rnd(0.7, 1.9) + 4
+                    local px, pz = G.x + cos(a) * d, G.z + sin(a) * d
+                    local gy, nx, ny, nz = groundAt(px, G.gy, pz, 25, 45)
+                    if gy then
+                        local sp = rnd(40, 120)
+                        DECALS.splat(px, gy, pz, nx, ny, nz, cos(a) * sp, rnd(-260, -120), sin(a) * sp, rnd(1.0, 2.0) * L.width)
+                    end
+                end
+                if G.k >= L.splats then drop = true end
+            end
+        end
+        if drop then table.remove(graves, i) else i = i + 1 end
+    end
+end
+
+-- The Preview menu: a trail of drips and a smear coming up to the worm, and a pool spreading under it.
+function PT.preview(s)
+    if not active() then return end
+    local L = level()
+    local fx, fz = facing(s)
+    local gy, nx, ny, nz = groundAt(s.px, s.py + FEET_Y, s.pz, 10, 12)
+    if not gy then gy, nx, ny, nz = s.py + FEET_Y, 0, 1, 0 end
+    local d = fx * nx + fz * nz
+    local dx, dy, dz = fx - nx * d, -ny * d, fz - nz * d
+    local dl = sqrt(dx * dx + dy * dy + dz * dz)
+    if dl < 1e-3 then return end
+    dx, dy, dz = dx / dl, dy / dl, dz / dl
+    local function piece(mode, a0, a1, hw, thick)
+        local sx, sy, sz = s.px - dx * a0, gy - dy * a0, s.pz - dz * a0
+        local slot, gen = DECALS.trailNew(mode, sx, sy, sz, nx, ny, nz, hw, thick, L.cap + 2, nil, 12)
+        if slot then DECALS.trailSet(slot, gen, sx, sy, sz, dx, dy, dz, a0 - a1, true) end
+    end
+    piece(3, 96, 56, 1.0 * L.width, 6)
+    piece(4, 56, 6, 2.2 * L.width, 6)
+    local st = s.trl
+    if not st then
+        st = {}
+        s.trl = st
+    end
+    startPool(st, s.px, gy, s.pz, 2.5, 12 * L.pool, 7, true)
+end
+
+-- A new match, or the setting turned off: nothing is waiting any more.
+function PT.reset()
+    grow, graves = {}, {}
+end
+end
+
 -- A worm's death: the big burst, a pool and the lens, once per death (s.dead), when the body blows up. A worm whose health
 -- reaches zero is only dying (s.dying): the game counts the damage down and blows it up seconds later, and a burst at the
 -- moment the health ran out was lost in the smoke of the hit and the bleeding already there, with nothing at the death
@@ -3424,6 +3884,7 @@ local function deathBurst(s)
     s.credited = 0
     local dx, dy, dz = hitDirection(s)
     burst(s, DEATH_DAMAGE, dx, dy, dz, true)
+    PT.death(s)
 end
 
 local function trackWorms(worms, dt)
@@ -3484,6 +3945,7 @@ local function trackWorms(worms, dt)
                 updateGut(s, dt)
                 updateVomit(s, dt)
                 emitBleed(s, dt)
+                PT.track(s, dt)
                 settleStain(s)
             end
         end
@@ -3653,6 +4115,7 @@ local function resetAll()
     clearSkin()
     VIS.reset()
     GIBS.clear()
+    PT.reset()
     -- A new match seed, so the wounds are not in the same places every match.
     matchSeed = random(0, 1000)
     sendSeed()
@@ -3720,6 +4183,7 @@ local function onWorld()
     GIBS.tick(dt)
     MEL.tick(dt)
     simulate(dt)
+    PT.tick(dt)
     DECALS.update(dt, slots, frameId)
     drawGuts()
     ageSplats(dt)
@@ -3756,6 +4220,11 @@ local function applySettings()
     if stains ~= cfg.stains then
         cfg.stains = stains
         if not stains then clearStains() end
+    end
+    local pools = wum.config.get("pools") ~= false
+    if pools ~= cfg.pools then
+        cfg.pools = pools
+        if not pools then PT.reset() end
     end
     if lens ~= cfg.lens then
         cfg.lens = lens
@@ -3852,6 +4321,7 @@ local function preview()
     setScorch(pick.slot, 1)
     if cfg.vomit then startHeave(s) end
     GIBS.preview(s)
+    PT.preview(s)
 end
 
 -- ---------------------------------------------------------------- start

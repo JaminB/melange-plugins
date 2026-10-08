@@ -51,6 +51,12 @@
       "label": "Blood on the ground"
     },
     {
+      "key": "pools",
+      "type": "bool",
+      "default": true,
+      "label": "Pools & trails"
+    },
+    {
       "key": "lens",
       "type": "bool",
       "default": true,

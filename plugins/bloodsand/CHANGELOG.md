@@ -13,6 +13,18 @@ flesh in the middle of its crater is blown into bits; ground dug out from under 
 (on), and Preview throws some. If the pass cannot run each gib is drawn as a flat sprite. Needs no new Melange: the sprites
 and `landRay` of 0.6 are used where there. The pass costs about 0.18 ms with sixteen on screen at 1080p in the test rig and
 nothing while none may be seen; the script about 0.003 ms with sixteen at rest.
+Blood trails and pools (the new setting "Pools & trails", on by default, which needs Blood on the ground). A worm below
+two thirds of its health leaves a line of drips behind it as it walks, and below a quarter of it a smear where it drags
+itself: dark and glossy in the middle, thin at the old end, with the dry-brush gaps and ragged edges of a smear, laid on
+the ground under the worm (slopes included, with Melange 0.6's `wum.game.landRay`). A worm that is dying, or hurt and
+lying still, slowly grows a pool under it over six to eight seconds, which stays wet while it spreads and dries later; and
+after a worm blows up its grave sits in a pool with smears running out of it and a spatter of splats around.
+Light, Heavy and Absurd scale the size, the number of trail pieces (5, 8 and 12) and the smears round a grave (2, 3 and 5).
+A trail is a straight strip that the worm lengthens as it goes, two new decal kinds of the stains pass (a dotted line of
+drips, and a smear), so it costs a decal slot for every 30 to 50 units and not one for each step; the oldest goes first.
+The pass stays within 2% of its old cost (measured with native GL at 1080p) and keeps its 32 slots: 48 would have cost
+21% more with everything in use. Melange's CreateGravestoneMessage has no decoder, so the grave is where the worm was
+last seen.
 
 ## 1.2.0
 
