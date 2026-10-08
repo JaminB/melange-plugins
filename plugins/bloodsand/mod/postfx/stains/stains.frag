@@ -15,6 +15,10 @@
 // The tangent frame of a normal n is T = normalize(cross(ref, n)), B = cross(n, T), with ref = (0,1,0), or (1,0,0)
 // when n is nearly vertical. On a wall B is the way up the wall. Bloodsand's Lua builds the same frame.
 //
+// Look: a decal is a bead of wet blood with a crisp (about one pixel) silhouette, a thin dark edge line, a rounded shoulder at
+// the rim that tilts the normal outward and catches the light, a domed middle, and darker clots inside. The highlights are
+// tight. Drying (matte dark brown, clotted rim) is unchanged.
+//
 // Structure: one cheap test per slot (a world-space bounding sphere) collects at most four candidates; the long
 // shading runs once per candidate, in a loop of four. Sky, silhouettes and pixels with no candidate leave early.
 //
@@ -107,32 +111,45 @@ void Decal(vec3 Pw, vec3 Pv, vec3 nW, float pxw, vec4 A, vec4 B, inout vec3 col)
     float ang = atan(c, a + 1e-4);
     vec3 ph = vec3(H21(vec2(seed, 1.7)), H21(vec2(seed, 5.3)), H21(vec2(seed, 9.1))) * 2.0 * PI;
     float dryEarly = clamp(age / max(p_dryTime, 1.0), 0.0, 1.0);
-    // A gentle wobble, plus thin spikes (a crown) on a splat that came down steeply, which dry to blunter ones.
-    float spikes = pow(0.5 + 0.5 * sin(ang * 11.0 + ph.y * 3.0), 10.0) * (0.55 + 0.45 * sin(ang * 4.0 + ph.z));
-    float lobes = 0.09 * sin(ang * 3.0 + ph.x) + 0.06 * sin(ang * 5.0 + ph.y) + 0.04 * sin(ang * 7.0 + ph.z)
-                + spikes * 0.26 * (1.0 - 0.7 * min(E, 1.0)) * (1.0 - 0.4 * dryEarly) / (1.0 + 0.12 * R);
-    // A pool has a rounder, lumpier edge made of low-frequency ripples.
-    float poolEdge = 0.16 * sin(ang * 2.0 + ph.x) + 0.1 * sin(ang * 3.0 + ph.y) + 0.07 * sin(ang * 5.0 + ph.z)
-                   + 0.2 * (VN(vec2(u, v) * (2.2 / R) + seed) - 0.5);
-    float edge = 1.0 + mix(lobes, poolEdge, isPool);
+    // A splat has a gentle wobble, plus thin spikes (a crown) when it came down steeply, which dry to blunter ones. A pool has
+    // a rounder, lumpier edge made of low-frequency ripples. Only the one that applies is evaluated.
+    float edge;
+    if (isPool > 0.5) {
+        edge = 1.0 + 0.16 * sin(ang * 2.0 + ph.x) + 0.1 * sin(ang * 3.0 + ph.y) + 0.07 * sin(ang * 5.0 + ph.z)
+             + 0.2 * (VN(vec2(u, v) * (2.2 / R) + seed) - 0.5);
+    } else {
+        float sk = 0.5 + 0.5 * sin(ang * 11.0 + ph.y * 3.0);
+        float sk2 = sk * sk;
+        float sk4 = sk2 * sk2;
+        float spikes = sk4 * sk4 * sk2 * (0.55 + 0.45 * sin(ang * 4.0 + ph.z));
+        edge = 1.0 + 0.09 * sin(ang * 3.0 + ph.x) + 0.06 * sin(ang * 5.0 + ph.y) + 0.04 * sin(ang * 7.0 + ph.z)
+             + spikes * 0.26 * (1.0 - 0.7 * min(E, 1.0)) * (1.0 - 0.4 * dryEarly) / (1.0 + 0.12 * R);
+    }
     float r = sqrt(s * s + (c * c) / (R * R * taper * taper)) / max(edge, 0.2);
-    float aa = clamp(pxw / max(R, 0.5), 0.015, 0.4);
-    // Wet blood has a soft edge; dry blood a crisp one.
-    float body = 1.0 - smoothstep(1.0 - mix(0.13, 0.05, dryEarly) - aa, 1.0 + aa * 0.5, r);
+    // The silhouette is crisp, wet or dry: about a pixel of antialiasing and no falloff.
+    float aa = clamp(0.8 * pxw / max(R, 0.5), 0.003, 0.35);
+    float body = 1.0 - smoothstep(1.0 - aa, 1.0 + aa * 0.5, r);
 
     // The tail of a long streak breaks into beads.
     float tailAmt = smoothstep(0.35, 1.0, s) * clamp(E - 0.6, 0.0, 1.0) * (1.0 - isPool);
-    if (tailAmt > 0.0) body *= mix(1.0, smoothstep(0.3, 0.52, VN(vec2(s * 5.0 + seed, c * 2.5 / R))), tailAmt);
+    if (tailAmt > 0.0) body *= mix(1.0, smoothstep(0.4, 0.46, VN(vec2(s * 5.0 + seed, c * 2.5 / R))), tailAmt);
 
-    // Thick in the middle, thin at the edge, a raised bead on the rim.
+    // A drop of blood stands on the ground: it is thin right at the edge, climbs over a rounded shoulder (the meniscus, a
+    // few pixels wide) to a thick plateau that domes up toward the middle. rimU is 0 at the edge and 1 from the inner side
+    // of the shoulder on.
+    float rimW = max(clamp(0.3 / R + 0.03, 0.03, 0.35), 4.0 * aa);
+    float rimU = clamp((1.0 - r) / rimW, 0.0, 1.0);
+    float shoulder = 1.0 - (1.0 - rimU) * (1.0 - rimU);
     float tk = 0.4 + 0.6 * thick;
-    float th = tk * (0.3 + 0.7 * (1.0 - smoothstep(0.0, 1.0, r))) * (1.0 - 0.45 * smoothstep(0.0, 1.0, s) * min(E, 1.0));
+    float th = tk * mix(0.3, 1.0, shoulder) * (0.62 + 0.38 * (1.0 - r * r)) * (1.0 - 0.45 * smoothstep(0.0, 1.0, s) * min(E, 1.0));
     th = max(th, 0.0);
     float cov = body;
 
     // Satellite droplets thrown past the edge; more of them the rounder and steeper the impact.
     // (Not on a speck under two units: its satellites are a pixel or two.)
     float sat = 0.0;
+    float isSat = 0.0;
+    vec2 satD = vec2(0.0);
     if (isPool < 0.5 && R >= 2.0) {
         vec2 sq = vec2(a / (1.0 + E * 0.6), c) / max(R * 0.32, 0.35);
         vec2 id = floor(sq);
@@ -141,12 +158,14 @@ void Decal(vec3 Pw, vec3 Pv, vec3 nW, float pxw, vec4 A, vec4 B, inout vec3 col)
         float dens = 0.5 * smoothstep(0.92, 1.05, r) * (1.0 - smoothstep(1.05, 1.42, r));
         if (hs.x < dens) {
             float sz = (0.12 + 0.2 * hs.z) * (1.0 - 0.45 * smoothstep(1.0, 1.4, r));
-            sat = 1.0 - smoothstep(sz * 0.55, sz, length(f - (0.28 + 0.44 * hs.yz)));
+            satD = (f - (0.28 + 0.44 * hs.yz)) / max(sz, 1e-3);
+            sat = 1.0 - smoothstep(sz * 0.8, sz, length(f - (0.28 + 0.44 * hs.yz)));
         }
     }
     if (sat > cov) {
         cov = sat;
         th = 0.65;
+        isSat = 1.0;
     }
 
     float dripSide = 0.0;
@@ -175,8 +194,8 @@ void Decal(vec3 Pw, vec3 Pv, vec3 nW, float pxw, vec4 A, vec4 B, inout vec3 col)
             float sway = sin(dn / R * 3.0 + fk * 2.0) * 0.06 * R;
             float ax = abs(u - ox - sway);
             float along = dn - d0;
-            float tube = (1.0 - smoothstep(w * 0.5, w, ax)) * step(0.0, along) * (1.0 - smoothstep(len - w * 1.5, len, along));
-            float bulb = (1.0 - smoothstep(w, w * 1.7, length(vec2(ax, along - len + w * 1.2)))) * step(w * 3.0, len);
+            float tube = (1.0 - smoothstep(w * 0.8, w, ax)) * step(0.0, along) * (1.0 - smoothstep(len - w * 1.5, len, along));
+            float bulb = (1.0 - smoothstep(w, w * 1.25, length(vec2(ax, along - len + w * 1.2)))) * step(w * 3.0, len);
             float dc = max(tube, bulb) * wall;
             if (dc > dripCov) {
                 dripCov = dc;
@@ -207,51 +226,84 @@ void Decal(vec3 Pw, vec3 Pv, vec3 nW, float pxw, vec4 A, vec4 B, inout vec3 col)
     }
     th = min(th + clot * 0.4, 1.2);
 
+    // Slight undulation of a wet surface, so a highlight is not a perfect mirror; the broader second one also picks out
+    // the places where the blood has begun to clot (only on a decal big enough to show them).
+    float bump = 0.0;
+    float bump2 = 0.0;
+    float coag = 0.0;
+    if (dry < 0.98) {
+        bump = VN(vec2(u, v) * (7.0 / R) + seed * 1.7) - 0.5;
+        if (R >= 2.0) {
+            bump2 = VN(vec2(v, u) * (3.2 / R) + seed * 2.9 + 11.0) - 0.5;
+            coag = smoothstep(0.02, 0.36, bump2 + 0.35 * bump) * 0.8;
+        }
+    }
+
     // ---- colour ----
     vec3 tint = p_blood / max(max(p_blood.r, p_blood.g), max(p_blood.b, 1e-3));
     float lum = 0.4 + 0.2 * H21(vec2(seed, 31.7));
     vec3 thin = col * tint * 0.5 + p_blood * (0.3 + 0.12 * lum);
     vec3 deep = p_blood * (0.26 + 0.07 * lum) + col * tint * 0.04;
-    vec3 wetCol = mix(thin, deep, smoothstep(0.1, 0.85, th));
+    vec3 wetCol = mix(thin, deep, smoothstep(0.1, 0.95, th * 0.72));
     vec3 dryBase = p_blood * 0.5 + vec3(0.04, 0.025, 0.016);
     vec3 dryCol = mix(dryBase * 0.85 + col * tint * 0.2, dryBase * (0.9 + 0.3 * lum) + col * 0.03, smoothstep(0.1, 0.8, th));
     vec3 base = mix(wetCol, dryCol, dry);
+    // Wet blood is a little darker where it has begun to clot, and darkest in a thin line where the film ends.
+    base *= 1.0 - 0.28 * coag * (1.0 - dry);
+    float lw = max(2.5 * aa, 0.01);
+    base *= 1.0 - 0.3 * smoothstep(1.0 - 2.0 * lw, 1.0 - 0.5 * lw, r) * (1.0 - isDrip) * (1.0 - isSat);
     base *= 1.0 - 0.45 * crack;
     base *= 1.0 - 0.25 * rim * dryT;
 
-    // ---- gloss: a dome of wet blood catches the light; it flattens and dulls as the blood dries ----
-    vec3 outw = (T * u + Bt * v) / max(La, 0.5);
-    float ol = length(outw);
-    if (ol > 1.0) outw /= ol;
-    // A drip is a round rod: its normal tilts across it.
-    outw = mix(outw, T * dripSide * 0.8, isDrip);
-    float wet = (1.0 - dry) * p_gloss;
-    // The bumps only matter while the blood is wet, and a second one only on a decal big enough to show it.
-    float bump = 0.0;
-    float bump2 = 0.0;
-    if (dry < 0.98) {
-        bump = VN(vec2(u, v) * (7.0 / R) + seed * 1.7) - 0.5;
-        if (R >= 2.0) bump2 = VN(vec2(v, u) * (7.0 / R) + seed * 2.9 + 11.0) - 0.5;
+    // ---- gloss: wet blood is a glossy bead with a thick, domed middle and a steep rounded rim; it dulls as it dries ----
+    // The way the surface tilts: outward at the edge of the blot (the gradient of r), and across a drip or a droplet.
+    vec2 g = vec2(s / La, c / (R * R * taper * taper));
+    g /= max(length(g), 1e-5);
+    vec3 outw = T * (g.x * cp - g.y * sp) + Bt * (g.x * sp + g.y * cp);
+    float domeR = min(r, 1.0);
+    float tiltK = 0.42;
+    float rimT = rimU;
+    if (isSat > 0.5) {
+        outw = T * (satD.x * cp - satD.y * sp) + Bt * (satD.x * sp + satD.y * cp);
+        domeR = min(length(satD), 1.0);
+        tiltK = 0.9;
+        rimT = 1.0;
     }
-    vec3 Nb = normalize(N - outw * (0.85 * th) + (T * bump + Bt * bump2) * (0.2 + 0.2 * isPool) * (1.0 - dry));
+    if (isDrip > 0.5) {
+        outw = T * sign(dripSide);
+        domeR = abs(dripSide);
+        tiltK = 0.9;
+        rimT = 1.0;
+    }
+    float wet = (1.0 - dry) * p_gloss;
+    float tilt = (0.9 * (1.0 - rimT) * (1.0 - rimT) + tiltK * th * domeR) * (1.0 - 0.6 * dry);
+    vec3 Nb = normalize(N + outw * tilt + (T * bump * 0.06 + Bt * bump2 * (0.12 + 0.04 * isPool)) * (1.0 - dry));
     mat3 Rv = mat3(mg_view);
     vec3 Nv = Rv * Nb;
     vec3 V = normalize(-Pv);
     // Two lights fixed in view space: one overhead, which a flat floor seen from the usual camera angles mirrors, and
-    // one up and to the left of the camera, which catches walls.
+    // one up and to the left of the camera, which catches walls. The highlights are tight: the middle of the blot is
+    // nearly flat, so they sit on the dome and the shoulder.
     vec3 H = normalize(normalize(vec3(-0.2, 0.97, -0.1)) + V);
     vec3 H2 = normalize(normalize(vec3(-0.3, 0.45, 0.85)) + V);
     float nh = max(dot(Nv, H), 0.0);
     float nh2 = max(dot(Nv, H2), 0.0);
-    float specAmt = (pow(nh, 150.0) * 0.35 + pow(nh, 14.0) * 0.03 + pow(nh2, 90.0) * 0.8 + pow(nh2, 16.0) * 0.05) * wet;
-    float fres = pow(1.0 - max(dot(Nv, V), 0.0), 3.0) * 0.32 * wet;
-    specAmt += fres;
-    specAmt += pow(nh, 30.0) * 0.05 * dry * (1.0 - clot);
-    specAmt = min(specAmt, 0.5);
-    specAmt *= smoothstep(0.12, 0.5, th) * (1.0 - 0.7 * crack) * mix(1.0, 0.4, isPool);
+    float specAmt = 0.0;
+    if (wet > 0.0) {
+        specAmt = (pow(nh, 400.0) * 1.3 + pow(nh2, 300.0) * 1.6) * wet;
+        // The shoulder catches the light on a wider lobe than the dome does, and only there, so it reads as a bright rim.
+        float rimA = (1.0 - rimT) * (1.0 - rimT);
+        if (rimA > 0.0) specAmt += (pow(nh, 60.0) * 0.5 + pow(nh2, 40.0) * 0.5) * rimA * wet;
+        float fv = 1.0 - max(dot(Nv, V), 0.0);
+        fv *= fv;
+        specAmt += fv * fv * 0.3 * wet * (0.35 + 0.65 * (1.0 - rimT));
+    }
+    if (dry > 0.0) specAmt += pow(nh, 30.0) * 0.05 * dry * (1.0 - clot);
+    specAmt = min(specAmt, 1.0);
+    specAmt *= smoothstep(0.1, 0.4, th) * (1.0 - 0.7 * crack) * (1.0 - 0.5 * coag) * mix(1.0, 0.75, isPool);
 
-    float alpha = cov * ng * hg * p_strength * clamp(0.3 + 1.25 * th + 0.6 * dry, 0.0, 1.0);
-    col = mix(col, base, alpha) + vec3(1.0, 0.5, 0.5) * specAmt * alpha;
+    float alpha = cov * ng * hg * p_strength * clamp(0.6 + 0.8 * th + 0.6 * dry, 0.0, 1.0);
+    col = mix(col, base, alpha) + vec3(1.0, 0.8, 0.78) * specAmt * alpha;
 }
 
 // A slot whose sphere holds the pixel offers itself (A, B, its number I) to the four places; the one with the highest rank
