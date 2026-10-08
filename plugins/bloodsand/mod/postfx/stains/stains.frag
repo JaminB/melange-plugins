@@ -201,19 +201,56 @@ float WormE(vec3 Pw) {
     return e;
 }
 
-// A trail piece (type 3: a dotted line of drips, type 4: a smear), which Bloodsand's Lua lengthens step by step as a worm
-// crawls on: a straight strip, centred on the decal's middle, the head (where the worm is) at +a and the old end at -a, c
-// across it. R is its half-width (for drips the size of a drip), the half length is 2 + 20 E, thick (0..1) is the density
-// of the drips or the thickness of the smear. It is blood like any other: it joins the one fluid (Fl, Merge), so a trail
-// runs into a pool or a splat it meets, and it dries the same way (a thin smear a little faster).
-//   drips: along the strip in cells 3 (R + 1) long, each holding a drip or not (thick says how many do), at a place across the
-//          strip and of a size the cell picks, an oval with a tail toward the old end (it ran as the worm went on);
-//   smear: a ribbon whose width swells and shrinks, long thin tail at the old end, a blunt head, dry-brush gaps (more at the
-//          edges and the old end) along the stripes of the drag, thickest and so darkest in the middle.
+// A trail piece (type 3: a line of drips, type 4: a smear), which Bloodsand's Lua lengthens step by step as a worm crawls on:
+// a straight strip, centred on the decal's middle, the head (where the worm is) at +a and the old end at -a, c across it. R is
+// its half-width (for drips the size of a drip, for a smear half the width of the stripe), the half length is 2 + 20 E, thick
+// (0..1) is the density of the drips or the thickness of the smear. It is blood like any other: it joins the one fluid (Fl,
+// Merge), so a trail runs into a pool or a splat it meets, and it dries the same way (a thin smear a little faster).
+//   drips: along the strip in cells of 2.2 R + 1.5 (8 to 9.5) units, each holding a drip or not (thick says how often; a slow noise
+//          along the strip makes clusters of them and bare stretches), at a place across the strip and of a size the cell picks:
+//          a bead, or now and then (a tenth of them) a big splat, an oval with a tail toward the old end (it ran as the worm went
+//          on) and sometimes a small satellite drop behind it. A cell's drop reaches into the next cells, so each pixel looks at
+//          three;
+//   smear: a stripe of the worm's own width, nearly even, with a short taper at the old end (a piece laid over the end of another
+//          overlaps it by 12 units, so there is no neck between them) and a blunt head; streaks along the drag (the ridges the dragged body
+//          left: thicker and darker lines between lighter ones) and dry-brush skips along them where the blood ran thin (thick
+//          low) or the worm pressed lightly, more at the edges than in the middle, and the edges themselves thick and dark.
+// One cell of a line of drips: the drip of cell id, if it has one, at the pixel (a, c). Takes the nearest edge over F (the larger
+// distance), with the size of the blot, its thickness and the way the surface tilts for the drip that gave it.
+void DripCell(float id, float cs, float Lh, float R, float seed, float thick, float a, float c, float cp, float sp,
+              inout float F, inout float Rl, inout float kth, inout vec2 tilt) {
+    vec3 hs = H23(vec2(id + seed * 7.0, seed * 1.3 + 3.0));
+    float cluster = VN(vec2(id * 0.45 + seed * 1.7, seed * 0.9 + 4.1));
+    if (hs.x >= clamp((0.45 + 0.55 * thick) * (0.15 + 1.7 * cluster), 0.0, 1.0)) return;
+    float hr = H21(vec2(id * 1.7 + seed, 9.9));
+    float big = step(0.9, hr);
+    float rd = R * (0.42 + 0.52 * hr * hr + 0.6 * big);
+    float a0 = (id + 0.4 + 0.2 * hs.y) * cs - Lh;
+    if (abs(a0) >= Lh - 0.5) return;
+    float c0 = (hs.z - 0.5) * R * 2.2;
+    vec2 dd = vec2(a - a0, c - c0);
+    float Fd = rd - length(vec2(dd.x / (dd.x < 0.0 ? 1.55 + 0.9 * big + 0.5 * hr : 1.0), dd.y))
+             + (VN(dd * (1.6 / max(rd, 0.5)) + id * 3.7 + seed) - 0.5) * rd * (0.1 + 0.5 * big);   // a splat's edge is ragged
+    // a small satellite drop behind it, on one side (a big splat always has one)
+    float hq = H21(vec2(id * 3.1 + seed, 2.2));
+    if (hq < 0.55 || big > 0.5) {
+        float rs = rd * (0.28 + 0.2 * hq);
+        vec2 ds = dd - vec2(-(rd * 1.5 + rs + 0.6 + 1.2 * hq), (hs.z - 0.5) * 2.0 * rd);
+        Fd = max(Fd, rs - length(ds));
+    }
+    if (Fd > F) {
+        F = Fd;
+        Rl = rd;
+        vec2 g = dd / max(length(dd), 1e-4);
+        tilt = vec2(g.x * cp - g.y * sp, g.x * sp + g.y * cp);
+        kth = 0.62 + 0.25 * hr + 0.1 * big;
+    }
+}
+
 void Streak(float u, float v, float a, float c, float cp, float sp, float h, float dist, float nd, float ng, float hg, float wE,
             vec3 N, vec3 T, vec3 Bt, float R, float E, float seed, float thick, float type, float age, inout Fl acc) {
     float Lh = 2.0 + 20.0 * E;
-    if (abs(a) > Lh + 1.5 || abs(c) > 2.2 * R + 1.5) return;
+    if (abs(a) > Lh + 1.5 || abs(c) > (type < 3.5 ? 3.0 * R + 2.0 : 1.4 * R + 1.5)) return;
     float F = -1.0e3;       // the distance to the edge of the blood, positive inside
     float Rl = 1.0;         // the size of the blot around the pixel
     float dm = 0.0;
@@ -221,42 +258,34 @@ void Streak(float u, float v, float a, float c, float cp, float sp, float h, flo
     float kth = 0.65;
     vec2 out2 = vec2(0.0);  // the way the surface tilts, in (u, v)
     if (type < 3.5) {
-        float cs = 3.0 * (R + 1.0);
+        float cs = clamp(2.2 * R + 1.5, 8.0, 9.5);
         float id = floor((a + Lh) / cs);
-        vec3 hs = H23(vec2(id + seed * 7.0, seed * 1.3 + 3.0));
-        if (hs.x < 0.15 + 0.75 * thick) {
-            float hr = H21(vec2(id * 1.7 + seed, 9.9));
-            float rd = R * (0.4 + 0.5 * hr * hr + 0.35 * step(0.88, hr));
-            float a0 = (id + 0.4 + 0.3 * hs.y) * cs - Lh;
-            float c0 = (hs.z - 0.5) * R * 1.6;
-            vec2 dd = vec2(a - a0, c - c0);
-            if (abs(a0) < Lh - 0.5) F = rd - length(vec2(dd.x / (dd.x < 0.0 ? 1.6 : 1.0), dd.y));
-            Rl = rd;
-            vec2 g = dd / max(length(dd), 1e-4);
-            out2 = vec2(g.x * cp - g.y * sp, g.x * sp + g.y * cp);
-            kth = 0.62 + 0.25 * hr;
-        }
+        DripCell(id - 1.0, cs, Lh, R, seed, thick, a, c, cp, sp, F, Rl, kth, out2);
+        DripCell(id, cs, Lh, R, seed, thick, a, c, cp, sp, F, Rl, kth, out2);
+        DripCell(id + 1.0, cs, Lh, R, seed, thick, a, c, cp, sp, F, Rl, kth, out2);
         fr = 1.0;
     } else {
-        float sA = a / Lh;
-        float prof = VN(vec2(a * 0.09 + seed * 3.7, seed * 0.31 + 2.0));
-        float prof2 = VN(vec2(a * 0.4 + seed * 1.9, 5.5));
-        float w = R * (0.55 + 0.45 * prof) * (0.85 + 0.3 * prof2);
-        float tapO = smoothstep(-1.0, -0.5, sA);
+        float prof = VN(vec2(a * 0.07 + seed * 3.7, seed * 0.31 + 2.0));
+        float prof2 = VN(vec2(a * 0.31 + seed * 1.9, 5.5));
+        float w = R * (0.86 + 0.16 * prof) * (0.94 + 0.12 * prof2);
+        float tapO = smoothstep(-Lh, -Lh + min(4.0, Lh), a);
         float wt = w * tapO;
-        float stripe = VN(vec2(a * 0.17 + seed * 3.1, c * 1.8 + seed));
+        float dry = 1.0 - thick;
+        float stripe = VN(vec2(a * 0.055 + seed * 3.1, c * 1.15 + seed));      // the ridges of the drag: long along it, about a unit across
         float q = abs(c) / max(wt, 0.05);
-        float press = VN(vec2(a * 0.06 + seed * 5.3, 1.7));      // where the hand pressed hard and where it skimmed
-        float gap = smoothstep(0.45, 0.85, q * (0.6 + 0.6 * (1.0 - press)) + (0.5 - stripe) * 1.1 + (1.0 - tapO) * 0.7);
-        float fib = VN(vec2(a * 0.28 + seed * 2.3, c * 2.8 + seed * 0.7));
-        float skim = (1.0 - smoothstep(0.16, 0.32, fib)) * smoothstep(0.3, 0.8, (1.0 - press) + (1.0 - tapO));   // lines the drag skipped
-        F = min(wt - abs(c), (Lh - a) + 0.35 * R * (VN(vec2(c * 2.0 + seed, 3.3)) - 0.5))
-          - gap * w * 0.9 - skim * w * 0.8 + 0.25 * R * (VN(vec2(a * 1.3 + seed, c * 0.9)) - 0.5);
+        float press = VN(vec2(a * 0.045 + seed * 5.3, 1.7));      // where the drag pressed hard and where it skimmed
+        float gap = smoothstep(0.55, 0.95, q * (0.5 + 0.5 * (1.0 - press)) + (0.5 - stripe) * (0.7 + 0.8 * dry) + (1.0 - tapO) * 0.6 + 0.3 * dry * q);
+        float fib = VN(vec2(a * 0.085 + seed * 2.3, c * 1.9 + seed * 0.7));
+        float skim = (1.0 - smoothstep(0.16, 0.32, fib)) * smoothstep(0.35, 0.85, (1.0 - press) * (0.6 + 0.8 * dry) + (1.0 - tapO) * 0.5) * (0.4 + 0.6 * q);   // lines the drag skipped
+        F = min(wt - abs(c), (Lh - a) + 0.35 * R * (VN(vec2(c * 1.1 + seed, 3.3)) - 0.5))
+          - gap * w * 0.9 - skim * w * 0.8 + 0.12 * R * (VN(vec2(a * 1.3 + seed, c * 0.9)) - 0.5);
         Rl = max(wt, 0.7 * R);
-        dm = clamp(q, 0.0, 1.5);
-        kth = (0.55 + 0.45 * thick) * (0.75 + 0.25 * stripe) * (0.8 + 0.2 * tapO);
+        dm = 0.5 * clamp(q, 0.0, 1.5);
+        float edge = smoothstep(0.55, 0.95, q);
+        float ridge = smoothstep(0.22, 0.78, stripe);
+        kth = (0.5 + 0.5 * thick) * (0.3 + 0.7 * ridge) * (0.8 + 0.2 * tapO) * (1.0 + 0.9 * edge);
         float across = clamp(c / max(wt, 0.1), -1.0, 1.0);
-        out2 = vec2(-sp, cp) * across * 0.35;
+        out2 = vec2(-sp, cp) * across * 0.3;
     }
     float mg = 0.15 + 0.5 * min(R, 3.0);
     if (F < -mg) return;

@@ -73,6 +73,7 @@ local STREAK_MIN, STREAK_MAX = 3.5, 26  -- ...within these limits
 -- are cut at PUFF_CULL, fade in to PUFF_FADE and are held to PUFF_PX_MAX pixels in radius. Char and ash flakes (CHAR_STREAK of a
 -- droplet's stretch) never get more than the six-point shape.
 local DROP = { AGE_GAIN = 0.8, BODY = 0.72, FRINGE_PX = 1.1, FRINGE_ALPHA = 0.45, LOD2 = 3.5, LOD3 = 8,
+               JET_LEN = 0.021, JET_PX = 150,       -- a spurt's piece: its half length per unit of speed, and at most this many pixels
                GLINT_PX = 14, GLINT_SIZE = 2.0, BIG_MAX = 32, PX_MIN = 2, BOOST = 3, PX_MAX = 16, LEN_MAX = 70,
                NEAR_CULL = 12, NEAR_FADE = 34, PUFF_CULL = 20, PUFF_FADE = 60, PUFF_PX_MAX = 260, CHAR_STREAK = 0.45,
                -- with sprites (see Particle sprites): colour factors on the neutral textures, the puff alpha gain and the glint's
@@ -250,9 +251,9 @@ local LENS_ALPHA = 0.85
 
 local COLOURS = {
     red   = { droplet = { 0.62, 0.03, 0.03 }, mist = { 0.52, 0.02, 0.02 }, stain = { 0.42, 0.02, 0.02 },
-              lens = { 0.55, 0.02, 0.02 }, gut = { 0.86, 0.52, 0.54 }, gutDark = { 0.52, 0.20, 0.24 } },
+              lens = { 0.55, 0.02, 0.02 }, gut = { 0.86, 0.52, 0.54 }, gutDark = { 0.52, 0.20, 0.24 }, jet = { 0.50, 0.025, 0.03 } },
     green = { droplet = { 0.40, 0.80, 0.12 }, mist = { 0.24, 0.52, 0.06 }, stain = { 0.22, 0.48, 0.05 },
-              lens = { 0.32, 0.68, 0.08 }, gut = { 0.66, 0.72, 0.42 }, gutDark = { 0.30, 0.38, 0.14 } },
+              lens = { 0.32, 0.68, 0.08 }, gut = { 0.66, 0.72, 0.42 }, gutDark = { 0.30, 0.38, 0.14 }, jet = { 0.32, 0.64, 0.10 } },
 }
 
 local DROPLET, MIST = 1, 2
@@ -459,9 +460,13 @@ local function decalSend(i)
         if kind == 2 then
             bound = DEC.POOL_BOUND * rt
         elseif kind >= 3 then
-            -- a trail piece: rt is its half-width and e its length, (half length - 2) / 20 (stains.frag, Streak)
+            -- a trail piece: rt is its half-width and e its length, (half length - 2) / 20 (stains.frag, Streak). Its sphere is
+            -- made 35% wider than the piece needs: the shader keeps the three decals that hold a pixel deepest (the pixel's
+            -- distance to the middle over the sphere's radius), and a long piece, whose middle is far from most of its pixels,
+            -- would be the one left out wherever splats and pools crowd.
             local lh = 2 + 20 * e
-            bound = sqrt(lh * lh + (2.2 * rt + 1) * (2.2 * rt + 1)) + 1.5
+            local hw = kind == 3 and 3.0 * rt + 2 or 1.4 * rt + 1.5
+            bound = (sqrt(lh * lh + hw * hw) + 1.5) * 1.35
         else
             bound = DEC.BOUND * rt * (1 + e)
             if isWall(DS.ny[i]) then bound = bound + DEC.RUN * rt end
@@ -1179,7 +1184,7 @@ end
 -- "worldLate" callback raises (simulate runs inside onWorld only); a zero axis is a round billboard of 2*halfW that ignores halfL;
 -- a non-zero axis with halfL 0 draws nothing (halfL here is always above zero); v = 0, the PNG's top row, is the tail at
 -- centre - axis*halfL; sprites of all mods are sorted by depth, so textures that alternate in depth cost a draw call each (the
--- sets are kept small: 2 droplet, 4 clot, 3 mist, 2 steam, 2 char, 1 spark); a mod may draw 4096 a frame and past that the call
+-- sets are kept small: 2 droplet, 4 clot, 3 mist, 2 steam, 2 char, 1 jet, 1 spark); a mod may draw 4096 a frame and past that the call
 -- returns false (about 500 are drawn).
 function DROP.load()
     DROP.TK, DROP.RC, DROP.RS = nil, nil, nil
@@ -1195,6 +1200,8 @@ function DROP.load()
     end
     local TK = {}
     TK[DROPLET], TK[MIST], TK[MEL.STEAM], TK[MEL.CHAR], TK[MEL.CLOT] = set("drop", 2), set("mist", 3), set("steam", 2), set("char", 2), set("clot", 4)
+    local jet = set("jet", 1)
+    TK[MEL.SPURT], TK[MEL.BEAD] = jet, jet
     local glint = set("glint", 1)
     TK.glint = glint and glint[1] or false
     if not (TK[DROPLET] or TK[MIST] or TK[MEL.STEAM] or TK[MEL.CHAR] or TK[MEL.CLOT]) then return end
@@ -1227,6 +1234,7 @@ local function simulate(dt)
     local draw = CAM.ok
     local KP, KD, KG, KGROW, KFADE = MEL.KP, MEL.KD, MEL.KG, MEL.KGROW, MEL.KFADE
     local CLOTK, CHARK = MEL.CLOT, MEL.CHAR       -- heavy clots from the melee sprays collide like droplets; steam and char do not
+    local SPURTK, BEADK = MEL.SPURT, MEL.BEAD     -- the pieces and the beads of an arterial spurt: they collide too
     local PD, focal = P.shape, CAM.focal
     local TK, SPR, RC, RS, col = DROP.TK, wum.draw.sprite, DROP.RC, DROP.RS, quadColour
     local SPR_BODY, CLOT_TINT, CHAR_TINT, PUFF_GAIN = DROP.SPR_BODY, DROP.CLOT_TINT, DROP.CHAR_TINT, DROP.PUFF_GAIN
@@ -1270,7 +1278,7 @@ local function simulate(dt)
             local x, y, z = ox + vx * dt, oy + vy * dt, oz + vz * dt
             px[i], py[i], pz[i] = x, y, z
             local hit = false
-            if collide and (kd == DROPLET or kd == CLOTK) then
+            if collide and (kd == DROPLET or kd == CLOTK or kd == SPURTK or kd == BEADK) then
                 if first then
                     plx[i], ply[i], plz[i], pph[i], plt[i] = ox, oy, oz, random(0, 255), tnow
                 end
@@ -1385,6 +1393,26 @@ local function simulate(dt)
                                 local hw = size * 0.64
                                 col.r, col.g, col.b, col.a = min(1, pr[i] * CLOT_TINT), min(1, pg[i] * CLOT_TINT), min(1, pb[i] * CLOT_TINT), a
                                 SPR(tl[sd % 4 + 1], x, y, z, hw, hw * (1 + min(0.7, sp * 0.0025)), ex, ey, ez, col, "alpha")
+                            elseif kd == SPURTK or kd == BEADK then
+                                -- A piece of a pressurised stream: a thin tube along the velocity, as long as the distance it covers in a
+                                -- 25th of a second, closer together than its length so that the pieces make one stream. It thins as it
+                                -- ages and shortens, the older ones sooner (by a share the particle's seed picks), so that the far end of
+                                -- the stream breaks up into beads. A bead (a drop of a spurt) is a short one from the start.
+                                local sdn = (pph[i] % 8) * 0.125
+                                local th = min(1, max(0, (age - 0.08) * 2.4))
+                                th = th * th * (3 - 2 * th)
+                                local hw = size * 0.5 * (1 - 0.5 * th)
+                                local hl
+                                if kd == BEADK then
+                                    hl = max(hw * 1.5, sp * 0.007)
+                                else
+                                    local sh = min(1, max(0, (age - 0.14 - 0.22 * sdn) * 3.2))
+                                    sh = sh * sh * (3 - 2 * sh)
+                                    hl = min(sp * DROP.JET_LEN, DROP.JET_PX / ppu) * (1 - 0.72 * sh)
+                                    if hl < hw * 1.5 then hl = hw * 1.5 end
+                                end
+                                col.r, col.g, col.b, col.a = pr[i], pg[i], pb[i], a
+                                SPR(tl[1], x, y, z, hw, hl, ex, ey, ez, col, "alpha")
                             elseif kd == CHARK then
                                 -- a dry fleck that tumbles: hardly stretched
                                 local hw = size * 0.62
@@ -1685,7 +1713,7 @@ end
 for k, v in pairs({
     VEL_SCALE = 1,              -- engine velocity (the vel of wum.game.worms(), units per second in Melange 0.6) times this
     VEL_SAMPLE = 60, VEL_SAMPLE_EV = 15,   -- the scale is checked only for a worm moving faster than the first by its position and the second by its velocity
-    STEAM = 3, CHAR = 4, CLOT = 5,                  -- particle kinds after DROPLET and MIST
+    STEAM = 3, CHAR = 4, CLOT = 5, SPURT = 6, BEAD = 7,   -- particle kinds after DROPLET and MIST
     KG = {}, KD = {}, KP = {}, KGROW = {}, KFADE = {},  -- per kind: gravity multiple, drag per second, puff, growth, fade-in
     SIG = {},                   -- weapon id -> signature
     far = 0, sizeMul = 1,       -- how far from the camera the burst being sprayed is (0..1) and the droplet size factor that goes with it
@@ -1706,6 +1734,8 @@ do
         [STEAM] = { g = -0.4, drag = 1.3, puff = true, grow = 2.8, fade = 5 },
         [CHAR] = { g = 0.5, drag = 2.2, puff = false },     -- light flakes: they slow down and flutter down, not fly like drops
         [CLOT] = { g = 1.5, drag = 0.25, puff = false },
+        [MEL.SPURT] = { g = 1, drag = 0.35, puff = false },     -- a spurt's pieces fly farther than droplets do
+        [MEL.BEAD] = { g = 1, drag = 0.5, puff = false },
     }
     for k, d in pairs(KIND) do
         MEL.KG[k], MEL.KD[k], MEL.KP[k], MEL.KGROW[k], MEL.KFADE[k] = d.g, d.drag, d.puff, d.grow or 1, d.fade or 0
@@ -2814,7 +2844,7 @@ local function siteDir(seed, k)
     local a0, b0 = fract(seed * 0.7548777), fract(seed * 0.5698403)
     local sa = 0.55 + 0.2 * fract(seed * 0.1234567 + 0.3)
     local sb = 0.30 + 0.2 * fract(seed * 0.2718282 + 0.6)
-    return 6.2831853 * fract(a0 + k * sa), -0.35 + 1.1 * fract(b0 + k * sb)
+    return 6.2831853 * fract(a0 + k * sa), -0.6 + 1.0 * fract(b0 + k * sb)
 end
 
 local BODY_RX, BODY_RY = 5.6, 12.5  -- the body's radius and half-height, for a point on its surface from a direction
@@ -3595,7 +3625,10 @@ local PTC = {
     MOVE_MIN = 10, MOVE_MAX = 170, RISE_MAX = 80,   -- a worm walking or crawling: horizontal speed in this window, hardly any vertical speed
     LAT_TOL = 1.4,              -- a trail piece is straight: a point further than this off its line starts a new piece
     FIT_LEN = 12,               -- ...once it is this long; until then its line follows the worm
-    MAX_LEN = { 54, 36 },       -- the longest a piece of drips and a piece of smear grow (the shader reaches 82 each way)
+    MAX_LEN = { 54, 64 },       -- the longest a piece of drips and a piece of smear grow (the shader reaches 82 each way)
+    OVERLAP = 12,               -- a smear piece starts this far back on the one before it (when the worm went straight on), so that the two make one stripe
+    RUN_OUT = 520, RUN_THIN = 0.4,   -- a smear thins by this share over this many units dragged since the last hit (the blood runs out)
+    BREAK_P = 0.07, BREAK_LEN = { 4, 8 },   -- the chance that a new smear piece is laid after a gap, and the gap's length
     GAP_MAX = 14,               -- a step longer than this was a jump, not a walk
     STILL_SECS = 1.5, STILL_SPEED = 15, POOL_SAME = 10,
     GROW_SECS = 8,              -- a pool under a hurt worm spreads to its size in about this long...
@@ -3693,6 +3726,11 @@ end
 
 local function closePiece(st)
     flush(st)
+    if st.slot then
+        -- (what the next piece needs to join on to this one)
+        st.pmode, st.pdx, st.pdy, st.pdz = st.mode, st.dx, st.dy, st.dz
+        st.phx, st.phy, st.phz, st.plen = st.sx + st.dx * st.len, st.sy + st.dy * st.len, st.sz + st.dz * st.len, st.len
+    end
     st.slot = nil
 end
 
@@ -3709,18 +3747,47 @@ local function extend(st, mode, gx, gy, gz, nx, ny, nz, frac, L)
             local vx, vy, vz = gx - sx, gy - sy, gz - sz
             local vl = sqrt(vx * vx + vy * vy + vz * vz)
             if vl < 1 or vl > PTC.GAP_MAX then return end
+            if st.skip then
+                -- a gap in the smear (the worm's body came off the ground for a moment): nothing is laid until it is crossed
+                st.skip = st.skip - vl
+                if st.skip > 0 then return end
+                st.skip = nil
+            end
             local hw, thick
             if mode == 3 then
                 local sev = min(1, (PTC.DRIP_FRAC - frac) / (PTC.DRIP_FRAC - PTC.SMEAR_FRAC))
-                hw = rnd(0.9, 1.5) * L.width
-                thick = floor((0.5 + 6.5 * sev) * L.dens + 0.5)
+                hw = rnd(2.8, 3.8) * L.width
+                thick = max(0, min(7, floor((2 + 5 * sev) * L.dens + 0.5)))
             else
                 local sev = min(1, 1 - frac / PTC.SMEAR_FRAC)
-                hw = (1.5 + 1.3 * sev) * L.width * rnd(0.9, 1.15)
-                thick = 3 + floor(4 * sev + 0.5)
+                -- the blood runs out along a drag, and a hit gives fresh (st.run is back to 0): the stripe thins and dries
+                local u = min(1, (st.run or 0) / PTC.RUN_OUT)
+                local sup = 1 - PTC.RUN_THIN * u * u * (3 - 2 * u)
+                hw = (4.0 + 1.5 * sev) * L.width * rnd(0.92, 1.08) * sup
+                thick = max(1, min(7, 3 + floor(4 * sev * sup + 0.5)))
+                if st.pmode == 4 and (st.run or 0) > 30 and random() < PTC.BREAK_P then
+                    -- now and then the stripe is broken: a gap of the worm's own length
+                    st.skip = rnd(PTC.BREAK_LEN[1], PTC.BREAK_LEN[2])
+                    st.pmode = nil
+                    return
+                end
             end
-            local slot, gen = DECALS.trailNew(mode, sx, sy, sz, nx, ny, nz, hw, thick, L.cap)
+            -- A smear piece starts a little way back on the one before it when the worm went on in about the same direction, so that
+            -- the two overlap and the stripe has no narrow neck between them.
+            if st.pmode == mode and mode == 4 and (vx * st.pdx + vy * st.pdy + vz * st.pdz) / vl > 0.9 then
+                -- (from the end of the piece it follows, so that a wait for a free slot does not shorten the overlap)
+                local ov = min(PTC.OVERLAP, st.plen * 0.8)
+                local hx, hy, hz = st.phx - st.pdx * ov, st.phy - st.pdy * ov, st.phz - st.pdz * ov
+                local ex, ey, ez = gx - hx, gy - hy, gz - hz
+                local el = sqrt(ex * ex + ey * ey + ez * ez)
+                if el < PTC.OVERLAP + 3 * PTC.GAP_MAX then
+                    sx, sy, sz, vx, vy, vz, vl = hx, hy, hz, ex, ey, ez, el
+                end
+            end
+            -- (a trail that goes on takes the place of a splat of any age, whatever else is crowding the slots)
+            local slot, gen = DECALS.trailNew(mode, sx, sy, sz, nx, ny, nz, hw, thick, L.cap, DEC.TRAIL_PUSH)
             if not slot then return end
+            st.pmode = nil
             st.slot, st.gen, st.mode, st.len = slot, gen, mode, 0
             st.sx, st.sy, st.sz = sx, sy, sz
             st.dx, st.dy, st.dz = vx / vl, vy / vl, vz / vl
@@ -3759,7 +3826,7 @@ function PT.track(s, dt)
     end
     if s.dead or not s.alive then
         closePiece(st)
-        st.lx = nil
+        st.lx, st.pmode = nil, nil
         return
     end
     local L = level()
@@ -3768,7 +3835,7 @@ function PT.track(s, dt)
     if s.dying then
         -- Its health is gone and the game is about to blow it up: the blood spreads under it while it waits.
         closePiece(st)
-        st.lx = nil
+        st.lx, st.pmode = nil, nil
         if not st.dying then
             st.dying = true
             startPool(st, s.px, s.py + FEET_Y, s.pz, 2.5, rnd(PTC.DYING_POOL[1], PTC.DYING_POOL[2]) * L.pool, PTC.DYING_SECS, true)
@@ -3789,10 +3856,12 @@ function PT.track(s, dt)
     else
         st.still = nil
     end
-    -- A trail while it walks or crawls.
+    -- A trail while it walks or crawls. A new hit (health down) is fresh blood for the smear.
+    if st.hp and s.health < st.hp then st.run = 0 end
+    st.hp = s.health
     if frac >= PTC.DRIP_FRAC then
         closePiece(st)
-        st.lx = nil
+        st.lx, st.pmode = nil, nil
         return
     end
     if not DECALS.rayOK then
@@ -3806,7 +3875,7 @@ function PT.track(s, dt)
         end
         if st.air then
             closePiece(st)
-            st.lx = nil
+            st.lx, st.pmode = nil, nil
             return
         end
     else
@@ -3817,10 +3886,11 @@ function PT.track(s, dt)
         if not cx or (s.px - cx) * (s.px - cx) + (s.pz - cz) * (s.pz - cz) >= PTC.STEP * PTC.STEP then
             local gy, nx, ny, nz = groundAt(s.px, s.py + FEET_Y, s.pz, 10, 12)
             if gy == false then return end
+            if cx then st.run = (st.run or 0) + sqrt((s.px - cx) * (s.px - cx) + (s.pz - cz) * (s.pz - cz)) end
             st.cx, st.cz = s.px, s.pz
             if gy == nil then
                 closePiece(st)
-                st.lx = nil
+                st.lx, st.pmode = nil, nil
             else
                 extend(st, frac < PTC.SMEAR_FRAC and 4 or 3, s.px, gy, s.pz, nx, ny, nz, frac, L)
                 st.lx, st.ly, st.lz = s.px, gy, s.pz
@@ -3954,18 +4024,23 @@ local function deathBurst(s)
 end
 
 -- == Arterial spurts ============================================================================================
--- A worm below K.START of its health (stronger the lower it goes) spurts blood from its deepest open wounds (VIS.woundSites, the
+-- A worm below K.START of its health (stronger the lower it goes) spurts blood from its deepest open wound (VIS.woundSites, the
 -- places skin.frag draws them) in time with a heartbeat, K.HZ beats a second (faster the lower it is, a little irregular, and
--- often a weaker second beat after the first). Each beat is a pulse of K.LEN seconds: a pressurised arc of droplets (a narrow
--- stream of the fast ones that carries furthest, and a wider spray of slow ones that is dense at the wound) and a puff of fine
--- mist, with a weak dribble between the pulses. The droplets are ordinary particles, so they land through the usual terrain
--- collision and leave splats. Up to one, two or three wounds spurt at once (Light, Heavy, Absurd; the second and third only
--- when the worm is low enough), each pulse tilted a little differently from the wound's normal. The jet is worked out again at
+-- often a weaker second beat after the first). Each beat is a pulse of K.LEN seconds: a pressurised STREAM, not a spray. Every
+-- frame of the pulse the wound sends out pieces of stream (kind SPURT: a thin tube along the velocity, drawn with bs_jet.png) at
+-- one steady rate, each placed where it would be had it left at its own moment inside the frame (the frame's lag), so that
+-- the pieces are evenly spaced along one arc, closer together than their length, and the stream is continuous however long the
+-- frame was. The pressure (the pulse's envelope) sets how fast and how wide the pieces are, so the stream swells and thins; as
+-- a piece ages it thins and shortens, the older ones sooner, so that the far end of the stream breaks up into beads; a few beads
+-- (kind BEAD) fly on ahead of it, and a short sputter of weak, broken pieces follows the pulse, with a weak dribble between
+-- the pulses. The pieces and beads are ordinary particles, so they land through the usual terrain collision and leave splats.
+-- One wound spurts (Light, Heavy) or two (Absurd; the second only when the worm is low enough), the deepest first; the jet leaves
+-- along the wound's outward normal lifted by K.UP and tilted a little differently at each pulse. It is worked out again at
 -- every frame from the worm's wounds, so it follows the worm as it moves and turns. Nothing spurts while the worm is thrown or
 -- falling (its facing no longer says where its wounds are), and a pulse resumes, stronger, K.RESUME seconds after it lands.
 -- A new hit (SP.hit) brings an extra pulse soon and stronger ones for a few seconds. A dying worm (health 0, waiting for the
 -- game to blow it up) goes on for K.DYING_SECS with weakening, slowing pulses. All of it draws on the frame's spawn budget
--- only after the bursts (it runs after the worms were tracked), up to lv.cap droplets a frame shared between the worms, and
+-- only after the bursts (it runs after the worms were tracked), up to lv.cap particles a frame shared between the worms, and
 -- never fills the pool past K.POOL_SHARE of the amount's maximum, so a burst or a death always finds room.
 -- Public: SP.tick(dt) once a frame, SP.hit(s, damage) from burst(), SP.preview(s). State is s.sp, made on first use.
 do
@@ -3980,27 +4055,34 @@ local K = {
     RESUME = 0.35, LAND_GAIN = 1.3,                -- seconds after landing before it spurts again, and how much stronger the first pulse is
     DYING_SECS = 6, DYING_MIN = 0.08,
     HIT_SECS = { 1.2, 3.5 }, HIT_PER_DAMAGE = 0.04, HIT_FULL = 50, HIT_GAIN = 0.6,   -- a new hit: strong pulses for this long, up to this much stronger
-    TILT = 0.3, UP = 0.3, MIN_DIR_Y = -0.15,       -- sideways tilt per pulse, the lift added to the wound's normal, the lowest a jet points
-    STREAM = 0.55, CONE_STREAM = 0.05, CONE_SPRAY = 0.28,
-    JET_SEV = { 0, 0.3, 0.55 }, JET_GAIN = { 1, 0.75, 0.6 },
+    TILT = 0.14, UP = 0.4, MIN_DIR_Y = 0.02,       -- sideways tilt per pulse, the lift added to the wound's normal, the lowest a jet points
+    CONE = 0.012,                                  -- how far the pieces of one stream stray from its line (per component of the direction)
+    WIDTH = { 1.5, 2.0 }, WIDTH_LOW = 0.55,        -- a piece's width in units at full pressure, and the share of it left at none
+    SPEED_LOW = 0.93,                              -- the share of the top speed a piece leaves at with no pressure (the pressure is the rest)
+    SPUTTER = 0.16, SPUTTER_P = 0.4,               -- seconds of broken weak pieces after a pulse, and the share of the moments that have one
+    BEAD_SIZE = { 0.9, 1.4 }, BEADS_AHEAD = 1.06,  -- the drops that fly ahead of a stream (size in units; the fastest, as a share of the top speed)
+    JET_SEV = { 0, 0.3, 0.55 }, JET_GAIN = { 1, 0.7, 0.55 },
     MIN_OPEN = 0.15,                               -- a wound less open than this does not spurt
-    OUT = 1.2, INHERIT = 0.5,                      -- the jet starts this far off the skin and takes this share of the worm's velocity
+    OUT = 1.0, INHERIT = 0.5,                      -- the jet starts this far off the skin and takes this share of the worm's velocity
     POOL_SHARE = 0.6, RESERVE = 40,                -- the pool share spurts may fill, and the frame's spawns left to the bursts
     PREVIEW_SECS = 6, PREVIEW_SEV = 0.7,
 }
+-- Per amount: wounds that spurt at once, pieces of stream a second (while a pulse lasts), beads a pulse, mist puffs a pulse, the most
+-- particles a frame, dribble drops a second and the top speed (units per second).
 local LV = {
-    light  = { jets = 1, drops = 10, mist = 1, cap = 14, drib = 2, speed = 125 },
-    heavy  = { jets = 2, drops = 22, mist = 2, cap = 30, drib = 4, speed = 150 },
-    absurd = { jets = 3, drops = 40, mist = 3, cap = 52, drib = 7, speed = 175 },
+    light  = { jets = 1, rate = 95,  beads = 3, mist = 1, cap = 14, drib = 2, speed = 135 },
+    heavy  = { jets = 1, rate = 110, beads = 5, mist = 1, cap = 22, drib = 3, speed = 160 },
+    absurd = { jets = 2, rate = 135, beads = 8, mist = 2, cap = 44, drib = 5, speed = 185 },
 }
 local AS, ASLOT, ASEV = {}, {}, {}      -- the worms spurting this frame
+local SPURT, BEAD = MEL.SPURT, MEL.BEAD
 
 local function state(s)
     local sp = s.sp
     if not sp then
         sp = { nextAt = 0, pStart = 0, pEnd = 0, len = 0.2, str = 1, nj = 0, key = { 0, 0, 0 }, t1 = { 0, 0, 0 }, t2 = { 0, 0, 0 },
-               acc = { 0, 0, 0 }, macc = { 0, 0, 0 }, dacc = 0, airAt = -100, wasAir = false, on = false, boostUntil = 0, boost = 1,
-               forceUntil = 0, dubNext = false, beatEnd = 0, fade = 1, sites = {} }
+               acc = { 0, 0, 0 }, macc = { 0, 0, 0 }, bacc = { 0, 0, 0 }, dacc = 0, airAt = -100, wasAir = false, on = false,
+               boostUntil = 0, boost = 1, forceUntil = 0, dubNext = false, beatEnd = 0, fade = 1, sites = {} }
         s.sp = sp
     end
     return sp
@@ -4073,7 +4155,15 @@ local function startPulse(sp, sev, lv, n, sites)
     sp.nj = nj
 end
 
--- One worm's frame: the beat, then the droplets, mist and dribble this frame owes. Returns how many particles it spawned (at most budget).
+-- The pressure 0..1 at p (0 to 1) of the way through a pulse.
+local function pressure(p)
+    if p < 0 then return 0 end
+    if p < K.ATTACK then return p / K.ATTACK end
+    if p >= 1 then return 0 end
+    return ((1 - p) / (1 - K.ATTACK)) ^ 1.2
+end
+
+-- One worm's frame: the beat, then the stream, beads, mist and dribble this frame owes. Returns how many particles it spawned (at most budget).
 local function emitWorm(s, slot, sp, sev, lv, dt, budget)
     local vx, vy, vz = s.vx, s.vy, s.vz
     if s.evFrame == frameId then vx, vy, vz = s.evx, s.evy, s.evz end
@@ -4088,12 +4178,9 @@ local function emitWorm(s, slot, sp, sev, lv, dt, budget)
     if now >= sp.nextAt and sp.pEnd <= now then startPulse(sp, sev, lv, n, sites) end
     local nj = sp.nj
     if nj == 0 then return 0 end
-    local env = 0
-    if sp.pEnd > now then
-        local p = (now + dt * 0.5 - sp.pStart) / sp.len
-        if p < 0 then p = 0 elseif p > 1 then p = 1 end
-        env = p < K.ATTACK and p / K.ATTACK or ((1 - p) / (1 - K.ATTACK)) ^ 1.2
-    end
+    local live = sp.pEnd > now
+    local sputter = not live and sp.pEnd > 0 and now - sp.pEnd < K.SPUTTER + dt
+    local envMid = live and pressure((now - dt * 0.5 - sp.pStart) / sp.len) or 0
     local far = 0
     if CAM.ok then
         local ex, ey, ez = s.px - CAM.px, s.py + CENTRE_Y - CAM.py, s.pz - CAM.pz
@@ -4101,13 +4188,13 @@ local function emitWorm(s, slot, sp, sev, lv, dt, budget)
     end
     local sizeMul = 1 + 0.45 * far
     local boosted = now < sp.boostUntil
-    local c, m = palette.droplet, palette.mist
+    local m, jc = palette.mist, palette.jet
     local used = 0
-    local vmax = lv.speed * (0.7 + 0.3 * min(1, sp.str)) * (0.55 + 0.45 * env) * (boosted and 1.1 or 1)
+    local vtop = lv.speed * (0.7 + 0.3 * min(1, sp.str)) * (boosted and 1.1 or 1)
     local wvx, wvy, wvz = vx * K.INHERIT, vy * K.INHERIT, vz * K.INHERIT
-    local base = lv.drops / (sp.len * K.ENV_AREA) * env * sp.str * (1 - 0.4 * far)    -- fewer, bigger drops far away
-    local mbase = lv.mist / (sp.len * K.ENV_AREA) * env * sp.str
+    local mbase = lv.mist / (sp.len * K.ENV_AREA) * envMid * sp.str
     local key = sp.key
+    local pStart, pEnd, plen = sp.pStart, sp.pEnd, sp.len
     for j = 1, nj do
         local e
         for i = 1, n do
@@ -4131,42 +4218,71 @@ local function emitWorm(s, slot, sp, sev, lv, dt, budget)
             dx, dy, dz = dx / dl, dy / dl, dz / dl
             local ox, oy, oz = e.x + nx * K.OUT, e.y + ny * K.OUT, e.z + nz * K.OUT
             local gain = K.JET_GAIN[j]
-            local acc = sp.acc[j] + base * gain * dt
-            local cnt = floor(acc)
-            acc = acc - cnt
-            if cnt > budget - used then
-                cnt = budget - used
-                acc = 0
+            -- The stream: pieces at a steady rate while the pulse lasts (and weak, broken ones just after), each placed for the
+            -- moment inside the frame it left at, so that they are evenly spaced whatever the frame time.
+            if live or sputter then
+                local rate = lv.rate * gain * (0.8 + 0.2 * min(1, sp.str))
+                local before = sp.acc[j]
+                local total = before + rate * dt
+                local cnt = floor(total)
+                sp.acc[j] = total - cnt
+                if cnt > budget - used then
+                    cnt = budget - used
+                    sp.acc[j] = 0
+                end
+                for q = 1, cnt do
+                    local lag = dt - (q - before) / rate          -- how long ago this piece left the wound
+                    if lag < 0 then lag = 0 end
+                    local weak = now - lag > pEnd
+                    local env = weak and 0.12 or pressure((now - lag - pStart) / plen)
+                    if not weak or random() < K.SPUTTER_P then
+                        local v = vtop * (K.SPEED_LOW + (1 - K.SPEED_LOW) * env) * rnd(0.985, 1.0) * (weak and 0.6 or 1)
+                        local cn = K.CONE
+                        local ex, ey, ez = dx + rnd(-cn, cn), dy + rnd(-cn, cn), dz + rnd(-cn, cn)
+                        local k = v / sqrt(ex * ex + ey * ey + ez * ez)
+                        local jvx, jvy, jvz = ex * k + wvx, ey * k + wvy, ez * k + wvz
+                        local width = rnd(K.WIDTH[1], K.WIDTH[2]) * (K.WIDTH_LOW + (1 - K.WIDTH_LOW) * env) * sizeMul * (weak and 0.7 or 1)
+                        local shade = rnd(0.92, 1.08)
+                        spawn(SPURT, ox + jvx * lag, oy + jvy * lag, oz + jvz * lag, jvx, jvy, jvz, width, rnd(0.7, 1.0),
+                              min(1, jc[1] * shade), min(1, jc[2] * shade), min(1, jc[3] * shade), DROPLET_ALPHA)
+                    end
+                end
+                used = used + cnt
+                -- Beads that fly on ahead of the stream and a puff of fine mist at the wound, while the pressure is up.
+                if live then
+                    local bacc = sp.bacc[j] + lv.beads / plen * gain * dt
+                    local bc = floor(bacc)
+                    sp.bacc[j] = bacc - bc
+                    if bc > budget - used then bc = budget - used end
+                    for _ = 1, bc do
+                        local v = vtop * rnd(0.8, K.BEADS_AHEAD)
+                        local ex, ey, ez = dx + rnd(-0.05, 0.05), dy + rnd(-0.05, 0.05), dz + rnd(-0.05, 0.05)
+                        local k = v / sqrt(ex * ex + ey * ey + ez * ez)
+                        local jvx, jvy, jvz = ex * k + wvx, ey * k + wvy, ez * k + wvz
+                        local lag, shade = random() * dt, rnd(0.9, 1.1)
+                        spawn(BEAD, ox + jvx * lag, oy + jvy * lag, oz + jvz * lag, jvx, jvy, jvz, rnd(K.BEAD_SIZE[1], K.BEAD_SIZE[2]) * sizeMul,
+                              rnd(0.6, 1.0), min(1, jc[1] * shade), min(1, jc[2] * shade), min(1, jc[3] * shade), DROPLET_ALPHA)
+                    end
+                    used = used + bc
+                    local macc = sp.macc[j] + mbase * gain * dt
+                    local mc = floor(macc)
+                    macc = macc - mc
+                    if mc > 2 then mc = 2 end
+                    if mc > budget - used then mc = budget - used end
+                    sp.macc[j] = macc
+                    for _ = 1, mc do
+                        local shade, v = rnd(0.8, 1.2), rnd(20, 50)
+                        spawn(MIST, ox + nx * 0.5 + rnd(-0.8, 0.8), oy + ny * 0.5 + rnd(-0.8, 0.8), oz + nz * 0.5 + rnd(-0.8, 0.8),
+                              dx * v + rnd(-8, 8) + wvx, dy * v + rnd(-8, 8) + wvy, dz * v + rnd(-8, 8) + wvz,
+                              rnd(5, 9) * (1 + 0.5 * far), rnd(0.3, 0.5), min(1, m[1] * shade), min(1, m[2] * shade), min(1, m[3] * shade),
+                              MIST_ALPHA * 0.9)
+                    end
+                    used = used + mc
+                end
+            else
+                sp.acc[j] = 0
             end
-            sp.acc[j] = acc
-            for _ = 1, cnt do
-                local stream = random() < K.STREAM
-                local cone = stream and K.CONE_STREAM or K.CONE_SPRAY
-                local ex, ey, ez = dx + rnd(-cone, cone), dy + rnd(-cone, cone), dz + rnd(-cone, cone)
-                local k = (stream and vmax * rnd(0.82, 1.0) or vmax * rnd(0.3, 0.8)) / sqrt(ex * ex + ey * ey + ez * ez)
-                local jvx, jvy, jvz = ex * k + wvx, ey * k + wvy, ez * k + wvz
-                local lag, shade = random() * dt, rnd(0.8, 1.2)
-                spawn(DROPLET, ox + jvx * lag + rnd(-0.4, 0.4), oy + jvy * lag + rnd(-0.4, 0.4), oz + jvz * lag + rnd(-0.4, 0.4),
-                      jvx, jvy, jvz, (stream and rnd(1.4, 2.4) or rnd(0.8, 1.5)) * sizeMul, stream and rnd(0.55, 1.5) or rnd(0.45, 0.9),
-                      min(1, c[1] * shade), min(1, c[2] * shade), min(1, c[3] * shade), DROPLET_ALPHA)
-            end
-            used = used + cnt
-            -- Fine mist at the wound while the pressure is up.
-            local macc = sp.macc[j] + mbase * gain * dt
-            local mc = floor(macc)
-            macc = macc - mc
-            if mc > 2 then mc = 2 end
-            if mc > budget - used then mc = budget - used end
-            sp.macc[j] = macc
-            for _ = 1, mc do
-                local shade, v = rnd(0.8, 1.2), rnd(20, 50)
-                spawn(MIST, ox + nx * 0.5 + rnd(-0.8, 0.8), oy + ny * 0.5 + rnd(-0.8, 0.8), oz + nz * 0.5 + rnd(-0.8, 0.8),
-                      dx * v + rnd(-8, 8) + wvx, dy * v + rnd(-8, 8) + wvy, dz * v + rnd(-8, 8) + wvz,
-                      rnd(5, 9) * (1 + 0.5 * far), rnd(0.3, 0.5), min(1, m[1] * shade), min(1, m[2] * shade), min(1, m[3] * shade),
-                      MIST_ALPHA * 0.9)
-            end
-            used = used + mc
-            -- The dribble from the deepest wound, between and under the pulses.
+            -- The dribble from the deepest wound, between and under the pulses: small beads that run off it.
             if j == 1 then
                 local dacc = sp.dacc + lv.drib * (0.35 + 0.65 * sev) * sp.fade * dt
                 local dc = floor(dacc)
@@ -4175,10 +4291,10 @@ local function emitWorm(s, slot, sp, sev, lv, dt, budget)
                 if dc > budget - used then dc = budget - used end
                 sp.dacc = dacc
                 for _ = 1, dc do
-                    local shade, v = rnd(0.7, 1.1), rnd(12, 38)
-                    spawn(DROPLET, ox + rnd(-0.5, 0.5), oy + rnd(-0.5, 0.5), oz + rnd(-0.5, 0.5),
-                          nx * v + wvx, ny * v + rnd(0, 12) + wvy, nz * v + wvz, rnd(0.9, 1.6) * sizeMul, rnd(0.5, 1.0),
-                          min(1, c[1] * shade), min(1, c[2] * shade), min(1, c[3] * shade), DROPLET_ALPHA)
+                    local shade, v = rnd(0.8, 1.1), rnd(12, 38)
+                    spawn(BEAD, ox + rnd(-0.5, 0.5), oy + rnd(-0.5, 0.5), oz + rnd(-0.5, 0.5),
+                          nx * v + wvx, ny * v + rnd(0, 12) + wvy, nz * v + wvz, rnd(0.8, 1.3) * sizeMul, rnd(0.5, 1.0),
+                          min(1, jc[1] * shade), min(1, jc[2] * shade), min(1, jc[3] * shade), DROPLET_ALPHA)
                 end
                 used = used + dc
             end
