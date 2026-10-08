@@ -7,8 +7,11 @@ purple-red with veins, a film of blood, wet highlights, light through the thin w
 and the ground (a new Post-FX pass, `bloodsand/guts`; the flat ribbons of 1.1 are only drawn if it cannot run). Wounds
 and the torn belly are layered: a rolled, lit lip of skin, yellow fat, dark red muscle and a cavity that darkens with
 depth and shifts with the camera, with coils inside the belly. Blood on the skin is wet, with a sheen, darker and
-glossier pools and beads running down. Burning is new: a char-black patch with a glowing edge and flickering embers that
-fades over four seconds.
+glossier pools and beads running down. Burning is new: cracked, charred flesh (blackened crust split into plates by dull
+dark-red fissures, a browned rim and a dry sheen, no lava glow, only a faint ember flicker in the cracks for the first half
+second) that fades over three seconds. The skin pass takes its surface normal from the depth of each pixel's own
+neighbours instead of the GPU's 2 by 2 block derivatives, so blood and wounds no longer break into blocks at a worm's
+silhouette, and its edge is anti-aliased about a pixel wide.
 
 Every melee and special weapon now has its own spray, scaled by Blood: the baseball bat flings a wide arc of long
 streaks and heavy clots, the prod squirts a thin pulsing jet and then dribbles, the fire punch gushes charred drops up

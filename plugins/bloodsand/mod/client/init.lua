@@ -2069,9 +2069,10 @@ for k = 1, GUT.SLOTS do
     GUT_P[k] = list
 end
 
--- Scorch: a charred patch with glowing embers on a worm's skin, 0..1, fading to nothing over SCORCH_SECS. The melee
--- code calls setScorch(slot, amount) when a hit sets a worm alight; calling it again only raises the level.
-local SCORCH_SECS = 4
+-- Scorch: burnt, cracked, charred flesh on a worm's skin, 0..1, fading to nothing over SCORCH_SECS (a faint ember flicker in
+-- the cracks only while the level is still above about 0.82, the first half second or so). The melee code calls
+-- setScorch(slot, amount) when a hit sets a worm alight; calling it again only raises the level.
+local SCORCH_SECS = 3
 local scAmt, scT0 = {}, {}
 for i = 1, SKIN_SLOTS do scAmt[i], scT0[i] = 0, 0 end
 
