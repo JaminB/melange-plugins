@@ -308,8 +308,11 @@ end
 -- frames of the skin, stains, guts and lens effects used to cost several milliseconds each, in the middle of the action.
 -- WARM switches each one on for a few frames at the start of a match (one at a time, with nothing to draw, a few frames
 -- apart), so that this happens before anything is on screen. WARM.on[id] is true while an effect is being held on.
+-- HOLD must outlast Melange's start-up of the PostWorld stage: the first effect switched on makes Melange register the stage
+-- at the end of that frame and hook the engine's slot at the end of the next, so it first runs two frames later. With 2 the
+-- first effect (stains) was already off by then, so it compiled on the first Preview or hit instead (11-19 ms in one frame).
 local WARM = { on = {}, left = {}, ids = { "bloodsand/stains", "bloodsand/skin", "bloodsand/guts", "bloodsand/lens" },
-               started = false, frame = 0, GAP = 3, HOLD = 2 }
+               started = false, frame = 0, GAP = 6, HOLD = 5 }
 
 local function sendEnabled(fx, on)
     if WARM.on[fx.id] then on = true end

@@ -79,8 +79,8 @@ above the eye line and round the mouth; the old test passed 100% of the cowboy h
 scorch is one burn on the chest on the side the worm was hit from (a singed halo, leathery brown skin with blisters, a
 black cracked crust), no longer a marbled pattern over the whole body and the back of the neck. The black eye is a wider,
 darker ring with a swollen lower lid that is still a few pixels wide from across the level, and darker at lower health.
-The four effects are switched on for two frames each at the start of a session's first match, so that their first-use
-compile and driver build (several milliseconds per effect) are not paid in the middle of a fight.
+The four effects are switched on for five frames each at the start of a session's first match, so that their first-use
+compile and driver build (several milliseconds per effect, 11 to 19 for the stains) are not paid in the middle of a fight.
 
 Seen in the game and put right: blood on a pillar or a faceted rock is no longer cut into strips at the facet edges (a
 decal takes surface turned up to about 60 degrees from its own and near its plane by a tolerance that grows away from
