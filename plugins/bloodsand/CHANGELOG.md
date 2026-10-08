@@ -28,8 +28,8 @@ with a clotted rim over 30 to 60 seconds (settings in the Post-FX panel). There 
 walls and overhangs. Overlapping decals are one body of blood with one outline, rim and shoulder (no decal's border shows
 inside another, and a speck beside a blot runs into it); splats vary in size (a long tail from specks to big blots,
 finer when the hit was fast), outline, stretch and number of satellite drops; and blood no longer lands on worms, smoke,
-silhouettes or the wall behind a pool, and fades out as the camera comes up to a stained surface. Droplets are
-layered, lighter-edged and stretch as they fly. On Melange 0.6 and later, plugins can ask where the terrain is (`wum.game.landRay`) and see how fast a worm moves: Bloodsand uses these for the droplets'
+silhouettes or the wall behind a pool, and fades out as the camera comes up to a stained surface. Droplets stretch as
+they fly. On Melange 0.6 and later, plugins can ask where the terrain is (`wum.game.landRay`) and see how fast a worm moves: Bloodsand uses these for the droplets'
 collision, for the guts to lie on slopes and for sharper knock and fall detection. On older Melange the droplets fly
 through the ground, the guts lie on a flat ground and everything else works as before. Needs Melange 0.3.5 or later.
 
@@ -45,20 +45,36 @@ Intestines need Blood on worms. Where more than four decals overlap, the least d
 whole decals being cut off along a circle, and two overlapping gutted worms both draw their guts.
 
 Droplets, mist and steam were flat diamonds and see-through squares; they are round now. A droplet is a teardrop with a
-rounded head and a tapering tail, a dark core in a lighter translucent edge, and no white square (only a tiny round
-glint on a big one up close). Far droplets are one thin streak and ones narrower than two pixels are grown a little, so
+rounded head and a tapering tail, a fainter fringe of its own colour for an anti-aliased edge, and no white square (only
+a tiny faint glint on a big one up close). Far droplets are one thin streak and ones narrower than two pixels are grown a little, so
 blood reads at the distance the game is played from; a burst far from the camera throws bigger droplets and more mist.
 Mist is a fine red haze and steam a pale grey one, both soft blobs of several translucent layers with an irregular
 outline instead of squares. Nothing is drawn nearer than 12 units to the camera and what is just beyond fades in, so no
-droplet fills the screen. The fire punch's drops are charcoal black and dark red instead of glowing orange, with a few
-faint embers that last a third of a second, and its steam is shorter. The lens splatter is now a Post-FX pass
+droplet fills the screen. The fire punch throws blood and a few small burnt flakes (dark cooked blood, soot and ash)
+instead of glowing orange drops, with a few faint embers that last a third of a second, and its steam is shorter. The lens splatter is now a Post-FX pass
 (`bloodsand/lens`) that runs before the HUD, so it no longer covers the minimap and the timer, and it looks like blood on
 glass: the view bends through it, blurs a little, is tinted and darkened, with a highlight along the edge and drips that
 run down (the flat HUD splats are only used if the pass cannot run). A death now always throws the big burst and leaves a
-pool: it is shown when the worm's health reaches zero or its state flips to dead or it disappears from the worm list
-(before, only a state flip was watched, so a worm that went without one, or only after its body was gone, left nothing),
-it may overspend a frame's spawn budget, waits longer in the queue and makes room in a full pool. Bigger stains from
-big hits and a bigger death pool.
+pool: it is shown when the worm blows up, which is seen as an explosion at a worm whose health has run out, its state
+flipping to dead or its disappearing from the worm list (before, only a state flip was watched, so a worm that went
+without one, or only after its body was gone, left nothing; a burst at the moment its health ran out was lost in the
+smoke of the hit and the bleeding, with nothing at the death itself), it throws heavy clots that carry past the smoke,
+it may overspend a frame's spawn budget, waits longer in the queue and makes room in a full pool, and its pool goes down
+in the crater the worm leaves. Bigger stains from big hits and a bigger death pool.
+
+Seen in the game and put right: blood on a pillar or a faceted rock is no longer cut into strips at the facet edges (a
+decal takes surface turned up to about 60 degrees from its own and near its plane by a tolerance that grows away from
+the middle, and every pixel's normal comes from its own neighbours, so no edge steps in twos); an explosion's crater
+takes the decals in it, so a pool no longer leaves dark bands on the crater's walls or a bar over the water; hats and
+helmets stay clean, both of decals (the worm's volume is taller) and of the blood and wounds on the skin (above the brow
+only skin-coloured pixels take any); the eyes stay clear and a black eye shows through the blood on a bloodied face; the
+wounds and the blood's sheen are lit from a smooth normal, so the worm's mesh facets no longer show as angular shards,
+and edges inside the worm no longer leave bright yellow lines of bare skin; blood on the ground fades out between 48
+and 18 units from the camera, so the aim camera in front of a bloodied rock is no longer half red; a big pool is a
+flat film with a broad faint sheen instead of a domed jelly with one round highlight; a lens splat drains away from its
+thin parts instead of fading into a pale outlined ghost; droplets are thin streaks with a pixel-wide fringe of their
+own colour instead of petals with a lighter rim and a dot, and the fire punch throws a few small burnt flakes
+instead of a cloud of black confetti. Without Melange's Post-FX API the plugin no longer stops at load.
 
 ## 1.1.3
 

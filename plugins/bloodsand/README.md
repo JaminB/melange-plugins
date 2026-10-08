@@ -10,25 +10,30 @@ shipped — no game file, or anything derived from one.
 
 - **Bursts**: the moment a worm is hurt, blood droplets are thrown from it, away from the explosion if there was one.
   The number and speed of the droplets scale with the damage, and even a light hit throws a visible spray. A droplet is
-  a teardrop: a rounded head and a tail that tapers to a point, longer along its flight the faster it goes, drawn as a
-  small triangle fan with a dark core inside a lighter, translucent edge (a big one near the camera also gets a tiny
-  round glint). Far droplets are a single thin streak, and ones that would be under two pixels wide are grown a little
+  a teardrop: a rounded head and a tail that tapers to a point, longer along its flight the faster it goes (so in flight
+  it reads as a thin streak, not a flat petal), drawn as a small triangle fan with a fainter fringe of the same colour
+  about a pixel wide that stands in for anti-aliasing (a big one near the camera also gets a tiny faint glint near its
+  head). Up close a droplet is held to 16 pixels across. Far droplets are a single thin streak, and ones that would be under two pixels wide are grown a little
   so they still read at the usual distance of play, as are the bursts' droplets and mist when the burst is far from the
   camera. Mist is a fine red haze of soft blobs (several translucent fans, each smaller and denser than the last, with
   an irregular outline). Nothing is drawn nearer than 12 world units to the camera, and what is a little further fades
   in and is held to a size, so a droplet that flies past the lens is never a huge flat shape.
 - **Bleeding**: a wounded worm keeps dripping for a while after the hit.
-- **Death**: a worm that dies throws a larger burst, with more mist, and leaves a big pool. It is shown the moment the
-  worm's health reaches zero (the game takes health off at the end of the turn, when the worm blows up), or when its state
-  flips to dead, or when it has gone from the worm list for a third of a second, whichever comes first and only once.
-  A death is never dropped: it may use more of a frame's spawn budget than other bursts, waits up to three seconds in the
-  queue when even that is spent, and pushes older particles out of a full pool.
+- **Death**: a worm that dies throws a larger burst, with more mist and a ring of heavy clots that carry past the smoke
+  and splat round the crater, and leaves a big pool in the crater. It is shown when the worm blows up. A worm whose
+  health reaches zero is only dying (the game counts the damage down and blows it up seconds later), and the burst waits
+  for an explosion at the worm, for its state to flip to dead, for it to be gone from the worm list for a third of a
+  second, or for 40 seconds, whichever comes first and only once; a worm that dies some other way (drowned, say) bursts
+  when its state flips or it disappears. A death is never dropped: it may use more of a frame's spawn budget than other
+  bursts, waits up to three seconds in the queue when even that is spent, and pushes older particles out of a full pool.
+  Once it has burst, the grave the game leaves gets no blood, wounds or guts.
 - **Weapon sprays**: each melee and special weapon has its own signature, scaled by the Blood setting (see below for how
   a hit is matched to a weapon). The **baseball
   bat** flings a wide horizontal arc of long streaks with a few heavy clots and a fine mist. The **prod** squirts a thin
-  pulsing jet from the contact point, then dribbles. The **fire punch** throws a gush of blackened, cauterised drops
-  straight up (charcoal black and dark red, with a few faint embers that are gone within a third of a second) with a short
-  rise of pale steam and a little smoke, and asks the skin pass for a scorch mark. **No more nails** fires
+  pulsing jet from the contact point, then dribbles. The **fire punch** throws a gush of blood straight up with a few
+  small burnt flakes (dark cooked blood, brown soot and grey ash, light enough to slow down and flutter, and a few faint
+  embers that are gone within a third of a second) with a short rise of pale steam and a little smoke, and asks the skin
+  pass for a scorch mark. **No more nails** fires
   several small jets in a ragged cone. The **concrete donkey** and **Fatkins** crush: a flat ring of blood hugging the
   ground and a big pool. The **old woman** and **Scouser** shred: many fine fast drops in every direction on top of the
   blast. A **ninja rope** knock smears blood along the knock. A **fall** splats downward into a pool. The **shotgun**
@@ -38,7 +43,12 @@ shipped — no game file, or anything derived from one.
 - **Blood on the worms**: a worm that was hit wears blood on its skin, and the blood stays on it as it moves. Each hit
   adds to it, healing does not wash it off and a death clears it. It is a Post-FX pass, `bloodsand/skin` (PostWorld,
   order 51), that paints the blood from the depth buffer onto the surfaces inside each worm's body. The pattern is
-  held in the worm's own frame, so it travels with the worm and turns with the way it faces.
+  held in the worm's own frame, so it travels with the worm and turns with the way it faces. Above the brow only
+  skin-coloured pixels take blood, wounds or burns, so a hat, a helmet or a pair of ears stays clean, and on the front of
+  the face the eyes (whatever around them is not skin-coloured: the whites and the pupils) are kept clear, so a bloodied
+  worm still has its eyes. The light on the blood and in the wounds comes from a smooth normal (the depth buffer's
+  blended with the body's), so the facets of the worm's mesh do not show as angular shards, and edges inside the worm
+  (the eyes over the face, the chin over the body) are painted in full instead of leaving a bright line of bare skin.
 - **Wounds**: once a worm is below about two thirds of its health, gashes open on its body, more and larger the lower
   it gets (up to five). Each is built in layers: a rolled lip of torn skin that catches the light, pink-red raw
   dermis, broken patches of pale fat on parts of the torn edge only, dark wet muscle with glints and a cavity that gets
@@ -46,7 +56,8 @@ shipped — no game file, or anything derived from one.
   `bloodsand/skin` pass paints them. Blood on the skin is wet: it has a sheen, and is darker and glossier where it pools.
 - **Black eyes**: below four fifths of its health a worm gets a black eye, a purple-black bruise around the eye that
   is darkest in a ring under it. One eye goes first and the other follows; both are fully black at about a third of
-  its health. The skin pass paints them on the face, and they fade while a worm is thrown through the air.
+  its health. The skin pass paints them on the face, and they fade while a worm is thrown through the air. Blood and
+  wounds stay thin over a bruise, so a black eye shows on a bloodied face.
 - **Throwing up**: a worm at a quarter of its health or less heaves now and then while it stands still: a stream of
   blood from its mouth for about a second, every 12 to 30 seconds, leaving a small stain in front of it.
 - **Intestines**: about two worms in five, picked at random each match, have their belly torn open once they are
@@ -72,9 +83,16 @@ shipped — no game file, or anything derived from one.
   the whole, so no decal's border shows inside another, and a speck beside a blot runs into it. No two splats are alike:
   the size has a long tail (tiny specks, many small ones, a few big blots, finer when the hit was fast) and the outline
   (lobes, lumps, crowns of spikes), the stretch and the number of satellite drops and specks come from the splat's own
-  seed. Blood does not land on a worm (the pass is told where the worms are and keeps clear of a volume around each,
-  floor excepted), nor on smoke, silhouettes or things behind the pool: it takes only surface on the decal's own plane,
-  facing the same way and flat to its neighbours, and fades out as the camera comes close. The decals are a
+  seed. Blood does not land on a worm or its hat (the pass is told where the worms are and keeps clear of a volume
+  around each, tall enough for a hat; the floor and curved ground under a worm excepted), nor on smoke, silhouettes or a
+  wall behind a pool: it takes surface near the decal's plane (the tolerance grows away from the middle, so a splat wraps
+  round a pillar or a rock facet by facet and its own outline is what ends it, not a facet edge), turned no more than
+  about 60 degrees from it and not behind a depth edge, and fades out as the camera comes within about 50 units (it is
+  gone at 18, where the aim camera sits in front of a rock). The pass takes each pixel's normal from its own four
+  neighbours, so edges never break into two-pixel steps. A wide pool is a nearly flat film, so it catches a broad faint
+  sheen instead of one round highlight. An explosion that digs a crater takes away the decals whose middle is in it,
+  and a worm's pool goes down four tenths of a second after it is asked for, so a death pool lies in the crater the worm
+  left instead of being cut into strips where the old ground was. The decals are a
   depth-projected Post-FX pass, `bloodsand/stains` (PostWorld, order 50, so before Sunstone's effects), with 32 slots
   on floors, walls and overhangs; the one blood landed in longest ago is recycled first (size counts for a little) and a
   speck does not push out a pool.
@@ -86,7 +104,8 @@ shipped — no game file, or anything derived from one.
   is a Post-FX pass, `bloodsand/lens` (PostWorld, order 60), so it is drawn before the HUD and the minimap and the timer
   stay clear. Where a splat is, the picture is bent as if by a wet droplet, blurred a little, tinted and darkened (clear
   at the thin edges, nearly opaque in the thick middle), with a dark edge, a pale highlight on the side the light is on
-  and a few drips that run down and lengthen. Up to six splats at once. If that pass cannot run (an older Melange, or a
+  and a few drips that run down and lengthen. As a splat goes, the blood drains from its thin parts first, so it shrinks
+  to its thick core and is gone instead of fading into a pale ghost with a dark outline. Up to six splats at once. If that pass cannot run (an older Melange, or a
   driver that cannot draw it, which Melange reports and Bloodsand checks every two seconds), the same shapes are drawn
   flat on the HUD, as in 1.1.
 
@@ -174,7 +193,8 @@ game, which leaves out the real cost of drawing the quads and of the terrain ray
 four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0.1 ms.
 
 - **Skin pass**: about 0.10 ms (1.1: about 0.09), only while a worm wears blood, a wound or a burn. The per-pixel normal
-  and soft silhouette cost nothing measurable; a burn on a worm that fills the screen is about 9% more.
+  and soft silhouette cost nothing measurable; a burn on a worm that fills the screen is about 9% more. Keeping the eyes
+  and hats clear and the smooth shading normal add 3 to 5% in the harness.
 - **Guts pass**: only on while a gutted worm is in view. About 0.16 to 0.18 ms at the usual zoom, and up to 0.4 ms with
   the camera right on top of the guts. A pass that only copies the screen takes about 0.05 ms of that.
 - **Lens pass**: about 0.02 ms (a copy of the screen) with no splat in the way, 0.04 ms with a few and 0.055 ms with six large
@@ -184,9 +204,14 @@ four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0
   near-camera checks). It is switched off while there are none.
   Measured on the same card against the pass as it was before the decals were made one fluid and kept off the worms
   (interleaved runs, 1080p): 6% more with four decals, and the same (1% less) with 32 covering a third of the screen,
-  because a pixel now combines three decals and shades once instead of shading each of four.
+  because a pixel now combines three decals and shades once instead of shading each of four. Working out the normal
+  from each pixel's own neighbours (instead of the 2 by 2 block derivatives) adds 3 to 7% in the harness (0.149 to 0.158
+  ms with four decals, 0.354 to 0.371 ms with 32). Before that change the game measured 0.22 to 0.26 ms with blood about.
 - **Script**: in a stress test with six worms and explosions, weapon sprays and previews back to back, an average of
-  about 0.4 ms a frame on Heavy and 0.45 ms on Absurd. A gutted worm takes under 0.1 ms and six take about 0.3 ms. With
+  about 0.4 ms a frame on Heavy and 0.45 ms on Absurd. At rest on Heavy, with eight worms of which four are badly hurt
+  (gutted, vomiting, bleeding done) and the decals down, about 43000 to 47000 VM instructions and 0.24 ms a frame in the
+  mock's plain Lua 5.4 (the game's own steady figure is still to be measured; it reported 0.35 to 0.8 ms only right
+  after preview bursts). A gutted worm takes under 0.1 ms and six take about 0.3 ms. With
   Blood set to Off it takes under 0.01 ms. A Lua callback may run 500000 VM instructions and Melange stops it for the
   session after three faults, so the script keeps clear of that: one frame spawns about 200 particles for bursts (the rest of
   a big blast waits a few frames in a queue, and a burst takes at most half of what the pool has left, so the worms of one
@@ -234,14 +259,19 @@ Re-measure with the *Mirage/Post-FX* panel on your own machine.
   opening sits on the belly was set by eye and may need adjusting.
 - Decals are projected from the depth buffer: there are 32 of them, and a pixel combines at most three. Where more than
   three overlap, the ones that hold the pixel least deeply are dropped (a pool with many splats on it can still show a
-  hard edge here and there), and a decal vanishes where the terrain under it is destroyed. The surface has to lie on the
-  decal's plane closely, so a pool on strongly curved ground may be trimmed at its edge. Blood is kept off a volume
-  about 19 units wide and 22 high around each worm (so a worm lying down is covered too), and the floor right under it
-  is exempt; a hat or an arm that sticks out of the volume can still be painted if it is on the decal's plane. Droplets are tested against the terrain only, not
-  against worms, crates or water.
+  hard edge here and there), and a decal vanishes where the terrain under it is destroyed (an explosion's crater takes
+  the decals whose middle is in it). The surface has to lie near the decal's plane, within a tolerance that grows away
+  from the middle, so a pool on strongly curved ground may still be trimmed at its edge, and a step or a kerb a few units
+  up beside a pool can take some of it. Blood is kept off a volume about 19 units wide and 27 high, raised 5 above the
+  middle of each worm (so a worm lying down and a hat are covered too), except for the floor and the curved ground under
+  it; an arm or a weapon that sticks out of the volume can still be painted if it is on the decal's plane. Droplets are
+  tested against the terrain only, not against worms, crates or water.
 - Wounds are placed from a per-match seed, not where the hit landed, and which worms have intestines to show is
   chosen at random each match.
-- Hats and held weapons inside a worm's volume take blood too.
+- Above the brow only skin-coloured pixels take blood, which keeps most hats clean; a hat the colour of skin (straw,
+  light brown) is painted like the head, and under strongly coloured light the top of the head can go without. Held
+  weapons inside a worm's volume take blood too. The eyes are kept clear by colour on the front of the face, so a
+  monocle or a pair of glasses there may be kept clear as well.
 - A pixel takes the blood of one worm only, the one whose body it is deepest inside, so where two worms overlap on
   screen the pattern of one stops at the other.
 - Up to 16 worms can wear blood and wounds at once.
