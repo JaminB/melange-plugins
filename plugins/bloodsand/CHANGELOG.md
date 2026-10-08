@@ -138,8 +138,8 @@ above the eye line and round the mouth; the old test passed 100% of the cowboy h
 scorch is one burn on the chest on the side the worm was hit from (a singed halo, leathery brown skin with blisters, a
 black cracked crust), no longer a marbled pattern over the whole body and the back of the neck. The black eye is a wider,
 darker ring with a swollen lower lid that is still a few pixels wide from across the level, and darker at lower health.
-The four effects are switched on for two frames each at the start of a session's first match, so that their first-use
-compile and driver build (several milliseconds per effect) are not paid in the middle of a fight.
+The four effects are switched on for five frames each at the start of a session's first match, so that their first-use
+compile and driver build (several milliseconds per effect, 11 to 19 for the stains) are not paid in the middle of a fight.
 
 Seen in the game and put right: blood on a pillar or a faceted rock is no longer cut into strips at the facet edges (a
 decal takes surface turned up to about 60 degrees from its own and near its plane by a tolerance that grows away from
@@ -154,6 +154,20 @@ flat film with a broad faint sheen instead of a domed jelly with one round highl
 thin parts instead of fading into a pale outlined ghost; droplets are thin streaks with a pixel-wide fringe of their
 own colour instead of petals with a lighter rim and a dot, and the fire punch throws a few small burnt flakes
 instead of a cloud of black confetti. Without Melange's Post-FX API the plugin no longer stops at load.
+
+Seen in the game, third round. Skin: a worm hidden behind a ridge or a dune no longer paints it (the skin pass chose any
+pixel inside a worm-sized ellipsoid whose colour passed as skin, and bright sunlit sand does; now a pixel has to lie on a
+shell the width of the body round the worm's axis, upright along the body, facing away from the axis, and have depth that falls
+away to one side, as a worm's does and a ridge's face does not); the black eye is a smooth bruise (its ring was found with
+taps turned by a random angle at every pixel, which came out as grain) that shows at mid range on a worm at 40 to 70 health (the
+level went from 0.2 to 0.8 over that range and the first eye was only opaque by half; now 0.39 to 0.91, and a level scales the
+bruise's size before its opacity), and it keeps off the moustache; a poisoned worm's yellow skin is accepted down to a
+brightness of 0.74 instead of 0.85, so it no longer flips in and out of the mask from pixel to pixel (blotches with hard
+edges). Decals: smoke that hangs low over a pool, a worm's flank or tail where the pool's plane crosses it, and a worm
+standing on a slope are no longer painted (a pool takes surface up to about 50 degrees from its own, grey pixels off the
+plane are skipped, the worm's volume is wider, stays solid up to its edge, and keeps everything that is not ground clear even
+where it crosses the plane); wet blood has the sky in it (Fresnel) and a broad soft sheen, a pool's colour moves with its
+thickness and with the light there, and in shade it is no longer a flat dark.
 
 On Melange 0.6 and later (which has `wum.draw.sprite`, soft textured world sprites) the particles are drawn with textures
 instead of flat triangle fans, which is what made droplets read as hard-edged leaves: a droplet is one sprite of a wet,
