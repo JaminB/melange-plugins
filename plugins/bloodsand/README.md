@@ -54,9 +54,17 @@ shipped — no game file, or anything derived from one.
   streak when it came in low, with drips that run down a wall), and a burst or a heave leaves a pool under the worm
   that spreads over about two seconds. Fresh blood is a wet, glossy bead with a crisp edge: a thin dark line at the rim, a rounded raised shoulder that
   catches the light, a domed middle and darker clots inside; over
-  30 to 60 seconds it dries to a dark matte brown with a clotted rim, and a pool cracks. The decals are a
+  30 to 60 seconds it dries to a dark matte brown with a clotted rim, and a pool cracks. Decals that overlap are one
+  body of blood: the pass combines their edges (a smooth union) and draws one outline, one rim and one shoulder around
+  the whole, so no decal's border shows inside another, and a speck beside a blot runs into it. No two splats are alike:
+  the size has a long tail (tiny specks, many small ones, a few big blots, finer when the hit was fast) and the outline
+  (lobes, lumps, crowns of spikes), the stretch and the number of satellite drops and specks come from the splat's own
+  seed. Blood does not land on a worm (the pass is told where the worms are and keeps clear of a volume around each,
+  floor excepted), nor on smoke, silhouettes or things behind the pool: it takes only surface on the decal's own plane,
+  facing the same way and flat to its neighbours, and fades out as the camera comes close. The decals are a
   depth-projected Post-FX pass, `bloodsand/stains` (PostWorld, order 50, so before Sunstone's effects), with 32 slots
-  on floors, walls and overhangs; the oldest and smallest are recycled first and a speck never pushes out a big blot.
+  on floors, walls and overhangs; the one blood landed in longest ago is recycled first (size counts for a little) and a
+  speck does not push out a pool.
   Because it is projected from the depth buffer it follows the terrain, and a decal disappears where the terrain under
   it is destroyed. Droplets only collide with the terrain on a Melange that has `wum.game.landRay` (0.6); on an older
   one there are only pools, as before. Droplets of every weapon spray and the heavy clots collide; steam and smoke do
@@ -134,7 +142,7 @@ shown. Where the face and the belly are comes from the worm's position and its f
 `"kind": "client-only"` in `spice.json`, with no permissions (`unsafe` is false, `filesystem` is `none`). The mod only
 reads game state and draws, so it cannot change the simulation.
 
-The Post-FX values (the decals' positions and shapes, each bloodied worm's position, facing, blood, wound, eye, gut and
+The Post-FX values (the decals' positions and shapes, each living worm's position for the stains pass, each bloodied worm's position, facing, blood, wound, eye, gut and
 scorch levels, and the points of each hanging gut) are fed with
 `wum.postfx.setTransient`, which Melange neither writes to `Melange.ini` nor logs. The only thing Melange saves is
 an effect being switched on or off, which happens when the first blood appears and when it is cleared.
@@ -151,6 +159,9 @@ four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0
   the camera right on top of the guts. A pass that only copies the screen takes about 0.05 ms of that.
 - **Decals pass**: about 0.03 ms with nothing on the ground, 0.1 ms with a handful of decals and a large pool, and
   about 0.2 ms for a deliberately dense pile of 32 covering a sixth of the screen. It is switched off while there are none.
+  Measured on the same card against the pass as it was before the decals were made one fluid and kept off the worms
+  (interleaved runs, 1080p): 6% more with four decals, and the same (1% less) with 32 covering a third of the screen,
+  because a pixel now combines three decals and shades once instead of shading each of four.
 - **Script**: in a stress test with six worms and explosions, weapon sprays and previews back to back, an average of
   about 0.3 ms a frame on Heavy and 0.4 ms on Absurd. A gutted worm takes under 0.1 ms and six take about 0.3 ms. With
   Blood set to Off it takes under 0.01 ms. A Lua callback may run 500000 VM instructions and Melange stops it for the
@@ -193,9 +204,11 @@ Re-measure with the *Mirage/Post-FX* panel on your own machine.
   ground below them, but they do not collide with other worms or with walls, and at most four gutted worms (the closest
   to the camera) are drawn at once. They are lit by a fixed key light and the camera, not the level's lights. Where the
   opening sits on the belly was set by eye and may need adjusting.
-- Decals are projected from the depth buffer: there are 32 of them, and a pixel shades at most four. Where more than
+- Decals are projected from the depth buffer: there are 32 of them, and a pixel combines at most three. Where more than
   four overlap, the ones that hold the pixel least deeply are dropped (a pool with many splats on it can still show a
-  hard edge here and there), and a decal vanishes where the terrain under it is destroyed. Droplets are tested against the terrain only, not
+  hard edge here and there), and a decal vanishes where the terrain under it is destroyed. Blood is kept off a volume
+  about 19 units wide and 22 high around each worm (so a worm lying down is covered too), and the floor right under it
+  is exempt; a hat or an arm that sticks out of the volume can still be painted if it is on the decal's plane. Droplets are tested against the terrain only, not
   against worms, crates or water.
 - Wounds are placed from a per-match seed, not where the hit landed, and which worms have intestines to show is
   chosen at random each match.

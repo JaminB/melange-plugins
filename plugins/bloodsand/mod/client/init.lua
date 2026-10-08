@@ -86,10 +86,10 @@ local PENDING_SECS = 8          -- a stain waiting for a thrown worm to land is 
 -- Droplet-vs-terrain collision (needs wum.game.landRay) and the decals a landing droplet leaves. Distances are world
 -- units, times seconds.
 local DEC = {
-    SPLAT_MAX = 9,              -- the largest a splat grows to by absorbing blood that lands on it
+    SPLAT_MAX = 11,             -- the largest a splat grows to by absorbing blood that lands on it
     POOL_MAX = 40,
-    BOUND = 1.55,               -- radius of the shader's bounding sphere, in splat radii times (1 + stretch)
-    POOL_BOUND = 1.55,
+    BOUND = 1.65,               -- radius of the shader's bounding sphere, in splat radii times (1 + stretch)
+    POOL_BOUND = 1.65,
     RUN = 2.8,                  -- a wall splat's drips may reach this many radii below it (bound only)
     SPREAD_POOL = 2.2,          -- a pool spreads to full size in about two seconds (rate of an exponential)
     SPREAD_SPLAT = 14,
@@ -97,6 +97,11 @@ local DEC = {
     NEW_PER_FRAME = 4,          -- new decals one frame may start; the rest of the hits only grow what is there
     SENDS_PER_FRAME = 12,       -- slot sends (two setTransient calls at most each) one frame may make
     HIT_SCALE = 1.15,           -- splat radius per unit of droplet size
+    SIZE_SPREAD = 1.5,          -- a hit's size is its droplet's times exp(SIZE_SPREAD * g), g bell-shaped about 0.5 wide: a long tail of big and tiny splats
+    SIZE_SPEED = 0.8,           -- ... and a faster hit spreads wider and breaks up into finer ones (this much more spread, a quarter smaller)
+    SIZE_MIN = 0.3, SIZE_MAX = 3.6,
+    MIN_LIFE = 1.2,             -- a splat is not recycled in its first seconds, however small
+    WORM_SEND = 0.4,            -- a worm's position is sent again to the stains pass when it moved this far (the shader's volume is wider than that)
     -- Terrain rays per frame (the plugin as a whole stays near 64: the intestines take up to PROBE_BUDGET, a pool or a melee
     -- hit a few): droplets get RAY_BUDGET. Heavy
     -- droplets (wider than HEAVY_SIZE or faster than HEAVY_SPEED) are tested first and share HEAVY_RAYS of them; the
@@ -293,8 +298,10 @@ end
 -- ---------------------------------------------------------------- ground decals
 -- == Decals == 32 slots of splats (kind 1) and pools (kind 2), each on a surface of any orientation. A slot is two vec4
 -- params, "dNa" = (x, y, z, bound) and "dNb" = (normal, flow, birth, size-and-kind), packed as stains.frag documents.
--- The Lua keeps the data and owns recycling: oldest and smallest go first, and a speck never evicts a big blot. The
--- shader dries a decal from its birth, p_clock being our own fxClock (it only runs while a match does).
+-- The Lua keeps the data and owns recycling: the one blood last landed in longest ago goes first (size counts for a little,
+-- so that the slots keep the latest splats of every size and not the biggest few), and a speck does not push out a pool.
+-- The shader dries a decal from its birth, p_clock being our own fxClock (it only runs while a match does). The same pass is
+-- told where the living worms are ("w0".."w15", sendWorms), so that it keeps blood off them.
 -- Everything is inside one do-block so the main chunk keeps its few free local-variable slots (Lua allows 200); what
 -- the rest of the file uses is declared here and set below: updateStainEnable, clearStains, requestPool, placeStain,
 -- and the DECALS table (update, resend, zero, cast, splat, rayOK, rayUsed).
@@ -302,12 +309,18 @@ local updateStainEnable, clearStains, requestPool, placeStain
 local DECALS = { rayUsed = 0, rayOK = false, frame = 0, prevHeavy = 0, prevLight = 0, now = 0 }
 do
 local DS = { live = {}, x = {}, y = {}, z = {}, nx = {}, ny = {}, nz = {}, np = {}, r = {}, rt = {}, e = {}, phi = {},
-             birth = {}, seed = {}, kind = {}, thick = {}, dirtyA = {}, dirtyB = {}, sentRq = {} }
-local DEC_A, DEC_B = {}, {}
+             birth = {}, seed = {}, kind = {}, thick = {}, dirtyA = {}, dirtyB = {}, sentRq = {}, r0 = {}, t0 = {},
+             -- the worms the shader keeps blood off (params "w0".."w15"): where each was last sent, and the frame it was last seen
+             wx = {}, wy = {}, wz = {}, wlive = {}, wseen = {}, wtop = 0 }
+local DEC_A, DEC_B, DEC_W = {}, {}, {}
+for i = 1, SKIN_SLOTS do
+    DEC_W[i] = "w" .. (i - 1)
+    DS.wx[i], DS.wy[i], DS.wz[i], DS.wlive[i], DS.wseen[i] = 0, 0, 0, false, 0
+end
 for i = 1, STAIN_SLOTS do
     DEC_A[i], DEC_B[i] = "d" .. (i - 1) .. "a", "d" .. (i - 1) .. "b"
     DS.live[i], DS.dirtyA[i], DS.dirtyB[i], DS.sentRq[i] = false, false, false, -1
-    for _, k in ipairs({ "x", "y", "z", "nx", "ny", "nz", "np", "r", "rt", "e", "phi", "birth", "seed", "kind", "thick" }) do
+    for _, k in ipairs({ "x", "y", "z", "nx", "ny", "nz", "np", "r", "rt", "e", "phi", "birth", "seed", "kind", "thick", "r0", "t0" }) do
         DS[k][i] = 0
     end
 end
@@ -334,6 +347,16 @@ function updateStainEnable()
     sendEnabled(STAINS, decCount > 0 and preset ~= nil and cfg.stains ~= false)
 end
 
+-- No worm for the shader to keep blood off.
+local function zeroWorms()
+    for i = 1, SKIN_SLOTS do
+        DS.wlive[i] = false
+        sendVec4(STAINS, DEC_W[i], 0, 0, 0, 0)
+    end
+    DS.wtop = 0
+    sendParam(STAINS, "wn", 0)
+end
+
 function clearStains()
     for i = 1, STAIN_SLOTS do
         DS.live[i], DS.dirtyA[i], DS.dirtyB[i], DS.sentRq[i] = false, false, false, -1
@@ -342,6 +365,7 @@ function clearStains()
     end
     decCount = 0
     sendParam(STAINS, "count", 0)
+    zeroWorms()
     updateStainEnable()
 end
 
@@ -404,9 +428,12 @@ local function decalSend(i)
     end
 end
 
--- What a slot is worth keeping: big and fresh blood stays.
+-- What a slot is worth keeping: mostly how recently blood last landed in it, and a little its size (and a pool is worth more).
+-- A weight that favoured size would leave the 32 slots to the biggest few splats of a fight, all of about the same size: the
+-- ones kept are meant to be the latest ones, with all the sizes there were. A new decal is not put in the place of one
+-- that is under DEC.MIN_LIFE seconds old (a pool is).
 local function decalWeight(i)
-    return DS.rt[i] * (1 + 4 * math.exp(-(fxClock - DS.birth[i]) / 60))
+    return (0.3 + 2 * math.exp(-(fxClock - DS.birth[i]) / 25)) * (1 + 0.04 * min(DS.rt[i], 40)) * (DS.kind[i] == 2 and 1.6 or 1)
 end
 
 -- Puts a decal (kind 1 splat, 2 pool) with the blood landing at (hx, hy, hz) and its shape centred at (cx, cy, cz). A decal
@@ -414,7 +441,7 @@ end
 -- must be a unit vector. Returns the slot or nil.
 local function decalAdd(kind, hx, hy, hz, cx, cy, cz, nx, ny, nz, r, e, phi, thick)
     local qx, qy, qz, np = quantNormal(nx, ny, nz)
-    local best, bestD
+    local best, bestD, bestReach
     for i = 1, STAIN_SLOTS do
         -- A pool only joins a pool; a splat joins either.
         if DS.live[i] and (kind == 1 or DS.kind[i] == 2) and DS.nx[i] * qx + DS.ny[i] * qy + DS.nz[i] * qz > 0.85 then
@@ -425,16 +452,20 @@ local function decalAdd(kind, hx, hy, hz, cx, cy, cz, nx, ny, nz, r, e, phi, thi
             if abs(h) < 0.5 * rt + 2.5 then
                 local px, py, pz = dx - mx * h, dy - my * h, dz - mz * h
                 local d2 = px * px + py * py + pz * pz
-                local reach = max(rt * 0.8 * (1 + 0.3 * DS.e[i]), DEC.MIN_MERGE)
-                if d2 < reach * reach and (not bestD or d2 < bestD) then best, bestD = i, d2 end
+                -- (A tiny speck joins only what it lands in or right beside; it does not melt into a blot two units away.)
+                local reach = max(rt * 0.8 * (1 + 0.3 * DS.e[i]), kind == 1 and min(DEC.MIN_MERGE, 0.4 + 1.1 * r) or DEC.MIN_MERGE)
+                if d2 < reach * reach and (not bestD or d2 < bestD) then best, bestD, bestReach = i, d2, reach end
             end
         end
     end
     if best then
         local i = best
         local rt = DS.rt[i]
-        local cap = DS.kind[i] == 2 and DEC.POOL_MAX or DEC.SPLAT_MAX
-        local grown = min(cap, sqrt(rt * rt + r * r * (DS.kind[i] == 2 and 0.25 or 0.35)))
+        -- A splat grows by what lands near its edge, not by what lands in its middle, and no further than about half as much again
+        -- as it started as (a big blot comes from a big hit): the sizes stay as varied as the hits were.
+        local cap = DS.kind[i] == 2 and DEC.POOL_MAX or min(DEC.SPLAT_MAX, 0.5 + 1.5 * DS.r0[i])
+        local edgeHit = min(1, max(0, (sqrt(bestD) / bestReach - 0.35) / 0.65))
+        local grown = min(cap, sqrt(rt * rt + r * r * (DS.kind[i] == 2 and 0.25 or 0.35) * edgeHit))
         if grown > rt * 1.005 then
             DS.rt[i] = grown
             DS.dirtyA[i], DS.dirtyB[i] = true, true
@@ -457,11 +488,13 @@ local function decalAdd(kind, hx, hy, hz, cx, cy, cz, nx, ny, nz, r, e, phi, thi
     if not slot then
         local lowest
         for i = 1, STAIN_SLOTS do
-            local w = decalWeight(i)
-            if not lowest or w < lowest then slot, lowest = i, w end
+            if kind == 2 or fxClock - DS.t0[i] >= DEC.MIN_LIFE then
+                local w = decalWeight(i)
+                if not lowest or w < lowest then slot, lowest = i, w end
+            end
         end
-        -- A speck does not push out anything that is worth more than it.
-        if r * 5 < lowest * 0.6 then return nil end
+        -- Everything is too new, or a speck does not push out anything that is worth more than it.
+        if not slot or 2.3 * (1 + 0.04 * min(r, 40)) < lowest * 0.6 then return nil end
     else
         decCount = decCount + 1
     end
@@ -469,7 +502,8 @@ local function decalAdd(kind, hx, hy, hz, cx, cy, cz, nx, ny, nz, r, e, phi, thi
     DS.live[slot] = true
     DS.x[slot], DS.y[slot], DS.z[slot] = cx, cy, cz
     DS.nx[slot], DS.ny[slot], DS.nz[slot], DS.np[slot] = qx, qy, qz, np
-    DS.rt[slot], DS.e[slot], DS.phi[slot], DS.kind[slot], DS.thick[slot] = r, e, phi, kind, thick
+    DS.rt[slot], DS.e[slot], DS.phi[slot], DS.kind[slot], DS.thick[slot], DS.r0[slot] = r, e, phi, kind, thick, r
+    DS.t0[slot] = fxClock
     DS.r[slot] = r * (kind == 2 and 0.15 or 0.6)
     DS.birth[slot] = fxClock
     DS.seed[slot] = random(0, 255)
@@ -495,18 +529,24 @@ local function decalSplat(x, y, z, nx, ny, nz, vx, vy, vz, size)
         end
     end
     local ts = sqrt(tvx * tvx + tvy * tvy + tvz * tvz)
-    local r = size * DEC.HIT_SCALE * (1 + 0.5 * min(vn, 300) / 300)
+    -- A droplet's size says little about the splat it leaves: the size is spread over a long tail (a few big blots, many
+    -- small ones, specks), and the faster the hit the wider the spread and the finer the splat on average.
+    local sf = min(sqrt(vx * vx + vy * vy + vz * vz), 400) / 400
+    local g = random() + random() + random() - 1.5
+    local k = max(DEC.SIZE_MIN, min(DEC.SIZE_MAX, math.exp(g * (DEC.SIZE_SPREAD + DEC.SIZE_SPEED * sf)) * (1 - 0.25 * sf)))
+    local r = size * DEC.HIT_SCALE * (1 + 0.5 * min(vn, 300) / 300) * k
     local e, phi = 0, 0
     local fx, fy, fz = 0, 0, 0
     if ts > 2 then
         local qx, qy, qz = quantNormal(nx, ny, nz)
         local tx, ty, tz, bx, by, bz = tangentFrame(qx, qy, qz)
-        e = max(0, min(3.5, ts / max(vn, 10) * 0.55 - 0.1)) + (wall and 0.4 or 0)
+        -- Elongation varies from splat to splat too.
+        e = max(0, min(3.5, (ts / max(vn, 10) * 0.55 - 0.1) * (0.55 + 0.9 * random()))) + (wall and 0.4 or 0)
         local u, v = (tvx * tx + tvy * ty + tvz * tz) / ts, (tvx * bx + tvy * by + tvz * bz) / ts
         phi = math.atan(v, u) % (2 * pi)
         fx, fy, fz = (tx * u + bx * v) * r * e, (ty * u + by * v) * r * e, (tz * u + bz * v) * r * e
     end
-    local thick = min(15, max(4, floor(size * 3.5 + 2)))
+    local thick = min(15, max(4, floor(size * 3.5 + 2 + random() * 4 - 2)))
     return decalAdd(1, x, y, z, x + fx, y + fy, z + fz, nx, ny, nz, min(r, DEC.SPLAT_MAX), e, phi, thick)
 end
 
@@ -520,8 +560,37 @@ local function sendCount()
     sendParam(STAINS, "count", top)
 end
 
-function DECALS.update(dt)
+-- Tells the stains pass where the living worms are, so that blood does not land on them (see stains.frag): the middle of
+-- each body, sent again when it moved WORM_SEND, and zeros for the slots that are gone. `slots` is the plugin's table of
+-- tracked worms and `frameId` the frame they were seen in.
+local function sendWorms(slots, frameId)
+    local top = 0
+    local mv = DEC.WORM_SEND
+    for slot, s in pairs(slots) do
+        local i = slot + 1
+        if s.seen == frameId and s.alive and i >= 1 and i <= SKIN_SLOTS then
+            local x, y, z = s.px, s.py + CENTRE_Y, s.pz
+            DS.wseen[i] = frameId
+            if i > top then top = i end
+            if not DS.wlive[i] or abs(x - DS.wx[i]) > mv or abs(y - DS.wy[i]) > mv or abs(z - DS.wz[i]) > mv then
+                DS.wlive[i], DS.wx[i], DS.wy[i], DS.wz[i] = true, x, y, z
+                sendVec4(STAINS, DEC_W[i], x, y, z, 1)
+            end
+        end
+    end
+    for i = 1, SKIN_SLOTS do
+        if DS.wseen[i] ~= frameId then
+            DS.wlive[i] = false
+            sendVec4(STAINS, DEC_W[i], 0, 0, 0, 0)
+        end
+    end
+    DS.wtop = top
+    sendParam(STAINS, "wn", top)
+end
+
+function DECALS.update(dt, slots, frameId)
     fxClock = fxClock + dt
+    if decCount > 0 and slots then sendWorms(slots, frameId) end
     for i = 1, STAIN_SLOTS do
         if DS.live[i] then
             local r, rt = DS.r[i], DS.rt[i]
@@ -561,7 +630,12 @@ function DECALS.resend(first, last)
 end
 
 function DECALS.resendMisc()
-    STAINS.cache.clock, STAINS.cache.count, STAINS.cache.blood = nil, nil, nil
+    STAINS.cache.clock, STAINS.cache.count, STAINS.cache.blood, STAINS.cache.wn = nil, nil, nil, nil
+    -- The worms go out at the next frame (which finds their cache empty), and the empty ones are zeroed there.
+    for i = 1, SKIN_SLOTS do
+        STAINS.cache[DEC_W[i]] = nil
+        DS.wlive[i] = false
+    end
     sendParam(STAINS, "clock", fxClock)
     sendCount()
 end
@@ -572,6 +646,7 @@ function DECALS.zero()
         sendVec4(STAINS, DEC_B[i], 0, 0, 0, 0)
     end
     sendParam(STAINS, "count", 0)
+    zeroWorms()
 end
 
 -- The terrain ray. wum.game.landRay is new in Melange 0.6; without it (or when it says it is unavailable) droplets fly on
@@ -3089,7 +3164,7 @@ local function onWorld()
     VIS.updateGuts()
     MEL.tick(dt)
     simulate(dt)
-    DECALS.update(dt)
+    DECALS.update(dt, slots, frameId)
     drawGuts()
     ageSplats(dt)
     MEL.resendStep()
