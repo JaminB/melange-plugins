@@ -17,6 +17,11 @@
 //
 // Structure: one cheap test per slot (a world-space bounding sphere) collects at most four candidates; the long
 // shading runs once per candidate, in a loop of four. Sky, silhouettes and pixels with no candidate leave early.
+//
+// When more than four spheres hold a pixel, the four that hold it deepest (squared distance to the centre over the squared
+// radius) are kept. That rank does not depend on the order of the slots and changes smoothly across the screen, so the one
+// that is dropped is the one fading out at its own edge, not a whole decal cut off along some other sphere's circle. The four
+// are then drawn in slot order, as they always were: the highest slot first, the lowest on top.
 uniform sampler2D mg_scene;
 uniform sampler2D mg_depth;
 uniform mat4 mg_invProj;
@@ -117,7 +122,7 @@ void Decal(vec3 Pw, vec3 Pv, vec3 nW, float pxw, vec4 A, vec4 B, inout vec3 col)
 
     // The tail of a long streak breaks into beads.
     float tailAmt = smoothstep(0.35, 1.0, s) * clamp(E - 0.6, 0.0, 1.0) * (1.0 - isPool);
-    body *= mix(1.0, smoothstep(0.3, 0.52, VN(vec2(s * 5.0 + seed, c * 2.5 / R))), tailAmt);
+    if (tailAmt > 0.0) body *= mix(1.0, smoothstep(0.3, 0.52, VN(vec2(s * 5.0 + seed, c * 2.5 / R))), tailAmt);
 
     // Thick in the middle, thin at the edge, a raised bead on the rim.
     float tk = 0.4 + 0.6 * thick;
@@ -126,8 +131,9 @@ void Decal(vec3 Pw, vec3 Pv, vec3 nW, float pxw, vec4 A, vec4 B, inout vec3 col)
     float cov = body;
 
     // Satellite droplets thrown past the edge; more of them the rounder and steeper the impact.
+    // (Not on a speck under two units: its satellites are a pixel or two.)
     float sat = 0.0;
-    if (isPool < 0.5) {
+    if (isPool < 0.5 && R >= 2.0) {
         vec2 sq = vec2(a / (1.0 + E * 0.6), c) / max(R * 0.32, 0.35);
         vec2 id = floor(sq);
         vec2 f = fract(sq);
@@ -147,7 +153,7 @@ void Decal(vec3 Pw, vec3 Pv, vec3 nW, float pxw, vec4 A, vec4 B, inout vec3 col)
     float isDrip = 0.0;
     // Runs down a wall: up to three drips that lengthen as the blood ages, each ending in a bead.
     float wall = (1.0 - smoothstep(0.5, 0.78, N.y)) * smoothstep(-0.35, -0.05, N.y) * (1.0 - isPool);
-    if (wall > 0.0) {
+    if (wall > 0.0 && R >= 1.2) {
         float grow = 1.0 - exp(-age * 0.1);
         float dn = -v;
         float dripCov = 0.0;
@@ -220,8 +226,13 @@ void Decal(vec3 Pw, vec3 Pv, vec3 nW, float pxw, vec4 A, vec4 B, inout vec3 col)
     // A drip is a round rod: its normal tilts across it.
     outw = mix(outw, T * dripSide * 0.8, isDrip);
     float wet = (1.0 - dry) * p_gloss;
-    float bump = (VN(vec2(u, v) * (7.0 / R) + seed * 1.7) - 0.5);
-    float bump2 = (VN(vec2(v, u) * (7.0 / R) + seed * 2.9 + 11.0) - 0.5);
+    // The bumps only matter while the blood is wet, and a second one only on a decal big enough to show it.
+    float bump = 0.0;
+    float bump2 = 0.0;
+    if (dry < 0.98) {
+        bump = VN(vec2(u, v) * (7.0 / R) + seed * 1.7) - 0.5;
+        if (R >= 2.0) bump2 = VN(vec2(v, u) * (7.0 / R) + seed * 2.9 + 11.0) - 0.5;
+    }
     vec3 Nb = normalize(N - outw * (0.85 * th) + (T * bump + Bt * bump2) * (0.2 + 0.2 * isPool) * (1.0 - dry));
     mat3 Rv = mat3(mg_view);
     vec3 Nv = Rv * Nb;
@@ -243,7 +254,12 @@ void Decal(vec3 Pw, vec3 Pv, vec3 nW, float pxw, vec4 A, vec4 B, inout vec3 col)
     col = mix(col, base, alpha) + vec3(1.0, 0.5, 0.5) * specAmt * alpha;
 }
 
-#define SLOT(A, B) if (A.w > 0.0) { vec3 q_ = Pw - A.xyz; if (dot(q_, q_) < A.w * A.w) { cA3 = cA2; cB3 = cB2; cA2 = cA1; cB2 = cB1; cA1 = cA0; cB1 = cB0; cA0 = A; cB0 = B; cnt += 1.0; } }
+// A slot whose sphere holds the pixel offers itself (A, B, its number I) to the four places; the one with the highest rank
+// (the shallowest hold) gives up its place if the offer is deeper. An empty place has rank 2.
+#define SLOT(A, B, I) if (A.w > 0.0) { vec3 q_ = Pw - A.xyz; float k_ = dot(q_, q_) / (A.w * A.w); if (k_ < 1.0) { cnt += 1.0; if (k0 >= k1 && k0 >= k2 && k0 >= k3) { if (k_ < k0) { k0 = k_; cA0 = A; cB0 = B; cI0 = I; } } else if (k1 >= k2 && k1 >= k3) { if (k_ < k1) { k1 = k_; cA1 = A; cB1 = B; cI1 = I; } } else if (k2 >= k3) { if (k_ < k2) { k2 = k_; cA2 = A; cB2 = B; cI2 = I; } } else { if (k_ < k3) { k3 = k_; cA3 = A; cB3 = B; cI3 = I; } } } }
+
+// Puts the higher slot number first.
+#define CAS(IA, AA, BA, IB, AB, BB) if (IA < IB) { float ti_ = IA; IA = IB; IB = ti_; vec4 ta_ = AA; AA = AB; AB = ta_; vec4 tb_ = BA; BA = BB; BB = tb_; }
 
 void main() {
     vec4 scene = texture2D(mg_scene, mg_uv);
@@ -281,28 +297,39 @@ void main() {
 
     vec4 cA0 = vec4(0.0), cA1 = vec4(0.0), cA2 = vec4(0.0), cA3 = vec4(0.0);
     vec4 cB0 = vec4(0.0), cB1 = vec4(0.0), cB2 = vec4(0.0), cB3 = vec4(0.0);
+    float k0 = 2.0, k1 = 2.0, k2 = 2.0, k3 = 2.0;
+    float cI0 = -1.0, cI1 = -1.0, cI2 = -1.0, cI3 = -1.0;
     float cnt = 0.0;
     if (p_count > 0.5) {
-        SLOT(p_d0a, p_d0b) SLOT(p_d1a, p_d1b) SLOT(p_d2a, p_d2b) SLOT(p_d3a, p_d3b)
-        SLOT(p_d4a, p_d4b) SLOT(p_d5a, p_d5b) SLOT(p_d6a, p_d6b) SLOT(p_d7a, p_d7b)
+        SLOT(p_d0a, p_d0b, 0.0) SLOT(p_d1a, p_d1b, 1.0) SLOT(p_d2a, p_d2b, 2.0) SLOT(p_d3a, p_d3b, 3.0)
+        SLOT(p_d4a, p_d4b, 4.0) SLOT(p_d5a, p_d5b, 5.0) SLOT(p_d6a, p_d6b, 6.0) SLOT(p_d7a, p_d7b, 7.0)
     }
     if (p_count > 8.5) {
-        SLOT(p_d8a, p_d8b) SLOT(p_d9a, p_d9b) SLOT(p_d10a, p_d10b) SLOT(p_d11a, p_d11b)
-        SLOT(p_d12a, p_d12b) SLOT(p_d13a, p_d13b) SLOT(p_d14a, p_d14b) SLOT(p_d15a, p_d15b)
+        SLOT(p_d8a, p_d8b, 8.0) SLOT(p_d9a, p_d9b, 9.0) SLOT(p_d10a, p_d10b, 10.0) SLOT(p_d11a, p_d11b, 11.0)
+        SLOT(p_d12a, p_d12b, 12.0) SLOT(p_d13a, p_d13b, 13.0) SLOT(p_d14a, p_d14b, 14.0) SLOT(p_d15a, p_d15b, 15.0)
     }
     if (p_count > 16.5) {
-        SLOT(p_d16a, p_d16b) SLOT(p_d17a, p_d17b) SLOT(p_d18a, p_d18b) SLOT(p_d19a, p_d19b)
-        SLOT(p_d20a, p_d20b) SLOT(p_d21a, p_d21b) SLOT(p_d22a, p_d22b) SLOT(p_d23a, p_d23b)
+        SLOT(p_d16a, p_d16b, 16.0) SLOT(p_d17a, p_d17b, 17.0) SLOT(p_d18a, p_d18b, 18.0) SLOT(p_d19a, p_d19b, 19.0)
+        SLOT(p_d20a, p_d20b, 20.0) SLOT(p_d21a, p_d21b, 21.0) SLOT(p_d22a, p_d22b, 22.0) SLOT(p_d23a, p_d23b, 23.0)
     }
     if (p_count > 24.5) {
-        SLOT(p_d24a, p_d24b) SLOT(p_d25a, p_d25b) SLOT(p_d26a, p_d26b) SLOT(p_d27a, p_d27b)
-        SLOT(p_d28a, p_d28b) SLOT(p_d29a, p_d29b) SLOT(p_d30a, p_d30b) SLOT(p_d31a, p_d31b)
+        SLOT(p_d24a, p_d24b, 24.0) SLOT(p_d25a, p_d25b, 25.0) SLOT(p_d26a, p_d26b, 26.0) SLOT(p_d27a, p_d27b, 27.0)
+        SLOT(p_d28a, p_d28b, 28.0) SLOT(p_d29a, p_d29b, 29.0) SLOT(p_d30a, p_d30b, 30.0) SLOT(p_d31a, p_d31b, 31.0)
     }
     if (cnt < 0.5) {
         gl_FragColor = scene;
         return;
     }
 
+    // The kept ones in slot order: a sorting network, the highest slot first.
+    if (cnt > 1.5) {
+        CAS(cI0, cA0, cB0, cI1, cA1, cB1)
+        CAS(cI2, cA2, cB2, cI3, cA3, cB3)
+        CAS(cI0, cA0, cB0, cI2, cA2, cB2)
+        CAS(cI1, cA1, cB1, cI3, cA3, cB3)
+        CAS(cI1, cA1, cB1, cI2, cA2, cB2)
+    }
+    cnt = min(cnt, 4.0);
     float pxw = length(dPx);
     vec3 col = scene.rgb;
     for (int k = 0; k < 4; k++) {
