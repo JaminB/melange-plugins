@@ -539,7 +539,7 @@ void main() {
         iris *= 0.7 + 0.6 * Noise3(vec3(atan(pl.z, pl.y) * 3.0, r * 9.0, seed));
         albedo = mix(albedo, iris, irisM);
         albedo = mix(albedo, vec3(0.01), (1.0 - smoothstep(0.16, 0.19, r)) * smoothstep(0.55, 0.7, front));
-        albedo = mix(albedo, vec3(0.7, 0.3, 0.3), smoothstep(-0.65, -1.0, front) * 0.9);
+        albedo = mix(albedo, vec3(0.7, 0.3, 0.3), (1.0 - smoothstep(-1.0, -0.65, front)) * 0.9);
         albedo = mix(albedo, p_blood * 1.2, 0.5 * GD.w * smoothstep(0.55, 0.85, Noise3(pl * (1.0 / h.x) + seed * 2.0)) * (1.0 - 0.8 * irisM));
         gloss = 1.0;
         sssK = 0.6;

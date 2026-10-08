@@ -246,10 +246,10 @@ void Streak(float u, float v, float a, float c, float cp, float sp, float h, flo
         float wt = w * tapO;
         float stripe = VN(vec2(a * 0.17 + seed * 3.1, c * 1.8 + seed));
         float q = abs(c) / max(wt, 0.05);
-        float patch = VN(vec2(a * 0.06 + seed * 5.3, 1.7));      // where the hand pressed hard and where it skimmed
-        float gap = smoothstep(0.45, 0.85, q * (0.6 + 0.6 * (1.0 - patch)) + (0.5 - stripe) * 1.1 + (1.0 - tapO) * 0.7);
+        float press = VN(vec2(a * 0.06 + seed * 5.3, 1.7));      // where the hand pressed hard and where it skimmed
+        float gap = smoothstep(0.45, 0.85, q * (0.6 + 0.6 * (1.0 - press)) + (0.5 - stripe) * 1.1 + (1.0 - tapO) * 0.7);
         float fib = VN(vec2(a * 0.28 + seed * 2.3, c * 2.8 + seed * 0.7));
-        float skim = (1.0 - smoothstep(0.16, 0.32, fib)) * smoothstep(0.3, 0.8, (1.0 - patch) + (1.0 - tapO));   // lines the drag skipped
+        float skim = (1.0 - smoothstep(0.16, 0.32, fib)) * smoothstep(0.3, 0.8, (1.0 - press) + (1.0 - tapO));   // lines the drag skipped
         F = min(wt - abs(c), (Lh - a) + 0.35 * R * (VN(vec2(c * 2.0 + seed, 3.3)) - 0.5))
           - gap * w * 0.9 - skim * w * 0.8 + 0.25 * R * (VN(vec2(a * 1.3 + seed, c * 0.9)) - 0.5);
         Rl = max(wt, 0.7 * R);

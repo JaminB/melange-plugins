@@ -633,36 +633,48 @@ DEC.TRAIL_SEND = 1.2            -- a piece's length is sent again when it grew t
 -- Starts a piece at (sx, sy, sz) on a surface of unit normal (nx, ny, nz). kind 3 or 4; hw the half-width (the size of the
 -- drips for 3); thick 0..7 (the density of the drips for 3); cap the most pieces there may be. Returns the slot and its
 -- generation, or nil. Send it its direction and length with DECALS.trailSet at once. When every slot is in use it takes the
--- place of the least valuable splat worth under push (DEC.TRAIL_PUSH when not given), or of the oldest piece; hold seconds,
--- when given, keep other decals from taking its place so easily (decalWeight).
+-- place of the least valuable splat (the mirror of the rule in decalAdd: any splat older than DEC.MIN_LIFE while there are fewer
+-- pieces than cap and pools and pieces take no more than DEC.KEEP_SLOTS slots, so that a worm that spurts cannot keep its own
+-- trail from starting; else one worth under push, DEC.TRAIL_PUSH when not given), and it never takes the place of a piece unless
+-- the cap is reached, when it is the oldest piece. A piece that is held (hold seconds, when given) is neither counted against the cap
+-- nor taken, and other decals take its place less easily (decalWeight): a grave's smears are not a walker's trail to recycle.
 function DECALS.trailNew(kind, sx, sy, sz, nx, ny, nz, hw, thick, cap, push, hold)
     local qx, qy, qz, np = quantNormal(nx, ny, nz)
-    local nTrail, oldest, oldestT, free = 0, nil, nil, nil
+    local nTrail, nHeld, nPool, oldestU, oldestUT, free = 0, 0, 0, nil, nil, nil
     for i = 1, STAIN_SLOTS do
         if DS.live[i] then
-            if DS.kind[i] >= 3 then
-                nTrail = nTrail + 1
-                if not oldest or DS.t0[i] < oldestT then oldest, oldestT = i, DS.t0[i] end
+            local k = DS.kind[i]
+            if k >= 3 then
+                -- (a piece that is held, a grave's smear, is not counted against the cap: it is no walker's)
+                if fxClock >= DS.hold[i] then
+                    nTrail = nTrail + 1
+                    if not oldestU or DS.t0[i] < oldestUT then oldestU, oldestUT = i, DS.t0[i] end
+                else
+                    nHeld = nHeld + 1
+                end
+            elseif k == 2 then
+                nPool = nPool + 1
             end
         elseif not free then
             free = i
         end
     end
     local slot
-    if nTrail >= cap and oldest then
-        slot = oldest
+    if nTrail >= cap and oldestU then
+        slot = oldestU
     elseif free then
         slot = free
         decCount = decCount + 1
     else
+        local limit = push or DEC.TRAIL_PUSH
+        if nTrail < cap and nPool + nTrail + nHeld <= DEC.KEEP_SLOTS then limit = 1e9 end
         local lowest
         for i = 1, STAIN_SLOTS do
             if DS.kind[i] == 1 and (push or fxClock - DS.t0[i] >= DEC.MIN_LIFE) then
                 local w = decalWeight(i)
-                if w < (push or DEC.TRAIL_PUSH) and (not lowest or w < lowest) then slot, lowest = i, w end
+                if w < limit and (not lowest or w < lowest) then slot, lowest = i, w end
             end
         end
-        slot = slot or oldest
         if not slot then return nil end
     end
     DS.live[slot] = true
@@ -2817,7 +2829,22 @@ local GUT_R, GUT_Y = 5.5, -6.5      -- skin.frag's belly cylinder: its radius an
 -- of its ellipsoid-normalised space qu / (SH_RX, SH_RY, SH_RX), so the point is that ray meeting the body (BODY_RX, BODY_RY),
 -- not the body's point of the same unit direction (which is up to 0.14 of a unit direction off at the upper sites). The belly
 -- opening is on the shader's cylinder: radius GUT_R, GUT_Y above the middle (sites_check.lua in the tooling compares both).
-local function sitesOf(slot, out)
+local sitesOf
+do
+-- (Hoisted out of sitesOf so that no closure is made per call: this runs every frame for every spurting worm.)
+local function sitePut(out, n, px, py, pz, ch, sh, qx, qy, qz, mx, my, mz, open, gut)
+    n = n + 1
+    local e = out[n]
+    if not e then
+        e = {}
+        out[n] = e
+    end
+    e.x, e.y, e.z = px + qx * ch + qz * sh, py + qy, pz - qx * sh + qz * ch
+    e.nx, e.ny, e.nz = mx * ch + mz * sh, my, -mx * sh + mz * ch
+    e.open, e.gut = open, gut
+    return n
+end
+function sitesOf(slot, out)
     out = out or {}
     local s = slots[slot]
     if not s or not s.alive then return 0, out end
@@ -2826,19 +2853,8 @@ local function sitesOf(slot, out)
     local H = s.heading
     local ch, sh = cos(H), sin(H)
     local px, py, pz = s.px, s.py + CENTRE_Y, s.pz
-    -- A point (qx, qy, qz) and unit normal (mx, my, mz) in the worm's frame (it faces +Z) to the world: the inverse of the
-    -- shader's rotation about Y.
-    local function put(qx, qy, qz, mx, my, mz, open, gut)
-        n = n + 1
-        local e = out[n]
-        if not e then
-            e = {}
-            out[n] = e
-        end
-        e.x, e.y, e.z = px + qx * ch + qz * sh, py + qy, pz - qx * sh + qz * ch
-        e.nx, e.ny, e.nz = mx * ch + mz * sh, my, -mx * sh + mz * ch
-        e.open, e.gut = open, gut
-    end
+    -- (sitePut puts a point (qx, qy, qz) and unit normal (mx, my, mz) in the worm's frame, which faces +Z, into the world: the
+    -- inverse of the shader's rotation about Y.)
     for k = 0, 4 do
         local o = (s.wound - k / 5) * 5
         if o > 0 then
@@ -2852,14 +2868,15 @@ local function sitesOf(slot, out)
             local qx, qy, qz = lx * SH_RX * t, ly * SH_RY * t, lz * SH_RX * t
             local mx, my, mz = qx / (BODY_RX * BODY_RX), qy / (BODY_RY * BODY_RY), qz / (BODY_RX * BODY_RX)
             local ml = sqrt(mx * mx + my * my + mz * mz)
-            put(qx, qy, qz, mx / ml, my / ml, mz / ml, o, false)
+            n = sitePut(out, n, px, py, pz, ch, sh, qx, qy, qz, mx / ml, my / ml, mz / ml, o, false)
         end
     end
     if s.gut > 0 then
         local a = s.gutAz
-        put(sin(a) * GUT_R, GUT_Y, cos(a) * GUT_R, sin(a), 0, cos(a), min(1, 0.4 + s.gut * 0.6), true)
+        n = sitePut(out, n, px, py, pz, ch, sh, sin(a) * GUT_R, GUT_Y, cos(a) * GUT_R, sin(a), 0, cos(a), min(1, 0.4 + s.gut * 0.6), true)
     end
     return n, out
+end
 end
 
 -- Per-slot gut state. The arrays are made once and reused.
@@ -3586,6 +3603,7 @@ local PTC = {
     DYING_POOL = { 15, 20 },    -- radii, at Heavy
     GRAVE_DELAY = 1.1, GRAVE_POOL = 16, GRAVE_SECS = 5, GRAVE_HOLD = 8,
     GROW_MAX = 12, GRAVE_MAX = 4,
+    CALM_VY = 30, CALM_SECS = 0.4,   -- without landRay: a vertical speed over this is a worm off the ground; calm this long puts it back
 }
 -- Per amount: the most trail pieces there may be (of the 32 slots), the pool size, trail width and drip density factors, the smears
 -- around a grave and the specks of spatter.
@@ -3631,7 +3649,10 @@ end
 local function addGrower(slot, r0, r1, secs, fresh)
     local key = DECALS.poolKey(slot)
     if not key then return nil end
-    if #grow >= PTC.GROW_MAX then table.remove(grow, 1) end
+    if #grow >= PTC.GROW_MAX then
+        grow[1].done = true
+        table.remove(grow, 1)
+    end
     local g = { slot = slot, key = key, t0 = now, secs = secs, r0 = r0, r1 = r1, cur = r0, fresh = fresh }
     grow[#grow + 1] = g
     return g
@@ -3645,7 +3666,10 @@ local function startPool(st, x, y, z, r0, r1, secs, fresh)
         g.r0, g.t0, g.secs, g.r1, g.fresh = g.cur, now, secs, max(g.r1, r1), fresh
         if g.done then
             g.done = nil
-            if #grow >= PTC.GROW_MAX then table.remove(grow, 1) end
+            if #grow >= PTC.GROW_MAX then
+                grow[1].done = true
+                table.remove(grow, 1)
+            end
             grow[#grow + 1] = g
         end
         return
@@ -3770,6 +3794,23 @@ function PT.track(s, dt)
         closePiece(st)
         st.lx = nil
         return
+    end
+    if not DECALS.rayOK then
+        -- Without landRay the ground under the worm is taken to be its own height, which is only so while it walks: once it has
+        -- left the ground (a fast rise or fall) nothing is laid until it has been calm for a moment (the apex of a jump is slow too).
+        if abs(vy) > PTC.CALM_VY then
+            st.air, st.calm = true, 0
+        elseif st.air then
+            st.calm = st.calm + dt
+            if st.calm >= PTC.CALM_SECS then st.air = nil end
+        end
+        if st.air then
+            closePiece(st)
+            st.lx = nil
+            return
+        end
+    else
+        st.air = nil
     end
     if hs2 > PTC.MOVE_MIN * PTC.MOVE_MIN and hs2 < PTC.MOVE_MAX * PTC.MOVE_MAX and abs(vy) < PTC.RISE_MAX then
         local cx, cz = st.cx, st.cz
@@ -4882,14 +4923,15 @@ local function settleTurn(i, nx, ny, nz, step)
     local h1, h2, h3 = H1[i], H2[i], H3[i]
     local hm = min(h1, min(h2, h3))
     local best, bk, bsign = -1, 1, 1
-    local hs = { h1, h2, h3 }
+    local bh = h1
     for k = 1, 3 do
+        local hk = k == 1 and h1 or (k == 2 and h2 or h3)
         local ax, ay, az = localAxis(i, k)
         local d = ax * nx + ay * ny + az * nz
-        local sc = abs(d) * (hm / hs[k]) ^ 1.6
-        if sc > best then best, bk, bsign = sc, k, d < 0 and -1 or 1 end
+        local sc = abs(d) * (hm / hk) ^ 1.6
+        if sc > best then best, bk, bsign, bh = sc, k, d < 0 and -1 or 1, hk end
     end
-    local hk = hs[bk]
+    local hk = bh
     if kind == BONE then hk = (h2 + h3) * 0.5 end
     F.axis[i], F.hrT[i] = bk, hk * 0.86
     return turnAxis(i, bk, bsign, nx, ny, nz, step)
