@@ -84,6 +84,16 @@ thin parts instead of fading into a pale outlined ghost; droplets are thin strea
 own colour instead of petals with a lighter rim and a dot, and the fire punch throws a few small burnt flakes
 instead of a cloud of black confetti. Without Melange's Post-FX API the plugin no longer stops at load.
 
+On Melange 0.6 and later (which has `wum.draw.sprite`, soft textured world sprites) the particles are drawn with textures
+instead of flat triangle fans, which is what made droplets read as hard-edged leaves: a droplet is one sprite of a wet,
+shaded teardrop (a dense core, a soft edge about a pixel and a half wide, a dark rim, a baked glint and a tail that thins
+out) stretched along its velocity, a heavy clot is a lumpy glossy blob (four shapes), mist and steam are soft rotated puffs
+of noise (three and two shapes), burnt flakes are ragged flecks (two), and a big close droplet also gets a small additive
+white spark. All tinted per particle with the blood colour (so green blood works), at the same sizes, stretch, near-camera
+fade and size limits as before. Each is one call instead of two to six quads, so the script's instruction count drops by a
+quarter to a third on a big blast. On older Melange, or if a texture will not load, the fans are drawn as in the earlier 1.2 builds.
+The fourteen small textures (`mod/textures/bs_*.png`, about 155 KB) are made by `tools/make_blood_sprites.js`.
+
 ## 1.1.3
 
 Runs on Melange 0.5. No other change.

@@ -18,6 +18,10 @@ shipped — no game file, or anything derived from one.
   camera. Mist is a fine red haze of soft blobs (several translucent fans, each smaller and denser than the last, with
   an irregular outline). Nothing is drawn nearer than 12 world units to the camera, and what is a little further fades
   in and is held to a size, so a droplet that flies past the lens is never a huge flat shape.
+  On Melange 0.6 and later all of this is drawn with soft textured sprites (`wum.draw.sprite`) instead of triangle fans:
+  one sprite per droplet, a shaded wet teardrop with a dark rim and a glint, stretched along its flight; a lumpy glossy
+  blob for a clot; soft rotated puffs for mist and steam; a ragged fleck for char; each tinted by the particle's colour.
+  The fans above are the fallback when that call or a texture is missing.
 - **Bleeding**: a wounded worm keeps dripping for a while after the hit.
 - **Death**: a worm that dies throws a larger burst, with more mist and a ring of heavy clots that carry past the smoke
   and splat round the crater, and leaves a big pool in the crater. It is shown when the worm blows up. A worm whose
@@ -224,7 +228,12 @@ four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0
   worms in one Absurd blast (with the camera right on top of them), at about 280000 when all sixteen die in one frame
   and at about 260000 for sixteen gutted worms. Drawing the droplets and puffs as fans costs about 0.05 to 0.15 ms a frame
   more than the old kites and squares on Heavy at the usual distance of play, and about the same far away (where most are one
-  thin quad); a crowded pool and a camera close in draw simpler shapes so the cost stays bounded.
+  thin quad); a crowded pool and a camera close in draw simpler shapes so the cost stays bounded. With sprites
+  (Melange 0.6) there is one call per particle and no levels of detail: in the mock host the world callback is about a quarter
+  to a third cheaper in instructions on a big blast than with fans (a 12-worm Absurd blast peaks at about 205000 instead of
+  250000 and averages 110000 a frame instead of 146000, Heavy peaks at 146000 instead of 179000 and averages 67000 instead of
+  101000, and 24 worms at 30 fps peak at 308000 instead of 353000, with no faults), and at most 480 sprites are drawn a frame
+  (plus a spark on a few big close droplets), far under Melange's per-frame limit.
 - **Terrain rays**: at most 64 calls of `wum.game.landRay` a frame, all counted together (48 for droplets, at most 24
   between the guts' 8 probes, the pools and the melee sprays' ground rays). Melange 0.6 logs their average and worst cost
   at the end of each match; a few microseconds each is expected, and if it is more, the droplets' share is what to lower.
@@ -301,6 +310,10 @@ the Python standard library.
 `tools/make_lens_atlas.js` builds `mod/postfx/lens/atlas.png` from those four, for the lens pass: the shape, how thick
 the blood is and which way its surface leans, side by side in one 256x256 picture. Run it with Node after changing the
 splat textures.
+
+`tools/make_blood_sprites.js` writes the particle sprite textures `mod/textures/bs_*.png` (droplets, clots, mist, steam,
+char flecks and a spark; neutral grey, so the sprite's colour tints them). Run it with Node from this folder; the output is
+the same on every run. Add `--preview` for a contact sheet.
 
 ## Licence
 
