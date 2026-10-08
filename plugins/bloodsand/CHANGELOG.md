@@ -40,7 +40,9 @@ A trail is a straight strip that the worm lengthens as it goes, two new decal ki
 drips, and a smear), so it costs a decal slot for every 30 to 50 units and not one for each step; the oldest goes first.
 The pass stays within 2% of its old cost (5% in a view full of drip pieces; measured with native GL at 1080p) and keeps its 32 slots: 48 would have cost
 21% more with everything in use. Melange's CreateGravestoneMessage has no decoder, so the grave is where the worm was
-last seen.
+last seen. Trail and pool pieces follow the same rules as any decal on a worm and on smoke (a pool takes surface up to about
+50 degrees from its plane, a grey pixel off the plane is skipped, and a worm's wider volume stays clear of blood however
+close its flank is to the plane), so a smear no longer paints a worm standing on a slope.
 
 Arterial spurts. A worm below about a third of its health spurts blood from its deepest open wound in time with a
 heartbeat (1.1 to 1.6 beats a second, faster the lower it is, slightly irregular, often with a weaker second beat): each

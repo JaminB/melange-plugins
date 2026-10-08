@@ -295,9 +295,8 @@ void Streak(float u, float v, float a, float c, float cp, float sp, float h, flo
     if (F < -mg) return;
 
     // ---- where blood may not land: as for any decal (see Shape) ----
-    float wOff = smoothstep(1.5 + 0.06 * dist, 3.5 + 0.06 * dist, abs(h));
     float wAway = max(1.0 - smoothstep(0.75, 0.92, nd), smoothstep(5.0, 8.0, abs(h)));
-    float wm = 1.0 - (1.0 - smoothstep(WORM_E0, 1.0, wE)) * wOff * wAway;
+    float wm = 1.0 - (1.0 - smoothstep(WORM_E0, 1.0, wE)) * wAway;
     float gate = ng * hg * wm;
     if (gate <= 0.0) return;
 
