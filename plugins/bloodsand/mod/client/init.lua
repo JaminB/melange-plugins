@@ -304,7 +304,15 @@ local function sendParam(fx, name, a, b, c)
     old[1], old[2], old[3] = a, b, c
 end
 
+-- Melange compiles an effect when it is first switched on, and the driver builds the program on its first draw, so the first
+-- frames of the skin, stains, guts and lens effects used to cost several milliseconds each, in the middle of the action.
+-- WARM switches each one on for a few frames at the start of a match (one at a time, with nothing to draw, a few frames
+-- apart), so that this happens before anything is on screen. WARM.on[id] is true while an effect is being held on.
+local WARM = { on = {}, left = {}, ids = { "bloodsand/stains", "bloodsand/skin", "bloodsand/guts", "bloodsand/lens" },
+               started = false, frame = 0, GAP = 3, HOLD = 2 }
+
 local function sendEnabled(fx, on)
+    if WARM.on[fx.id] then on = true end
     if not hasPostfx or fx.enabled == on then return end
     local ok, res = pcall(wum.postfx.enable, fx.id, on)
     if not ok or res == false then return end
@@ -1375,6 +1383,7 @@ end
 function LS.sync()
     if not hasPostfx or LS.bad then return end
     local on = nL > 0 and preset ~= nil and cfg.lens ~= false
+    local want = on or WARM.on[LS.fx.id] == true
     if on or LS.fx.enabled then
         for i = 1, LENS_MAX do
             if on and i <= nL then
@@ -1390,12 +1399,12 @@ function LS.sync()
             lensSend("clock", os.clock(), 0, 0, 0)
         end
     end
-    if LS.fx.enabled ~= on then
-        local ok, res = pcall(wum.postfx.enable, LS.fx.id, on)
+    if LS.fx.enabled ~= want then
+        local ok, res = pcall(wum.postfx.enable, LS.fx.id, want)
         if ok and res == false then
             LS.bad = true           -- this Melange does not know the effect
         elseif ok then
-            LS.fx.enabled = on
+            LS.fx.enabled = want
         end
     end
 end
@@ -3111,6 +3120,7 @@ local gutSlotOf = {}                -- effect slot (1..GUT.SLOTS) -> worm slot, 
 local gutCand, gutCandD = {}, {}
 
 local function setGutsEnabled(on)
+    if WARM.on[GUTS.id] then on = true end
     if gutsMissing or not hasPostfx or GUTS.enabled == on then return end
     local ok, res = pcall(wum.postfx.enable, GUTS.id, on)
     if not ok then return end
@@ -3647,6 +3657,30 @@ end
 -- ---------------------------------------------------------------- frame
 local lastClock = nil
 
+-- One step of the warm-up (see WARM): the effects the settings allow go on one at a time, GAP frames apart, for HOLD frames each,
+-- once per session (a compiled effect stays compiled).
+function WARM.step()
+    if WARM.started == "done" or not hasPostfx then return end
+    local f = WARM.frame + 1
+    WARM.frame = f
+    WARM.started = true
+    local allowed = { ["bloodsand/stains"] = cfg.stains ~= false, ["bloodsand/skin"] = cfg.skin ~= false,
+                      ["bloodsand/guts"] = cfg.guts ~= false, ["bloodsand/lens"] = cfg.lens ~= false }
+    local last = WARM.GAP * #WARM.ids + WARM.HOLD
+    for k = 1, #WARM.ids do
+        local id, t0 = WARM.ids[k], WARM.GAP * k
+        if f == t0 and allowed[id] then
+            WARM.on[id] = true
+        elseif f == t0 + WARM.HOLD then
+            WARM.on[id] = nil
+        end
+    end
+    if f >= last then
+        WARM.started = "done"
+        WARM.on = {}
+    end
+end
+
 local function onWorld()
     local t = os.clock()
     local dt = lastClock and min(0.05, max(0, t - lastClock)) or 0
@@ -3658,6 +3692,7 @@ local function onWorld()
         return
     end
     live = true
+    WARM.step()
     frameId = frameId + 1
     BUDGET.spawned, BUDGET.evicted = 0, 0
     DECALS.rayUsed = 0

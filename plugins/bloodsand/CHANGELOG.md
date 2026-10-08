@@ -7,8 +7,8 @@ purple-red with veins, a film of blood, wet highlights, light through the thin w
 and the ground (a new Post-FX pass, `bloodsand/guts`; the flat ribbons of 1.1 are only drawn if it cannot run). Wounds
 and the torn belly are layered: a rolled, lit lip of skin, yellow fat, dark red muscle and a cavity that darkens with
 depth and shifts with the camera, with coils inside the belly. Blood on the skin is wet, with a sheen, darker and
-glossier pools and beads running down. Burning is new: cracked, charred flesh (blackened crust split into plates by dull
-dark-red fissures, a browned rim and a dry sheen, no lava glow, only a faint ember flicker in the cracks for the first half
+glossier pools and beads running down. Burning is new: a burn where the worm was hit (a singed halo, leathery brown skin with blisters and
+a black crust cracked by dull dark-red fissures, no lava glow, only a faint ember flicker in the cracks for the first half
 second) that fades over three seconds. The skin pass takes its surface normal from the depth of each pixel's own
 neighbours instead of the GPU's 2 by 2 block derivatives, so blood and wounds no longer break into blocks at a worm's
 silhouette, and its edge is anti-aliased about a pixel wide.
@@ -70,6 +70,17 @@ headbands, bunny ears and the eyes stay clean, and the edge is soft. The blood i
 round the wounds and the place the worm was hit, runs down in streaks that thin to a bead, is smeared and spattered on the
 hit side and thin elsewhere; none of it is placed from the depth buffer's facets. Black eyes are a clear ring hugging each
 eye white (found from the screen, so it follows the head), darkest under the eye, with a lit lip above.
+
+Seen in the game, second round: a helmet, a cowboy hat and an orange moustache still took paint. The classifier now also
+tests hue and saturation, measured on the game's own frames (skin is 21 to 28 degrees and 0.60 to 0.69 saturated in the
+desert's light, 0.45 to 0.49 in the snow's; a cowboy hat is 34 to 40 degrees, a helmet 47 to 51, brown fur 31 to 36, an
+orange moustache 0.76 and up in saturation), with the limits relaxed where sun clips skin to cream and tightened a little
+above the eye line and round the mouth; the old test passed 100% of the cowboy hat's pixels and the new one none. The
+scorch is one burn on the chest on the side the worm was hit from (a singed halo, leathery brown skin with blisters, a
+black cracked crust), no longer a marbled pattern over the whole body and the back of the neck. The black eye is a wider,
+darker ring with a swollen lower lid that is still a few pixels wide from across the level, and darker at lower health.
+The four effects are switched on for two frames each at the start of a session's first match, so that their first-use
+compile and driver build (several milliseconds per effect) are not paid in the middle of a fight.
 
 Seen in the game and put right: blood on a pillar or a faceted rock is no longer cut into strips at the facet edges (a
 decal takes surface turned up to about 60 degrees from its own and near its plane by a tolerance that grows away from

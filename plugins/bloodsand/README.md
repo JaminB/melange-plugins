@@ -53,9 +53,10 @@ shipped — no game file, or anything derived from one.
   order 51), that paints the blood from the depth buffer onto the surfaces inside each worm's body. The pattern is
   held in the worm's own frame, so it travels with the worm and turns with the way it faces. Only skin takes anything,
   on the whole body: every pixel is first classified by the colour the scene has there (skin is a peach to orange whose
-  green-over-red and blue-over-red ratios stay in a narrow window whatever the light, which hats, helmets, glasses,
-  headbands, ears, a moustache and the whites and pupils of the eyes fall outside), softly, so the edge against a hat is
-  anti-aliased. The blood is not a coat: it is soaked round each open wound and the place the worm was last hit, runs
+  green-over-red and blue-over-red ratios stay in a narrow window whatever the light, and whose hue (21 to 28 degrees) and
+  saturation stay put, which hats, helmets, glasses, headbands, ears, a moustache and the whites and pupils of the eyes
+  fall outside: a cowboy hat is yellower (34 to 40 degrees), a helmet more so (47 to 51), brown fur too, and an orange
+  moustache is more saturated), softly, so the edge against a hat is anti-aliased. The blood is not a coat: it is soaked round each open wound and the place the worm was last hit, runs
   down the body from there in streaks that thin to a bead, is smeared and spattered in drops on the side that faces the
   hits, and is thin or absent elsewhere, so the skin shows between. The light on it comes from the body's smooth normal,
   so the facets of the worm's mesh do not show as angular shards, and edges inside the worm (the eyes over the face, the
@@ -65,9 +66,10 @@ shipped — no game file, or anything derived from one.
   dermis, broken patches of pale fat on parts of the torn edge only, dark wet muscle with glints and a cavity that gets
   darker the deeper it goes and shifts as the camera moves, all under a film of blood. Blood runs down from it in beads. They close again if the worm is healed; the blood on its skin stays. The same
   `bloodsand/skin` pass paints them. Blood on the skin is wet: it has a sheen, and is darker and glossier where it pools.
-- **Black eyes**: below four fifths of its health a worm gets a black eye, a ring of purple-black bruise on the skin
-  that hugs the white of the eye (found on the screen, so it follows the head wherever it bobs), darkest under the eye,
-  with a swollen, faintly lit lip above. One eye goes first and the other follows; both are fully black at about a third
+- **Black eyes**: below four fifths of its health a worm gets a black eye, a wide ring of purple-black bruise on the skin
+  that hugs the white of the eye (found on the screen, so it follows the head wherever it bobs, and never narrower than a
+  few pixels, so it shows from across the level), darkest in a swollen lower lid under the eye, with a faintly lit lip
+  above; the ring is wider and darker the lower the health. One eye goes first and the other follows; both are fully black at about a third
   of its health. The skin pass paints them on the face, and they fade while a worm is thrown through the air. Blood and
   wounds stay thin over a bruise, so a black eye shows on a bloodied face.
 - **Throwing up**: a worm at a quarter of its health or less heaves now and then while it stands still: a stream of
@@ -82,9 +84,15 @@ shipped — no game file, or anything derived from one.
   highlights, light through the thin wall, and shadow where they meet the worm and the ground. It draws up to four
   gutted worms at once, the closest to the camera. If that pass cannot run, the old flat ribbons are drawn instead.
   Without `wum.game.landRay` the gut lies on a flat ground at the worm's feet.
-- **Scorching**: the skin pass can char a worm: burnt, cracked flesh, with blackened crust split into plates by dull
-  dark-red fissures, a browned rim and a slight dry sheen (nothing glows, except a faint ember flicker in the cracks for
-  the first half second), fading out over about three seconds. The fire punch sets it, and so does the preview.
+- **Scorching**: the skin pass can burn a worm where it was hit (on the chest, on the side it was last hit from, never on
+  its back unless the hit came from there): one patch in rings, as a flame leaves on skin, a reddened, singed halo round
+  skin cooked to a dark leathery brown with a few pale blisters, round a black crust cracked by a few dull dark-red
+  fissures (nothing glows, except a faint ember flicker in the cracks for the first half second), fading out over about
+  three seconds. The fire punch sets it, and so does the preview.
+- **No stutter when an effect first runs**: Melange compiles a Post-FX effect the first time it is switched on, and the
+  driver finishes the job on its first draw, which cost several milliseconds in the middle of the action. At the start of
+  the first match of a session Bloodsand switches each of its four effects on for two frames, one after the other, with
+  nothing to paint, so that this is over before anything is on the screen.
 - **Ground decals**: blood that reaches the terrain stays there. A droplet that hits the ground or a wall leaves a
   splat shaped by the way it came in (a round splat with satellite specks when it came down steeply, a teardrop
   streak when it came in low, with drips that run down a wall), and a burst or a heave leaves a pool under the worm
