@@ -225,19 +225,19 @@ float MoustTone(vec3 c) {
 // and 2.3 world units out times reach, eight taps on each, the second turned half a step; whatever the distance the rings are
 // never nearer than 2.5 and 5.5 pixels, so that a black eye seen from across the level still has a ring of a few pixels), 0 far
 // from an eye and 1 right beside one, and y is how much of that white is above the pixel, so 1 under an eye and 0 above it.
-// The taps are at fixed angles: a ring turned by a random angle per pixel came out as a grain of single dots over the cheeks
-// and the forehead. A pixel only nudges the rings by a few degrees and a tenth of the radius, enough to break the contour
-// lines of the fixed taps into something finer than the eye can pick out. z is how near the pixel is to a moustache (within
+// The rings are not jittered per pixel: any per-pixel jitter (even a few degrees) came out in game as a stipple over the brow
+// and the cheeks at mid range, where the edge of a white is a pixel or two wide. Fixed taps alone draw the white's outline
+// again as contour lines a tap apart, so the rings are turned (up to half a tap) and scaled (by up to 15%) by a slow noise in
+// the worm's own frame (qu): the contours become the blotchy, mottled edge a bruise has, smooth from pixel to pixel and
+// fixed to the skin as the camera moves. A tap counts as above the pixel smoothly, as the ring turns. z is how near the pixel is to a moustache (within
 // about a fifth of a unit, on the four axes: the moustache sits right under the eyes, so the gap is a pixel or two).
-vec3 WhiteNear(vec3 P, float reach) {
+vec3 WhiteNear(vec3 P, float reach, vec3 qu) {
     float ppu = 0.5 * mg_resolution.y / (abs(mg_invProj[1][1]) * max(-P.z, 1.0));
     vec2 t = mg_resolution.zw;
-    vec2 j = vec2(Hash(gl_FragCoord.xy), Hash(gl_FragCoord.yx + 17.0)) - 0.5;
-    float a0 = 0.12 * j.x;
+    float a0 = 0.75 * (Noise2(qu.xy * 0.9 + 3.7) - 0.5);
     vec2 d1 = vec2(cos(a0), sin(a0));
-    float a1 = 0.3926991 + 0.12 * j.y;
-    vec2 d2 = vec2(cos(a1), sin(a1));
-    float jr = 1.0 + 0.2 * (Hash(gl_FragCoord.xy * 1.7 + 3.0) - 0.5);
+    vec2 d2 = vec2(d1.x * 0.9238795 - d1.y * 0.3826834, d1.x * 0.3826834 + d1.y * 0.9238795);
+    float jr = 1.0 + 0.3 * (Noise2(qu.zy * 0.9 + 11.3) - 0.5);
     vec2 s1 = t * clamp(0.95 * reach * ppu, 2.5, 80.0) * jr;
     vec2 s2 = t * clamp(2.3 * reach * ppu, 5.5, 180.0) * jr;
     vec2 sm = t * clamp(0.2 * reach * ppu, 1.2, 12.0);
@@ -248,7 +248,7 @@ vec3 WhiteNear(vec3 P, float reach) {
         float w1 = 0.1 * WhiteTone(texture2D(mg_scene, mg_uv + d1 * s1).rgb);
         float w2 = 0.075 * WhiteTone(texture2D(mg_scene, mg_uv + d2 * s2).rgb);
         sum += w1 + w2;
-        up += (d1.y > 0.25 ? w1 : 0.0) + (d2.y > 0.25 ? w2 : 0.0);
+        up += smoothstep(-0.1, 0.5, d1.y) * w1 + smoothstep(-0.1, 0.5, d2.y) * w2;
         d1 = vec2(d1.x * 0.7071068 - d1.y * 0.7071068, d1.x * 0.7071068 + d1.y * 0.7071068);
         d2 = vec2(d2.x * 0.7071068 - d2.y * 0.7071068, d2.x * 0.7071068 + d2.y * 0.7071068);
     }
@@ -358,17 +358,19 @@ void WoundTrail(vec3 dir, vec3 qu, float seed, float wound, float amount, float 
 // (sin yaw, 0, cos yaw), and qu.z is the offset along it), so the bruise is an oval laid on the front of the head as seen
 // from straight ahead, with its edge broken up by noise. nf is the surface normal's component along the facing: a surface
 // that does not face forward (the back or the side of the head, when the head is turned or slumped away from the body's
-// heading) never takes a bruise. The oval only says where the bruise may be; the shape inside it comes from where the eye
-// white is on the screen. mask is the worm-surface mask.
+// heading) never takes a bruise; the side of the face, which faces partly forward, does, so a profile shows the bruise round
+// the eye it sees. The oval reaches higher above the eye than below (the brow: under the eye a moustache often covers the
+// cheek, and from across the level the strip of skin above the whites is most of what shows of a face). The oval only says
+// where the bruise may be; the shape inside it comes from where the eye white is on the screen. mask is the worm-surface mask.
 void Eye(vec3 qu, float nf, float side, float strength, float mask, inout float oval) {
-    if (strength <= 0.0 || qu.z <= 0.0 || nf <= 0.0) return;
+    if (strength <= 0.0 || qu.z <= -1.0 || nf <= -0.1) return;
     float x = (qu.x - side * EYE_X) / EYE_RX;
-    float y = (qu.y - EYE_Y) / (qu.y < EYE_Y ? 0.75 * EYE_RY : EYE_RY);
+    float y = (qu.y - EYE_Y) / (qu.y < EYE_Y ? 0.75 * EYE_RY : 1.3 * EYE_RY);
     float r = sqrt(x * x + y * y + (Noise2(qu.xy * 0.6 + side * 5.0) - 0.5) * 0.3);
     // The strength grows the oval (from 0.7 of its size) and only then makes it opaque, so a faint level is a small bruise of
     // the full colour, not a full-size one that is too thin to see.
     float sz = mix(0.7, 1.0, strength);
-    float front = smoothstep(0.0, 2.5, qu.z) * smoothstep(0.0, 0.4, nf) * smoothstep(0.0, 0.2, strength) * mask;
+    float front = smoothstep(-1.0, 2.0, qu.z) * smoothstep(-0.1, 0.3, nf) * smoothstep(0.0, 0.2, strength) * mask;
     oval = max(oval, (1.0 - smoothstep(0.6 * sz, 1.0 * sz, r)) * front);
 }
 
@@ -674,22 +676,25 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
     // under the eye than above it, as a swollen lower lid is. The ring is wide and purple-black next to the white (darkest in
     // the lid under it, a crescent nearly black) and fades to a bluish-purple wash, scaled by the scene's own brightness so
     // the worm's shading survives; it is wider and darker the higher the eye level (the lower the health), and never
-    // narrower than a couple of pixels, so it can be seen at the distance the game is played from. A faint highlight along
+    // narrower than a couple of pixels, so it can be seen at the distance the game is played from. Small on the screen (fewer
+    // than about ten pixels a unit, the distance the game is played from) the whole oval goes darker and the ring reaches its
+    // full darkness sooner, as the whites there are only a few pixels and the ring alone was too thin to see. A faint highlight along
     // the outer edge above the eye reads as the swelling. The blood and the openings painted after it stay thin over the
     // bruise, so a black eye still shows on a bloodied face. Only skin pixels get here (mask), so the whites and the pupils
     // stay clean.
     float bruise = 0.0;
     if (oval > 0.04) {
         float lvl = clamp(eyeLevel, 0.0, 1.0);
-        vec3 wn = WhiteNear(P, 0.85 + 0.5 * lvl);
+        vec3 wn = WhiteNear(P, 0.85 + 0.5 * lvl, qu);
         // Not onto a moustache: the bruise leaves a gap of clean skin round it.
         oval *= 1.0 - smoothstep(0.0, 0.25, wn.z);
-        bruise = oval * (0.3 + 0.7 * smoothstep(0.03, 0.5, wn.x));
-        float socket = clamp(oval * smoothstep(0.1, 0.6, wn.x) * mix(0.75, 1.0, wn.y) * (0.8 + 0.4 * lvl), 0.0, 1.0);
+        float farB = 1.0 - smoothstep(4.0, 10.0, ppx);
+        bruise = oval * (0.45 + 0.55 * smoothstep(0.02, 0.3 - 0.1 * farB, wn.x));
+        float socket = clamp(oval * (smoothstep(0.05, 0.45 - 0.15 * farB, wn.x) * mix(0.75, 1.0, wn.y) * (0.85 + 0.3 * lvl) + 0.35 * farB), 0.0, 1.0);
         float lid = oval * smoothstep(0.1, 0.5, wn.x) * smoothstep(0.4, 0.85, wn.y) * (0.55 + 0.45 * lvl);
         float rim = oval * smoothstep(0.02, 0.16, wn.x) * (1.0 - smoothstep(0.16, 0.42, wn.x)) * (1.0 - wn.y);
         float shade = clamp(lum * 1.15, 0.3, 1.1);
-        vec3 bru = mix(vec3(0.44, 0.19, 0.50), vec3(0.045, 0.014, 0.075), socket) * shade;
+        vec3 bru = mix(vec3(0.40, 0.15, 0.44), vec3(0.045, 0.014, 0.075), socket) * shade;
         bru = mix(bru, vec3(0.02, 0.006, 0.035) * shade, lid);
         col = mix(col, bru, 0.97 * bruise);
         col += vec3(1.0, 0.86, 0.84) * rim * 0.07 * (0.3 + lum);
