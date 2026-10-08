@@ -54,7 +54,11 @@ void splat(vec4 a, vec4 b, vec2 uv, float aspect, inout vec4 acc) {
     vec2 p = (uv - c) * vec2(aspect, 1.0) / a.z + 0.5;
     if (p.x < 0.0 || p.x > 1.0 || p.y < -DRIP || p.y > 1.0) return;
     vec2 cell = vec2(mod(a.w, 2.0), floor(a.w * 0.5)) * 0.5;
-    float fade = min(1.0, age * 12.0) * (1.0 - smoothstep(0.55, 1.0, t));
+    // Going, the blood drains from its thin parts first: the splat shrinks to its thick core and is gone, rather than the
+    // whole shape thinning out into a pale ghost with a dark outline. drained is how thick the blood that has run off is.
+    float left = 1.0 - smoothstep(0.55, 1.0, t);
+    float drained = (1.0 - left) - 0.12;
+    float fade = min(1.0, age * 12.0) * min(1.0, left * 3.0);
     float m = 0.0;
     vec2 lean = vec2(0.0);
     float thick = 0.0;
@@ -83,7 +87,7 @@ void splat(vec4 a, vec4 b, vec2 uv, float aspect, inout vec4 acc) {
             lean = vec2(0.0);
         }
     }
-    float cov = m * fade;
+    float cov = m * fade * smoothstep(drained, drained + 0.12, thick);
     acc.xy += lean * cov;
     acc.w = max(acc.w, thick * cov);
     acc.z = 1.0 - (1.0 - acc.z) * (1.0 - cov);
@@ -123,7 +127,9 @@ void main() {
     vec3 n = normalize(vec3(lean * 0.9, 0.6));
     vec3 h = normalize(normalize(vec3(-0.5, 0.6, 0.65)) + vec3(0.0, 0.0, 1.0));
     float spec = pow(max(dot(n, h), 0.0), 36.0);
-    col *= 1.0 - (0.30 * smoothstep(0.35, 0.9, lm) + 0.5 * cov * (1.0 - cov)) ;
+    // (Both the meniscus and the thin dark line at the edge go with the blood: lean is normalised by the coverage, so on its
+    // own it would keep the outline at full strength while the rest fades.)
+    col *= 1.0 - (0.30 * smoothstep(0.35, 0.9, lm) * smoothstep(0.2, 0.7, cov) + 0.5 * cov * (1.0 - cov) * smoothstep(0.2, 0.6, lm));
     col += vec3(1.0, 0.92, 0.9) * spec * 0.85 * cov * smoothstep(0.1, 0.5, lm);
     gl_FragColor = vec4(col, 1.0);
 }
