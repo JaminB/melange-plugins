@@ -2,7 +2,8 @@
 
 A client-only gore mod for Worms Ultimate Mayhem: worms spray blood when they are hit (with a spray of its own for each
 melee and special weapon), wear it on their skin, open layered wounds and get black eyes as their health runs low, throw
-up blood and spill ray-marched, simulated intestines when they are nearly dead, leave splats and drying pools on the
+up blood and spill ray-marched, simulated intestines when they are nearly dead, burst into ray-marched chunks of meat,
+shards of bone and organs when they die, leave splats and drying pools on the
 floors and walls where the blood lands, and spatter the camera lens. Only code and original procedurally generated art is
 shipped — no game file, or anything derived from one.
 
@@ -120,6 +121,24 @@ shipped — no game file, or anything derived from one.
   it is destroyed. Droplets only collide with the terrain on a Melange that has `wum.game.landRay` (0.6); on an older
   one there are only pools, as before. Droplets of every weapon spray and the heavy clots collide; steam and smoke do
   not. The Post-FX panel has two settings for the pass: drying time and wet gloss.
+- **Gibs**: a worm that dies, and a worm that takes a very big hit (45 damage or more; 30 on Absurd), throws meat chunks,
+  bone shards and a few organs (a kidney, a liver lobe, a heart, an eyeball on its stump of nerve) with a few dozen small
+  bits of meat (soft sprites) flying out around them. They are not particles: each is a signed distance field ray-marched
+  by the Post-FX pass `bloodsand/gibs` (PostWorld, order 53, after the guts). A meat chunk is a bent, rounded box eaten
+  away by noise and sliced by up to two ragged planes, dark red with lighter fibres, cream fat marbling, silverskin and
+  pale, fibrous tear faces; a bone is a tapered shaft with a knob at one end on some and a jagged, splintered, hollow
+  break at the other, ivory, with a porous marrow-red end; the organs are the shapes above with their own colours (fat on
+  the heart and round the kidney's notch, a bloodshot eye with an iris and a pupil, some staring up at the camera). They are
+  wet at first (a bright sheen, light through the thin flesh, a film of blood in the low spots) and dry over about 60 seconds
+  (the `dryTime` parameter) to a darker, browner, matte finish. They fly with spin, bounce with a restitution that depends on
+  what they are, roll, slide and come to rest lying on their flattest face, where they stay (up to 16 on Absurd, 14 on Heavy,
+  8 on Light, the oldest recycled). Each leaves a splat where it first lands hard, a streak or two where it slides and a pool
+  where it lies, through the decal pass (so they need Blood on the ground for those). A later explosion throws the gibs
+  near it again, away from the blast, and one in the middle of a crater is blown into bits of meat (bone is only thrown);
+  one whose ground is dug out from under it falls. Without `landRay` they land on the plane at the height of the worm's
+  feet. If the pass cannot run (an older Melange, or a driver that fails to draw it) each gib is drawn as a flat sprite
+  instead. The setting is **Gibs and organs**; Preview throws some (a very big hit's worth, and a death's worth on every
+  third press).
 - **Lens splatter**: heavy hits near the camera, and a death, splash blood across the lens, fading over a few seconds. It
   is a Post-FX pass, `bloodsand/lens` (PostWorld, order 60), so it is drawn before the HUD and the minimap and the timer
   stay clear. Where a splat is, the picture is bent as if by a wet droplet, blurred a little, tinted and darkened (clear
@@ -139,6 +158,7 @@ On the Mods page:
 | Blood on worms | on / off | on | the skin pass: the blood on worms, their wounds, black eyes, burns and torn bellies |
 | Worms throw up blood | on / off | on | the heaving of nearly dead worms |
 | Intestines | on / off | on | the torn belly and the length of intestine that comes out of it |
+| Gibs and organs | on / off | on | meat, bone and organs thrown by deaths and very big hits, and the bits of meat that fly with them |
 | Blood on the ground | on / off | on | the decals pass: splats, drips and pools, and the droplets' collision with the terrain |
 | Splatter on the lens | on / off | on | the camera lens splatter (the lens pass, or the flat fallback) |
 | Blood colour | Red / Green | Red | the colour of droplets, decals, blood on worms, wounds, guts and lens splatter |
@@ -148,7 +168,7 @@ settings without hurting anyone. Each press shows the next weapon's signature (b
 old woman, rope knock, fall, shotgun, sniper, poison arrow, then an ordinary explosion burst, and round again), sprayed
 sideways across the screen, and writes its name to the log. It also gives that worm wounds, black eyes, intestines and a
 burn that fade away over about twelve seconds (the burn over three), and makes it throw up once. Press it again to see
-more of the intestine slide out.
+more of the intestine slide out. It also throws gibs: a very big hit's worth each time, and a death's worth every third press.
 
 ## How it detects hits
 
@@ -221,6 +241,16 @@ four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0
   screen is about 9% more. This is at the limit of what was aimed for and has not been measured in a live match.
 - **Guts pass**: only on while a gutted worm is in view. About 0.16 to 0.18 ms at the usual zoom, and up to 0.4 ms with
   the camera right on top of the guts. A pass that only copies the screen takes about 0.05 ms of that.
+- **Gibs pass**: only on while a gib may be on the screen (checked every frame, against the camera; with none the pass costs
+  nothing). In the same harness (1920x1080, native OpenGL, best of four runs; its scene and depth are RGBA32F, which makes the
+  fixed cost of any pass that reads them larger than in the game): about 0.18 ms with 16 gibs spread over the screen at the
+  usual zoom, 0.24 to 0.28 ms with the camera close enough that they fill it, 0.09 ms at 1280x720 at the usual zoom. Of that
+  about 0.058 ms is a pass that only copies the screen (the figure with the pass on and nothing to draw, `count` 0), and about
+  0.015 ms the sphere tests of the sixteen slots; a pixel reads the depth only if its view ray meets a gib's bounding sphere,
+  and marches only inside a box that holds the gib. The rest is the pixels that are a gib: a 26-step march, four taps for the
+  normal and one for the occlusion and two for the shadow, none of them for a gib under about six pixels across. It was aimed
+  at 0.15 ms and is above it at the usual zoom by 0.03 ms; native OpenGL and the browser's ANGLE agree but for a few
+  edge pixels.
 - **Lens pass**: about 0.02 ms (a copy of the screen) with no splat in the way, 0.04 ms with a few and 0.055 ms with six large
   ones on top of each other (the same harness, 1920x1080), only while there is a splat on the lens.
 - **Decals pass**: about 0.075 ms in the harness with nothing on the ground, 0.15 ms with four decals and about 0.35 ms for
@@ -261,9 +291,16 @@ four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0
   which Melange's figure for shuffled textures (about 0.28 ms of CPU and a few milliseconds of GPU time per 1000 sprites in
   the worst case of 3100 draw calls) puts at roughly 0.03 to 0.14 ms of CPU and a small GPU cost for a few hundred small
   sprites. That is an estimate from Melange's published figures, not measured with this plugin in the game. The textures
-  are few on purpose (14, with the spark; a mod may hold 256).
+  are few on purpose (17, with the spark and the three bits of meat; a mod may hold 256).
+- **Gibs, script**: with sixteen gibs at rest about 0.003 ms a frame (a loop over the slots, one ray a frame to see that the ground is
+  still there, and nothing sent to the effect) and about 1000 VM instructions; a burst of four deaths on Absurd adds about 0.1 ms
+  a frame on average for the second and a half they fly (0.065 ms on Heavy), 16000 instructions on average and up to 17000 more
+  than the same frame without gibs at the worst, and up to 96 bits of meat as sprites, about 0.02 ms more in the game. A death
+  throws at most half of the pool at once, so the worms of one blast share it. In the mock host eight worms dying in one Absurd
+  blast peak at about 206000 instructions (186000 without the gibs).
 - **Terrain rays**: at most 64 calls of `wum.game.landRay` a frame, all counted together (48 for droplets, at most 24
-  between the guts' 8 probes, the pools and the melee sprays' ground rays). Melange 0.6 logs their average and worst cost
+  between the guts' 8 probes, the pools and the melee sprays' ground rays, and up to 20 for the flying gibs, which go before
+  the droplets). Melange 0.6 logs their average and worst cost
   at the end of each match; a few microseconds each is expected, and if it is more, the droplets' share is what to lower.
 - **Resend**: every two seconds everything is sent to the effects again as insurance; this is spread over 17 frames so no
   single frame makes more than about 80 `wum.postfx.setTransient` calls.
@@ -331,12 +368,25 @@ Re-measure with the *Mirage/Post-FX* panel on your own machine.
   two seconds). The skin and stains shaders are big as well and were tried on the same driver only; they have no
   fallback, so if Melange reports one as failed Bloodsand writes a line to the log and stops feeding it (no droplet rays,
   no guts).
+- The gibs are a sphere against the terrain, not the shape that is drawn: a long bone is held up by a sphere of about a third of
+  its length while it flies and settles to its radius as it lies down, so a bone that comes down on a ledge can rest with an
+  end in the air, and a gib that lands on a worm, a crate or water is not stopped (the ground under it is all it knows). They
+  stay on slopes up to about 38 degrees and slide down steeper ones; on a wall they run down it to the floor. They do not
+  collide with each other (two can lie one inside another), and a gib is not a hazard: it has no effect on the game. A gib is
+  drawn only if it is in front of what the scene shows, so one lying partly under a rock is cut off by it. Only the nearest
+  three overlapping gibs along a view ray are drawn, so a heap of more than that can lose a piece. They are lit by a fixed
+  key light and the camera, like the guts. The ground a gib shades is darkened by an ellipsoid standing in for it, not by its
+  shape, so a bone's contact shadow is a smooth sausage.
 - No sound.
 
 ## Tools
 
 `tools/gen_guts.js` writes `mod/postfx/guts/guts.frag` and `effect.ini` from `tools/guts.frag.in` (run it with Node from
 this folder): the four worm slots of sixteen chain points are separate parameters, so the declarations are generated.
+Edit the template, not the generated files.
+
+`tools/gen_gibs.js` writes `mod/postfx/gibs/gibs.frag` and `effect.ini` from `tools/gibs.frag.in` (run it with Node from this
+folder): the sixteen slots of four parameters, the code that picks the slot a pixel looks into and the sphere tests are generated.
 Edit the template, not the generated files.
 
 `tools/make_splats.py` regenerates the four lens textures (`mod/textures/splat1.png` to `splat4.png`). It uses only
@@ -347,7 +397,7 @@ the blood is and which way its surface leans, side by side in one 256x256 pictur
 splat textures.
 
 `tools/make_blood_sprites.js` writes the particle sprite textures `mod/textures/bs_*.png` (droplets, clots, mist, steam,
-char flecks and a spark; neutral grey, so the sprite's colour tints them). Run it with Node from this folder; the output is
+char flecks, a spark and the small bits of meat of the gibs; neutral grey, so the sprite's colour tints them). Run it with Node from this folder; the output is
 the same on every run. Add `--preview` for a contact sheet.
 
 ## Licence
