@@ -72,7 +72,9 @@ local STREAK_MIN, STREAK_MAX = 3.5, 26  -- ...within these limits
 -- droplet's stretch) never get more than the six-point shape.
 local DROP = { AGE_GAIN = 0.8, BODY = 0.72, FRINGE_PX = 1.1, FRINGE_ALPHA = 0.45, LOD2 = 3.5, LOD3 = 8,
                GLINT_PX = 14, GLINT_SIZE = 2.0, BIG_MAX = 32, PX_MIN = 2, BOOST = 3, PX_MAX = 16, LEN_MAX = 70,
-               NEAR_CULL = 12, NEAR_FADE = 34, PUFF_CULL = 20, PUFF_FADE = 60, PUFF_PX_MAX = 260, CHAR_STREAK = 0.45 }
+               NEAR_CULL = 12, NEAR_FADE = 34, PUFF_CULL = 20, PUFF_FADE = 60, PUFF_PX_MAX = 260, CHAR_STREAK = 0.45,
+               -- with sprites (see Particle sprites): colour factors on the neutral textures, the puff alpha gain and the glint's
+               SPR_BODY = 0.9, CLOT_TINT = 1.25, CHAR_TINT = 1.6, PUFF_GAIN = 1.1, GLINT_GAIN = 0.5 }
 
 -- Offsets from the worm's reported position, to be calibrated in game: up to the middle of the body, and down to
 -- the ground the worm stands on.
@@ -1001,6 +1003,36 @@ do
     end
 end
 
+-- == Particle sprites ==
+-- Melange 0.6 has wum.draw.sprite(tex, x, y, z, halfW, halfL, ax, ay, az, color, mode): a soft textured billboard, depth-tested, with
+-- an axis it stretches along (velocity) or, with a zero axis, a round one. With it a droplet is ONE sprite of a wet, shaded
+-- teardrop (a dark rim, a glint) instead of two or three flat fans, a clot a lumpy glossy blob, mist and steam soft puffs and
+-- char a ragged fleck. The textures (mod/textures/bs_*.png, made by tools/make_blood_sprites.js) are neutral grey: the sprite's
+-- colour tints them. Without the call, or a texture that will not load, the particle kind keeps the fans above.
+-- DROP.TK[kind] is that kind's list of textures, nil when it has none; DROP.RC and RS are the cosine and sine of a puff's turn
+-- (its seed 0..255 of a full circle), which a puff passes as its axis so that it can be rotated.
+function DROP.load()
+    DROP.TK, DROP.RC, DROP.RS = nil, nil, nil
+    if not (wum.draw.sprite and wum.draw.texture) then return end
+    local function set(prefix, n)
+        local list = {}
+        for k = 1, n do
+            local ok, tex = pcall(wum.draw.texture, "textures/bs_" .. prefix .. (n > 1 and k or "") .. ".png")
+            if not (ok and tex) then return nil end
+            list[k] = tex
+        end
+        return list
+    end
+    local TK = {}
+    TK[DROPLET], TK[MIST], TK[MEL.STEAM], TK[MEL.CHAR], TK[MEL.CLOT] = set("drop", 2), set("mist", 3), set("steam", 2), set("char", 2), set("clot", 4)
+    local glint = set("glint", 1)
+    TK.glint = glint and glint[1] or false
+    if not (TK[DROPLET] or TK[MIST] or TK[MEL.STEAM] or TK[MEL.CHAR] or TK[MEL.CLOT]) then return end
+    local RC, RS = {}, {}
+    for k = 0, 255 do RC[k + 1], RS[k + 1] = cos(k * 0.02454), sin(k * 0.02454) end
+    DROP.TK, DROP.RC, DROP.RS = TK, RC, RS
+end
+
 -- Integrates and draws every live particle. Droplets are drops stretched along their velocity that turn to face the
 -- camera; mist puffs are flat against the screen. With wum.game.landRay a droplet or clot that reaches the terrain is removed
 -- and leaves a decal (see == Droplet collision ==).
@@ -1012,6 +1044,8 @@ local function simulate(dt)
     local KP, KD, KG, KGROW, KFADE = MEL.KP, MEL.KD, MEL.KG, MEL.KGROW, MEL.KFADE
     local CLOTK, CHARK = MEL.CLOT, MEL.CHAR       -- heavy clots from the melee sprays collide like droplets; steam and char do not
     local PD, focal = P.shape, CAM.focal
+    local TK, SPR, RC, RS, col = DROP.TK, wum.draw.sprite, DROP.RC, DROP.RS, quadColour
+    local SPR_BODY, CLOT_TINT, CHAR_TINT, PUFF_GAIN = DROP.SPR_BODY, DROP.CLOT_TINT, DROP.CHAR_TINT, DROP.PUFF_GAIN
     local BODY, NEAR_CULL, NEAR_FADE, PX_MIN, PX_MAX, BOOST = DROP.BODY, DROP.NEAR_CULL, DROP.NEAR_FADE, DROP.PX_MIN, DROP.PX_MAX, DROP.BOOST
     local PUFF_CULL, PUFF_FADE, PUFF_PX_MAX = DROP.PUFF_CULL, DROP.PUFF_FADE, DROP.PUFF_PX_MAX
     local nBig, nPuff = 0, 0      -- full-shape droplets and puffs drawn so far this frame, which cap the cost (see DROP)
@@ -1118,7 +1152,15 @@ local function simulate(dt)
                         local fi = KFADE[kd]
                         if fi > 0 and t * fi < 1 then a = a * t * fi end
                         if D < PUFF_FADE then a = a * (D - PUFF_CULL) / (PUFF_FADE - PUFF_CULL) end
-                        if a > 0.004 then
+                        local tl = TK and TK[kd]
+                        if a > 0.004 and tl then
+                            -- A soft sprite, turned by the puff's seed (its axis is the camera's right turned that far).
+                            local sd = pph[i]
+                            local c, s = RC[sd + 1], RS[sd + 1]
+                            col.r, col.g, col.b, col.a = min(1, pr[i] * PUFF_GAIN), min(1, pg[i] * PUFF_GAIN), min(1, pb[i] * PUFF_GAIN), min(1, a * PUFF_GAIN)
+                            R = R * 1.15
+                            SPR(tl[sd % #tl + 1], x, y, z, R, R, rx * c + ux * s, ry * c + uy * s, rz * c + uz * s, col, "alpha")
+                        elseif a > 0.004 then
                             local rpx = R * ppu / lf
                             local nl = rpx < 4 and 1 or rpx < 14 and 2 or rpx < 40 and 3 or 4
                             nPuff = nPuff + 1
@@ -1144,44 +1186,89 @@ local function simulate(dt)
                         if kd == CHARK then hl2 = hl2 * DROP.CHAR_STREAK end    -- a flake tumbles, it does not streak
                         if hl2 > DROP.LEN_MAX / ppu then hl2 = DROP.LEN_MAX / ppu end
                         if hl2 < size * 1.2 then hl2 = size * 1.2 end
-                        local k = hl2 * 0.5 / sp
-                        local ax, ay, az = vx * k, vy * k, vz * k
-                        -- The short axis is perpendicular to both the streak and the line to the camera.
-                        local sx, sy, sz = ay * tz - az * ty, az * tx - ax * tz, ax * ty - ay * tx
-                        local sl = sqrt(sx * sx + sy * sy + sz * sz)
-                        if sl > 1e-6 then
-                            local thin = 1 / sqrt(max(1, hl2 / max(size, 0.5) * 0.35))
-                            local hw = size * 0.5 * thin
-                            local w = hw / sl
-                            sx, sy, sz = sx * w, sy * w, sz * w
+                        local tl = TK and TK[kd]
+                        if tl then
+                            -- One soft sprite along the velocity (a unit axis), whatever the size: no fans, no fringe, no levels of detail.
                             local a = pa[i]
                             if t > FADE_START then a = a * (1 - t) / (1 - FADE_START) end
                             if D < NEAR_FADE then a = a * (D - NEAR_CULL) / (NEAR_FADE - NEAR_CULL) end
-                            local r, g, b = pr[i], pg[i], pb[i]
-                            local pxw = hw * 2 * ppu
-                            local lod = pxw < LOD2 and 1 or pxw < LOD3 and 2 or 3
-                            if lod == 3 and kd == CHARK then lod = 2 end
-                            if lod == 3 then
-                                nBig = nBig + 1
-                                if nBig > DROP.BIG_MAX then lod = 2 end
+                            local isp = 1 / sp
+                            local ex, ey, ez = vx * isp, vy * isp, vz * isp
+                            if first and (not collide or kd == CHARK) then pph[i] = random(0, 255) end
+                            local sd = pph[i]
+                            if kd == CLOTK then
+                                -- a lumpy glossy blob, stretched a little by its speed
+                                local hw = size * 0.64
+                                col.r, col.g, col.b, col.a = min(1, pr[i] * CLOT_TINT), min(1, pg[i] * CLOT_TINT), min(1, pb[i] * CLOT_TINT), a
+                                SPR(tl[sd % 4 + 1], x, y, z, hw, hw * (1 + min(0.7, sp * 0.0025)), ex, ey, ez, col, "alpha")
+                            elseif kd == CHARK then
+                                -- a dry fleck that tumbles: hardly stretched
+                                local hw = size * 0.62
+                                col.r, col.g, col.b, col.a = min(1, pr[i] * CHAR_TINT), min(1, pg[i] * CHAR_TINT), min(1, pb[i] * CHAR_TINT), a
+                                SPR(tl[sd % 2 + 1], x, y, z, hw, min(hw * 1.8, max(hw, hl2 * 0.5)), ex, ey, ez, col, "alpha")
+                            else
+                                -- The fat teardrop up to a stretch of about three, the slim one beyond; each texture's widest point is
+                                -- 0.84 (0.56) of its width, so the sprite is wider than the body it draws by that.
+                                local thin = 1 / sqrt(max(1, hl2 / max(size, 0.5) * 0.35))
+                                local hw = size * 0.5 * thin
+                                col.r, col.g, col.b, col.a = pr[i] * SPR_BODY, pg[i] * SPR_BODY, pb[i] * SPR_BODY, a
+                                if hl2 < hw * 5.8 then
+                                    SPR(tl[1], x, y, z, hw * 1.35, hl2 * 0.5, ex, ey, ez, col, "alpha")
+                                else
+                                    SPR(tl[2], x, y, z, hw * 2.0, hl2 * 0.5, ex, ey, ez, col, "alpha")
+                                end
+                                local gl = TK.glint
+                                if gl and size >= DROP.GLINT_SIZE and hw * 2 * ppu >= DROP.GLINT_PX then
+                                    -- The light is up and to the left of the camera: a white spark near the head, a little toward the
+                                    -- camera so that the body does not hide it.
+                                    local gk, go = 0.4 / D, hw * 0.35
+                                    local ha = hl2 * 0.5 * 0.45
+                                    col.r, col.g, col.b, col.a = 1, 0.9, 0.88, a * DROP.GLINT_GAIN
+                                    local gr = max(0.2, hw * 0.4)
+                                    SPR(gl, x + ex * ha + (ux * 0.35 - rx * 0.3) * go + tx * gk, y + ey * ha + (uy * 0.35 - ry * 0.3) * go + ty * gk,
+                                        z + ez * ha + (uz * 0.35 - rz * 0.3) * go + tz * gk, gr, gr, 0, 0, 0, col, "additive")
+                                end
                             end
-                            local br, bg, bb = r * BODY, g * BODY, b * BODY
-                            if lod == 3 then
-                                -- The fringe first, the same colour and fainter, about a pixel past the edge all round (so the
-                                -- width and the length grow by different factors); then the body.
-                                local kw, kl = 1 + DROP.FRINGE_PX * 2 / pxw, 1 + DROP.FRINGE_PX * 2 / max(pxw, hl2 * ppu)
-                                PD.drop(3, 1, x, y, z, ax * kl, ay * kl, az * kl, sx * kw, sy * kw, sz * kw, br, bg, bb,
-                                        a * DROP.FRINGE_ALPHA)
-                            end
-                            PD.drop(lod, 1, x, y, z, ax, ay, az, sx, sy, sz, br, bg, bb, a)
-                            if lod == 3 and pxw >= DROP.GLINT_PX and size >= DROP.GLINT_SIZE then
-                                -- The light is up and to the left of the camera: a tiny faint glint toward the head, a little
-                                -- toward the camera so that the body does not hide it.
-                                local gk, go = 0.4 / D, hw * 0.35
-                                PD.glint(x + ax * 0.45 + (ux * 0.35 - rx * 0.3) * go + tx * gk,
-                                         y + ay * 0.45 + (uy * 0.35 - ry * 0.3) * go + ty * gk,
-                                         z + az * 0.45 + (uz * 0.35 - rz * 0.3) * go + tz * gk,
-                                         max(0.08, hw * 0.13), rx, ry, rz, ux, uy, uz, 1, 0.9, 0.88, a * 0.25)
+                        else
+                            local k = hl2 * 0.5 / sp
+                            local ax, ay, az = vx * k, vy * k, vz * k
+                            -- The short axis is perpendicular to both the streak and the line to the camera.
+                            local sx, sy, sz = ay * tz - az * ty, az * tx - ax * tz, ax * ty - ay * tx
+                            local sl = sqrt(sx * sx + sy * sy + sz * sz)
+                            if sl > 1e-6 then
+                                local thin = 1 / sqrt(max(1, hl2 / max(size, 0.5) * 0.35))
+                                local hw = size * 0.5 * thin
+                                local w = hw / sl
+                                sx, sy, sz = sx * w, sy * w, sz * w
+                                local a = pa[i]
+                                if t > FADE_START then a = a * (1 - t) / (1 - FADE_START) end
+                                if D < NEAR_FADE then a = a * (D - NEAR_CULL) / (NEAR_FADE - NEAR_CULL) end
+                                local r, g, b = pr[i], pg[i], pb[i]
+                                local pxw = hw * 2 * ppu
+                                local lod = pxw < LOD2 and 1 or pxw < LOD3 and 2 or 3
+                                if lod == 3 and kd == CHARK then lod = 2 end
+                                if lod == 3 then
+                                    nBig = nBig + 1
+                                    if nBig > DROP.BIG_MAX then lod = 2 end
+                                end
+                                local br, bg, bb = r * BODY, g * BODY, b * BODY
+                                if lod == 3 then
+                                    -- The fringe first, the same colour and fainter, about a pixel past the edge all round (so the
+                                    -- width and the length grow by different factors); then the body.
+                                    local kw, kl = 1 + DROP.FRINGE_PX * 2 / pxw, 1 + DROP.FRINGE_PX * 2 / max(pxw, hl2 * ppu)
+                                    PD.drop(3, 1, x, y, z, ax * kl, ay * kl, az * kl, sx * kw, sy * kw, sz * kw, br, bg, bb,
+                                            a * DROP.FRINGE_ALPHA)
+                                end
+                                PD.drop(lod, 1, x, y, z, ax, ay, az, sx, sy, sz, br, bg, bb, a)
+                                if lod == 3 and pxw >= DROP.GLINT_PX and size >= DROP.GLINT_SIZE then
+                                    -- The light is up and to the left of the camera: a tiny faint glint toward the head, a little
+                                    -- toward the camera so that the body does not hide it.
+                                    local gk, go = 0.4 / D, hw * 0.35
+                                    PD.glint(x + ax * 0.45 + (ux * 0.35 - rx * 0.3) * go + tx * gk,
+                                             y + ay * 0.45 + (uy * 0.35 - ry * 0.3) * go + ty * gk,
+                                             z + az * 0.45 + (uz * 0.35 - rz * 0.3) * go + tz * gk,
+                                             max(0.08, hw * 0.13), rx, ry, rz, ux, uy, uz, 1, 0.9, 0.88, a * 0.25)
+                                end
                             end
                         end
                     end
@@ -3775,6 +3862,7 @@ function MEL.scorch(slot, amount)
 end
 
 loadLens()
+DROP.load()
 zeroAll()
 sendSeed()
 applySettings()
