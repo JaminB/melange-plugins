@@ -4,11 +4,12 @@
 -- It only reads game state (worm health, positions and facing, damage and explosion messages, the camera) and draws. It
 -- never changes the simulation, sends anything or asks for a permission, so every player sees their own blood.
 --
--- Droplets and mist are world quads drawn from one "world" callback. The ground stains are the bloodsand/stains post-FX
--- effect (eight slots), the blood, wounds, black eyes, scorching and the torn belly painted on a worm are bloodsand/skin
--- (sixteen slots that follow the worms) and the intestines that hang out of a torn belly are bloodsand/guts (up to four
--- worms), a chain simulated here and ray-marched there; all three are fed with wum.postfx.setTransient, which writes
--- nothing to Melange.ini. The lens splats are textures drawn at the "hud" stage.
+-- Droplets and mist are world quads drawn from one "world" callback. The ground decals are the bloodsand/stains post-FX
+-- effect (32 slots of splats and pools on any surface; a droplet that meets the terrain, seen with wum.game.landRay where
+-- Melange has it, leaves one), the blood, wounds, black eyes, scorching and the torn belly painted on a worm are
+-- bloodsand/skin (sixteen slots that follow the worms) and the intestines that hang out of a torn belly are
+-- bloodsand/guts (up to four worms), a chain simulated here and ray-marched there; all three are fed with
+-- wum.postfx.setTransient, which writes nothing to Melange.ini. The lens splats are textures drawn at the "hud" stage.
 
 if not (wum.draw and wum.draw.on and wum.game and wum.game.worms) then return end
 
@@ -40,7 +41,11 @@ local MIST_ALPHA = 0.3
 local DROPLET_ALPHA = 0.9
 local FADE_START = 0.7          -- droplets start to fade after this fraction of their life
 local STREAK_SECONDS = 0.03     -- a streak is as long as the distance covered in this time...
-local STREAK_MIN, STREAK_MAX = 3.5, 16  -- ...within these limits
+local STREAK_MIN, STREAK_MAX = 3.5, 22  -- ...within these limits
+-- A droplet is drawn as a thin lighter film, a dark body and a small gleam. A droplet that has flown a while stretches up
+-- to AGE_GAIN more and gets thinner. Only droplets wider than EDGE_SIZE get the film; only those wider than FLECK_SIZE
+-- and nearer the camera than FLECK_NEAR get the gleam.
+local DROP = { AGE_GAIN = 0.8, EDGE = 1.25, BODY = 0.72, FLECK_NEAR = 260, FLECK_SIZE = 2.0, EDGE_SIZE = 1.5 }
 
 -- Offsets from the worm's reported position, to be calibrated in game: up to the middle of the body, and down to
 -- the ground the worm stands on.
@@ -65,14 +70,34 @@ local BLEED_MAX_RATE = 22
 local BLEED_SECS = { 5, 16 }
 local BLEED_SECS_PER_DAMAGE = 0.2
 
--- Ground stains.
-local STAIN_SLOTS = 8
+-- Ground stains (decals).
+local STAIN_SLOTS = 32
 local STAIN_BASE, STAIN_PER_DAMAGE, STAIN_MAX, STAIN_DEATH = 9, 0.35, 28, 30
 local STAIN_MIN_DAMAGE = 2      -- lighter hits leave nothing on the ground
-local STAIN_MERGE = 7           -- blood landing this close to a live stain, or inside most of it, makes that one grow
 local REST_SPEED = 40           -- slower than this a worm counts as at rest
 local REST_SECS = 0.3
 local PENDING_SECS = 8          -- a stain waiting for a thrown worm to land is dropped after this long
+
+-- Droplet-vs-terrain collision (needs wum.game.landRay) and the decals a landing droplet leaves. Distances are world
+-- units, times seconds.
+local DEC = {
+    SPLAT_MAX = 9,              -- the largest a splat grows to by absorbing blood that lands on it
+    POOL_MAX = 40,
+    BOUND = 1.55,               -- radius of the shader's bounding sphere, in splat radii times (1 + stretch)
+    POOL_BOUND = 1.55,
+    RUN = 2.8,                  -- a wall splat's drips may reach this many radii below it (bound only)
+    SPREAD_POOL = 2.2,          -- a pool spreads to full size in about two seconds (rate of an exponential)
+    SPREAD_SPLAT = 14,
+    MIN_MERGE = 2.2,            -- blood landing this close to a live decal of the same orientation joins it
+    NEW_PER_FRAME = 4,          -- new decals one frame may start; the rest of the hits only grow what is there
+    SENDS_PER_FRAME = 12,       -- slot sends (two setTransient calls at most each) one frame may make
+    HIT_SCALE = 1.15,           -- splat radius per unit of droplet size
+    -- Terrain rays per frame (the plugin as a whole stays near 64: the intestines take up to PROBE_BUDGET, a pool or a melee
+    -- hit a few): droplets get RAY_BUDGET. Heavy
+    -- droplets (wider than HEAVY_SIZE or faster than HEAVY_SPEED) are tested first and share HEAVY_RAYS of them; the
+    -- rest take turns, no droplet waiting more than STRIDE_MAX frames. A droplet of SPLIT_SIZE or more breaks up.
+    RAY_BUDGET = 48, HEAVY_RAYS = 30, HEAVY_SIZE = 1.9, HEAVY_SPEED = 170, SPLIT_SIZE = 2.1, STRIDE_MAX = 12,
+}
 
 -- Blood on the worms' skin. Gore is 0..1 per worm and each point of damage adds 1/GORE_DAMAGE of it.
 local SKIN_SLOTS = 16
@@ -246,11 +271,6 @@ local function sendEnabled(fx, on)
     fx.enabled = on
 end
 
-local NAME_A, NAME_B = {}, {}
-for i = 1, STAIN_SLOTS do
-    NAME_A[i] = "stain" .. (i - 1)
-    NAME_B[i] = "stain" .. (i - 1) .. "b"
-end
 -- Worm slots are numbered from 0, so slot n is at index n + 1.
 local WORM_A, WORM_B, WORM_C = {}, {}, {}
 for i = 1, SKIN_SLOTS do
@@ -259,55 +279,343 @@ for i = 1, SKIN_SLOTS do
     WORM_C[i] = "worm" .. (i - 1) .. "c"
 end
 
--- ---------------------------------------------------------------- ground stains
-local stX, stY, stZ, stR, stSeed, stLive = {}, {}, {}, {}, {}, {}
-local stNext = 1
-
-local function updateStainEnable()
-    local live = false
-    for i = 1, STAIN_SLOTS do
-        if stLive[i] then live = true end
+-- ---------------------------------------------------------------- ground decals
+-- == Decals == 32 slots of splats (kind 1) and pools (kind 2), each on a surface of any orientation. A slot is two vec4
+-- params, "dNa" = (x, y, z, bound) and "dNb" = (normal, flow, birth, size-and-kind), packed as stains.frag documents.
+-- The Lua keeps the data and owns recycling: oldest and smallest go first, and a speck never evicts a big blot. The
+-- shader dries a decal from its birth, p_clock being our own fxClock (it only runs while a match does).
+-- Everything is inside one do-block so the main chunk keeps its few free local-variable slots (Lua allows 200); what
+-- the rest of the file uses is declared here and set below: updateStainEnable, clearStains, requestPool, placeStain,
+-- and the DECALS table (update, resend, zero, cast, splat, rayOK, rayUsed).
+local updateStainEnable, clearStains, requestPool, placeStain
+local DECALS = { rayUsed = 0, rayOK = false, frame = 0, prevHeavy = 0, prevLight = 0 }
+do
+local DS = { live = {}, x = {}, y = {}, z = {}, nx = {}, ny = {}, nz = {}, np = {}, r = {}, rt = {}, e = {}, phi = {},
+             birth = {}, seed = {}, kind = {}, thick = {}, dirtyA = {}, dirtyB = {}, sentRq = {} }
+local DEC_A, DEC_B = {}, {}
+for i = 1, STAIN_SLOTS do
+    DEC_A[i], DEC_B[i] = "d" .. (i - 1) .. "a", "d" .. (i - 1) .. "b"
+    DS.live[i], DS.dirtyA[i], DS.dirtyB[i], DS.sentRq[i] = false, false, false, -1
+    for _, k in ipairs({ "x", "y", "z", "nx", "ny", "nz", "np", "r", "rt", "e", "phi", "birth", "seed", "kind", "thick" }) do
+        DS[k][i] = 0
     end
-    sendEnabled(STAINS, live and preset ~= nil and cfg.stains ~= false)
+end
+local decCount = 0          -- live decals
+local decNew = 0            -- decals started this frame
+local decFlush = 0          -- where the next flush starts, so no slot is starved
+local fxClock = 0
+
+-- Like sendParam for the four-float color params the decal slots are.
+local function sendVec4(fx, name, a, b, c, d)
+    if not hasPostfx then return end
+    local old = fx.cache[name]
+    if old and old[1] == a and old[2] == b and old[3] == c and old[4] == d then return end
+    local ok, res = pcall(wum.postfx.setTransient, fx.id, name, a, b, c, d)
+    if not ok or res == false then return end
+    if not old then
+        old = {}
+        fx.cache[name] = old
+    end
+    old[1], old[2], old[3], old[4] = a, b, c, d
 end
 
-local function clearStains()
+function updateStainEnable()
+    sendEnabled(STAINS, decCount > 0 and preset ~= nil and cfg.stains ~= false)
+end
+
+function clearStains()
     for i = 1, STAIN_SLOTS do
-        stLive[i] = false
-        sendParam(STAINS, NAME_B[i], 0, 0, 0)
+        DS.live[i], DS.dirtyA[i], DS.dirtyB[i], DS.sentRq[i] = false, false, false, -1
+        sendVec4(STAINS, DEC_A[i], 0, 0, 0, 0)
+        sendVec4(STAINS, DEC_B[i], 0, 0, 0, 0)
     end
+    decCount = 0
+    sendParam(STAINS, "count", 0)
     updateStainEnable()
 end
 
-local function placeStain(x, y, z, radius)
-    if not (hasPostfx and preset and cfg.stains) then return end
+local function q12(v)
+    if v < 0 then v = 0 elseif v > 1 then v = 1 end
+    return floor(v * 4095 + 0.5)
+end
+
+-- The normal as the shader will see it: two 12-bit angles. The tangent frame is built from this rounded normal on both
+-- sides, so the flow direction cannot turn by a quarter where the rounding crosses the frame's switch at |ny| = 0.9.
+local function quantNormal(nx, ny, nz)
+    local az = math.atan(nz, nx)
+    local el = math.acos(max(-1, min(1, ny)))
+    local qa, qe = q12((az + pi) / (2 * pi)), q12(el / pi)
+    az, el = qa / 4095 * 2 * pi - pi, qe / 4095 * pi
+    local se = sin(el)
+    return se * cos(az), cos(el), se * sin(az), qa * 4096 + qe
+end
+
+-- The tangent frame of stains.frag: T along the surface (horizontal on a wall), B across it (up the wall).
+local function tangentFrame(nx, ny, nz)
+    local rx, ry, rz = 0, 1, 0
+    if abs(ny) > 0.9 then rx, ry, rz = 1, 0, 0 end
+    local tx, ty, tz = ry * nz - rz * ny, rz * nx - rx * nz, rx * ny - ry * nx
+    local l = sqrt(tx * tx + ty * ty + tz * tz)
+    if l < 1e-6 then return 1, 0, 0, 0, 0, 1 end
+    tx, ty, tz = tx / l, ty / l, tz / l
+    return tx, ty, tz, ny * tz - nz * ty, nz * tx - nx * tz, nx * ty - ny * tx
+end
+
+local function isWall(ny) return ny < 0.78 and ny > -0.35 end
+
+-- Sends what changed of one slot: (x, y, z, bound) and the packed shape.
+local function decalSend(i)
+    if not DS.live[i] then
+        sendVec4(STAINS, DEC_A[i], 0, 0, 0, 0)
+        sendVec4(STAINS, DEC_B[i], 0, 0, 0, 0)
+        DS.dirtyA[i], DS.dirtyB[i], DS.sentRq[i] = false, false, -1
+        return
+    end
+    local rt, e, kind = DS.rt[i], DS.e[i], DS.kind[i]
+    if DS.dirtyA[i] then
+        local bound
+        if kind == 2 then
+            bound = DEC.POOL_BOUND * rt
+        else
+            bound = DEC.BOUND * rt * (1 + e)
+            if isWall(DS.ny[i]) then bound = bound + DEC.RUN * rt end
+        end
+        sendVec4(STAINS, DEC_A[i], DS.x[i], DS.y[i], DS.z[i], bound)
+        DS.dirtyA[i] = false
+    end
+    if DS.dirtyB[i] then
+        local rq = min(1023, floor(DS.r[i] * 10 + 0.5))
+        local flow = q12(DS.phi[i] / (2 * pi)) * 4096 + q12(e / 4)
+        local ts = rq * 16384 + (kind * 16 + DS.thick[i]) * 256 + DS.seed[i]
+        sendVec4(STAINS, DEC_B[i], DS.np[i], flow, DS.birth[i], ts)
+        DS.sentRq[i] = rq
+        DS.dirtyB[i] = false
+    end
+end
+
+-- What a slot is worth keeping: big and fresh blood stays.
+local function decalWeight(i)
+    return DS.rt[i] * (1 + 4 * math.exp(-(fxClock - DS.birth[i]) / 60))
+end
+
+-- Puts a decal (kind 1 splat, 2 pool) with the blood landing at (hx, hy, hz) and its shape centred at (cx, cy, cz). A decal
+-- of the same orientation that the blood lands in or beside takes it instead (and grows, and is wet again). The normal
+-- must be a unit vector. Returns the slot or nil.
+local function decalAdd(kind, hx, hy, hz, cx, cy, cz, nx, ny, nz, r, e, phi, thick)
+    local qx, qy, qz, np = quantNormal(nx, ny, nz)
+    local best, bestD
     for i = 1, STAIN_SLOTS do
-        if stLive[i] and abs(stY[i] - y) < STAIN_MERGE then
-            local dx, dz = stX[i] - x, stZ[i] - z
-            local reach = max(STAIN_MERGE, stR[i] * 0.7)
-            if dx * dx + dz * dz < reach * reach then
-                -- Blood on blood: the stain already there grows a little and keeps its shape.
-                local grown = min(STAIN_DEATH, sqrt(stR[i] * stR[i] + radius * radius * 0.5))
-                if grown > stR[i] * 1.08 then
-                    stR[i] = grown
-                    sendParam(STAINS, NAME_B[i], grown, stSeed[i], 1)
-                end
-                return
+        -- A pool only joins a pool; a splat joins either.
+        if DS.live[i] and (kind == 1 or DS.kind[i] == 2) and DS.nx[i] * qx + DS.ny[i] * qy + DS.nz[i] * qz > 0.85 then
+            local mx, my, mz = DS.nx[i], DS.ny[i], DS.nz[i]
+            local dx, dy, dz = hx - DS.x[i], hy - DS.y[i], hz - DS.z[i]
+            local h = dx * mx + dy * my + dz * mz
+            local rt = DS.rt[i]
+            if abs(h) < 0.5 * rt + 2.5 then
+                local px, py, pz = dx - mx * h, dy - my * h, dz - mz * h
+                local d2 = px * px + py * py + pz * pz
+                local reach = max(rt * 0.8 * (1 + 0.3 * DS.e[i]), DEC.MIN_MERGE)
+                if d2 < reach * reach and (not bestD or d2 < bestD) then best, bestD = i, d2 end
             end
         end
     end
-    local slot = stNext
-    stNext = stNext % STAIN_SLOTS + 1
-    stX[slot], stY[slot], stZ[slot], stR[slot], stSeed[slot], stLive[slot] = x, y, z, radius, floor(random() * 1000), true
-    sendParam(STAINS, NAME_A[slot], x, y, z)
-    sendParam(STAINS, NAME_B[slot], radius, stSeed[slot], 1)
+    if best then
+        local i = best
+        local rt = DS.rt[i]
+        local cap = DS.kind[i] == 2 and DEC.POOL_MAX or DEC.SPLAT_MAX
+        local grown = min(cap, sqrt(rt * rt + r * r * (DS.kind[i] == 2 and 0.25 or 0.35)))
+        if grown > rt * 1.005 then
+            DS.rt[i] = grown
+            DS.dirtyA[i], DS.dirtyB[i] = true, true
+        end
+        -- Fresh blood on old: wet again, in proportion, and a little thicker.
+        local frac = min(0.4, (r / DS.rt[i]) ^ 2)
+        DS.birth[i] = DS.birth[i] + (fxClock - DS.birth[i]) * frac
+        if thick > DS.thick[i] and random() < 0.3 then DS.thick[i] = DS.thick[i] + 1 end
+        DS.dirtyB[i] = true
+        return i
+    end
+    if decNew >= DEC.NEW_PER_FRAME and kind == 1 then return nil end
+    local slot
+    for i = 1, STAIN_SLOTS do
+        if not DS.live[i] then
+            slot = i
+            break
+        end
+    end
+    if not slot then
+        local lowest
+        for i = 1, STAIN_SLOTS do
+            local w = decalWeight(i)
+            if not lowest or w < lowest then slot, lowest = i, w end
+        end
+        -- A speck does not push out anything that is worth more than it.
+        if r * 5 < lowest * 0.6 then return nil end
+    else
+        decCount = decCount + 1
+    end
+    decNew = decNew + 1
+    DS.live[slot] = true
+    DS.x[slot], DS.y[slot], DS.z[slot] = cx, cy, cz
+    DS.nx[slot], DS.ny[slot], DS.nz[slot], DS.np[slot] = qx, qy, qz, np
+    DS.rt[slot], DS.e[slot], DS.phi[slot], DS.kind[slot], DS.thick[slot] = r, e, phi, kind, thick
+    DS.r[slot] = r * (kind == 2 and 0.15 or 0.6)
+    DS.birth[slot] = fxClock
+    DS.seed[slot] = random(0, 255)
+    DS.dirtyA[slot], DS.dirtyB[slot] = true, true
+    return slot
+end
+
+-- A droplet of this size and velocity reached the terrain at (x, y, z), whose unit normal is (nx, ny, nz): a splat
+-- stretched along the way it was going (a round one with satellite specks when it came down steeply), and on a wall
+-- the stretch leans downhill, where the shader runs drips.
+local function decalSplat(x, y, z, nx, ny, nz, vx, vy, vz, size)
+    local vn = -(vx * nx + vy * ny + vz * nz)
+    if vn < 0 then
+        nx, ny, nz, vn = -nx, -ny, -nz, -vn
+    end
+    local tvx, tvy, tvz = vx + nx * vn, vy + ny * vn, vz + nz * vn
+    local wall = isWall(ny)
+    if wall then
+        local gx, gy, gz = nx * ny, ny * ny - 1, nz * ny
+        local gl = sqrt(gx * gx + gy * gy + gz * gz)
+        if gl > 1e-3 then
+            tvx, tvy, tvz = tvx + gx / gl * 30, tvy + gy / gl * 30, tvz + gz / gl * 30
+        end
+    end
+    local ts = sqrt(tvx * tvx + tvy * tvy + tvz * tvz)
+    local r = size * DEC.HIT_SCALE * (1 + 0.5 * min(vn, 300) / 300)
+    local e, phi = 0, 0
+    local fx, fy, fz = 0, 0, 0
+    if ts > 2 then
+        local qx, qy, qz = quantNormal(nx, ny, nz)
+        local tx, ty, tz, bx, by, bz = tangentFrame(qx, qy, qz)
+        e = max(0, min(3.5, ts / max(vn, 10) * 0.55 - 0.1)) + (wall and 0.4 or 0)
+        local u, v = (tvx * tx + tvy * ty + tvz * tz) / ts, (tvx * bx + tvy * by + tvz * bz) / ts
+        phi = math.atan(v, u) % (2 * pi)
+        fx, fy, fz = (tx * u + bx * v) * r * e, (ty * u + by * v) * r * e, (tz * u + bz * v) * r * e
+    end
+    local thick = min(15, max(4, floor(size * 3.5 + 2)))
+    return decalAdd(1, x, y, z, x + fx, y + fy, z + fz, nx, ny, nz, min(r, DEC.SPLAT_MAX), e, phi, thick)
+end
+
+-- Frame step of the decals: advances the clock the shader dries them by, spreads the new ones out, sends what changed.
+-- The shader skips the slots above this one without looking at them.
+local function sendCount()
+    local top = 0
+    for i = 1, STAIN_SLOTS do
+        if DS.live[i] then top = i end
+    end
+    sendParam(STAINS, "count", top)
+end
+
+function DECALS.update(dt)
+    fxClock = fxClock + dt
+    for i = 1, STAIN_SLOTS do
+        if DS.live[i] then
+            local r, rt = DS.r[i], DS.rt[i]
+            if r < rt then
+                r = rt - (rt - r) * math.exp(-(DS.kind[i] == 2 and DEC.SPREAD_POOL or DEC.SPREAD_SPLAT) * dt)
+                if rt - r < 0.02 * rt + 0.04 then r = rt end
+                DS.r[i] = r
+                if min(1023, floor(r * 10 + 0.5)) ~= DS.sentRq[i] then DS.dirtyB[i] = true end
+            end
+        end
+    end
+    if decCount > 0 then sendParam(STAINS, "clock", fxClock) end
+    sendCount()
+    local sent = 0
+    for k = 0, STAIN_SLOTS - 1 do
+        local i = (decFlush + k) % STAIN_SLOTS + 1
+        if DS.dirtyA[i] or DS.dirtyB[i] then
+            decalSend(i)
+            sent = sent + 1
+            if sent >= DEC.SENDS_PER_FRAME then
+                decFlush = i % STAIN_SLOTS
+                break
+            end
+        end
+    end
+    decNew = 0
     updateStainEnable()
+end
+
+-- Sends everything again, for the insurance resend: every slot, empty ones as zeros.
+function DECALS.resend()
+    for i = 1, STAIN_SLOTS do
+        DS.dirtyA[i], DS.dirtyB[i] = true, true
+        decalSend(i)
+    end
+    sendParam(STAINS, "clock", fxClock)
+    sendCount()
+end
+
+function DECALS.zero()
+    for i = 1, STAIN_SLOTS do
+        sendVec4(STAINS, DEC_A[i], 0, 0, 0, 0)
+        sendVec4(STAINS, DEC_B[i], 0, 0, 0, 0)
+    end
+    sendParam(STAINS, "count", 0)
+end
+
+-- The terrain ray. wum.game.landRay is new in Melange 0.6; without it (or when it says it is unavailable) droplets fly on
+-- through the ground as they always did and pools sit at the height they are asked for.
+local landRay = wum.game.landRay
+DECALS.rayOK = type(landRay) == "function"
+
+-- Returns t (0..1 along the segment) and the unit normal of the hit, or nil.
+local function castRay(x0, y0, z0, x1, y1, z1)
+    DECALS.rayUsed = DECALS.rayUsed + 1
+    local ok, t, nx, ny, nz = pcall(landRay, x0, y0, z0, x1, y1, z1)
+    if not ok then
+        DECALS.rayOK = false
+        return nil
+    end
+    if t == nil then
+        if nx == "unavailable" then DECALS.rayOK = false end
+        return nil
+    end
+    if type(t) ~= "number" or type(nx) ~= "number" or type(ny) ~= "number" or type(nz) ~= "number" then return nil end
+    local l = sqrt(nx * nx + ny * ny + nz * nz)
+    if l < 1e-6 then return nil end
+    return t, nx / l, ny / l, nz / l
+end
+
+-- A pool of blood under (x, y, z), size being its radius: it lies on the ground below the point (found with a ray when
+-- the terrain can be asked, otherwise at the given height, facing up) and spreads over about two seconds. A caller that
+-- already knows the ground passes its unit normal (nx, ny, nz) and (x, y, z) is then taken to be on the surface.
+function requestPool(x, y, z, size, gx, gy, gz)
+    if not (hasPostfx and preset and cfg.stains) then return end
+    local px, py, pz, nx, ny, nz = x, y, z, 0, 1, 0
+    if gx and gy and gz and gy > 0.2 then
+        nx, ny, nz = gx, gy, gz
+    elseif DECALS.rayOK then
+        local t, hx, hy, hz = castRay(x, y + 14, z, x, y - 36, z)
+        if t then
+            py = y + 14 - 50 * t
+            nx, ny, nz = hx, hy, hz
+            if ny < 0.2 then nx, ny, nz = 0, 1, 0 end
+        end
+    end
+    local phi = random() * 2 * pi
+    return decalAdd(2, px, py, pz, px, py, pz, nx, ny, nz, min(DEC.POOL_MAX, max(2, size * 0.9)), 0, phi, random(11, 15))
+end
+
+function placeStain(x, y, z, radius)
+    requestPool(x, y, z, radius)
+end
+
+DECALS.cast, DECALS.splat = castRay, decalSplat
 end
 
 -- ---------------------------------------------------------------- particles
 local P = { x = {}, y = {}, z = {}, vx = {}, vy = {}, vz = {}, size = {}, age = {}, life = {}, kind = {},
             r = {}, g = {}, b = {}, a = {} }
 local PARTS = { P.x, P.y, P.z, P.vx, P.vy, P.vz, P.size, P.age, P.life, P.kind, P.r, P.g, P.b, P.a }
+-- == Collision state == per droplet: the point its last terrain ray started from and a phase that staggers its rays.
+-- spawn does not set them: simulate does on a particle's first step (its age is still 0 then).
+P.lx, P.ly, P.lz, P.ph = {}, {}, {}, {}
+for _, arr in ipairs({ P.lx, P.ly, P.lz, P.ph }) do PARTS[#PARTS + 1] = arr end
 local nP = 0
 for _, arr in ipairs(PARTS) do
     for i = 1, POOL_MAX do arr[i] = 0 end
@@ -369,20 +677,35 @@ local function corner(q, x, y, z)
 end
 
 -- Integrates and draws every live particle. Droplets are drops stretched along their velocity that turn to face the
--- camera; mist puffs are flat against the screen.
+-- camera; mist puffs are flat against the screen. With wum.game.landRay a droplet or clot that reaches the terrain is removed
+-- and leaves a decal (see == Droplet collision ==).
 local function simulate(dt)
     local px, py, pz, pvx, pvy, pvz = P.x, P.y, P.z, P.vx, P.vy, P.vz
     local psize, page, plife, pkind, pr, pg, pb, pa = P.size, P.age, P.life, P.kind, P.r, P.g, P.b, P.a
+    local plx, ply, plz, pph = P.lx, P.ly, P.lz, P.ph
     local draw = CAM.ok
     local KP, KD, KG, KGROW, KFADE = MEL.KP, MEL.KD, MEL.KG, MEL.KGROW, MEL.KFADE
+    local CLOTK = MEL.CLOT        -- heavy clots from the melee sprays collide like droplets; steam and char do not
     local cpx, cpy, cpz = CAM.px, CAM.py, CAM.pz
     local rx, ry, rz, ux, uy, uz = CAM.rx, CAM.ry, CAM.rz, CAM.ux, CAM.uy, CAM.uz
+    -- == Droplet collision == rays are spent on heavy and fast droplets first; the rest take turns, each droplet
+    -- being swept from where it was last tested, so a droplet that waits a few frames still cannot pass through.
+    local frame = DECALS.frame + 1
+    DECALS.frame = frame
+    DECALS.rayUsed = 0
+    local collide = DECALS.rayOK and hasPostfx and preset ~= nil and cfg.stains and true or false
+    local ceil, castRay, decalSplat = math.ceil, DECALS.cast, DECALS.splat
+    local strideH = max(1, min(DEC.STRIDE_MAX, ceil(DECALS.prevHeavy / DEC.HEAVY_RAYS)))
+    local strideL = max(1, min(DEC.STRIDE_MAX, ceil(DECALS.prevLight / max(1, DEC.RAY_BUDGET - DEC.HEAVY_RAYS))))
+    local nHeavy, nLight = 0, 0
+    local heavySpeed2 = DEC.HEAVY_SPEED * DEC.HEAVY_SPEED
     for i = nP, 1, -1 do
         local age = page[i] + dt
         local life = plife[i]
         if age >= life then
             removeParticle(i)
         else
+            local first = page[i] == 0
             page[i] = age
             local vx, vy, vz = pvx[i], pvy[i], pvz[i]
             local kd = pkind[i]
@@ -391,9 +714,57 @@ local function simulate(dt)
             if dr < 0 then dr = 0 end
             vx, vy, vz = vx * dr, vy * dr + GRAVITY * KG[kd] * dt, vz * dr
             pvx[i], pvy[i], pvz[i] = vx, vy, vz
-            local x, y, z = px[i] + vx * dt, py[i] + vy * dt, pz[i] + vz * dt
+            local ox, oy, oz = px[i], py[i], pz[i]
+            local x, y, z = ox + vx * dt, oy + vy * dt, oz + vz * dt
             px[i], py[i], pz[i] = x, y, z
-            if draw then
+            local hit = false
+            if collide and (kd == DROPLET or kd == CLOTK) then
+                if first then
+                    plx[i], ply[i], plz[i], pph[i] = ox, oy, oz, random(0, 255)
+                end
+                local size = psize[i]
+                local heavy = size >= DEC.HEAVY_SIZE or vx * vx + vy * vy + vz * vz >= heavySpeed2
+                if heavy then nHeavy = nHeavy + 1 else nLight = nLight + 1 end
+                local stride = heavy and strideH or strideL
+                if DECALS.rayUsed < DEC.RAY_BUDGET and (stride == 1 or (frame + pph[i]) % stride == 0) then
+                    local sx, sy, sz = plx[i], ply[i], plz[i]
+                    local dx, dy, dz = x - sx, y - sy, z - sz
+                    -- A stale start (a stride of many frames, or a droplet that was not tracked) is not trusted far.
+                    if dx * dx + dy * dy + dz * dz > 40 * 40 then
+                        sx, sy, sz = ox, oy, oz
+                    end
+                    local t, nx, ny, nz = castRay(sx, sy, sz, x, y, z)
+                    if t then
+                        hit = true
+                        local hx, hy, hz = sx + (x - sx) * t, sy + (y - sy) * t, sz + (z - sz) * t
+                        decalSplat(hx + nx * 0.2, hy + ny * 0.2, hz + nz * 0.2, nx, ny, nz, vx, vy, vz, size)
+                        -- A heavy droplet breaks up on a hard hit: a couple of small ones thrown back off the surface.
+                        local vn = -(vx * nx + vy * ny + vz * nz)
+                        if size >= DEC.SPLIT_SIZE and vn > 80 and nP < preset.max * 0.9 then
+                            local kids = vn > 200 and 3 or 2
+                            for _ = 1, kids do
+                                local k = rnd(0.2, 0.4)
+                                local jx, jy, jz = rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)
+                                local jl = max(1e-3, sqrt(jx * jx + jy * jy + jz * jz))
+                                local sp = sqrt(vx * vx + vy * vy + vz * vz) * 0.35
+                                -- Reflected velocity at a fraction of the speed, jittered; never back into the surface.
+                                local rvx, rvy, rvz = (vx + 2 * vn * nx) * k + jx / jl * sp, (vy + 2 * vn * ny) * k + jy / jl * sp,
+                                    (vz + 2 * vn * nz) * k + jz / jl * sp
+                                local into = rvx * nx + rvy * ny + rvz * nz
+                                if into < 15 then
+                                    rvx, rvy, rvz = rvx + nx * (15 - into), rvy + ny * (15 - into), rvz + nz * (15 - into)
+                                end
+                                spawn(DROPLET, hx + nx * 0.6, hy + ny * 0.6, hz + nz * 0.6, rvx, rvy, rvz,
+                                      size * rnd(0.3, 0.45), rnd(0.35, 0.8), pr[i], pg[i], pb[i], pa[i])
+                            end
+                        end
+                        removeParticle(i)
+                    else
+                        plx[i], ply[i], plz[i] = x, y, z
+                    end
+                end
+            end
+            if draw and not hit then
                 local t = age / life
                 if mist then
                     local h = psize[i] * (0.5 + t * KGROW[kd]) * 0.5
@@ -415,7 +786,11 @@ local function simulate(dt)
                 else
                     local sp = sqrt(vx * vx + vy * vy + vz * vz)
                     if sp > 1e-3 then
-                        local hl = min(max(sp * STREAK_SECONDS, STREAK_MIN), STREAK_MAX) * 0.5
+                        -- A droplet stretches with its speed, and one that has been flying a while stretches more
+                        -- (and thins out, as a stretched drop does).
+                        local size = psize[i]
+                        local hl2 = min(max(sp * STREAK_SECONDS * (1 + DROP.AGE_GAIN * min(age, 1.2)), STREAK_MIN), STREAK_MAX)
+                        local hl = hl2 * 0.5
                         local k = hl / sp
                         local ax, ay, az = vx * k, vy * k, vz * k
                         -- The short axis is perpendicular to both the streak and the line to the camera.
@@ -423,23 +798,46 @@ local function simulate(dt)
                         local sx, sy, sz = ay * tz - az * ty, az * tx - ax * tz, ax * ty - ay * tx
                         local sl = sqrt(sx * sx + sy * sy + sz * sz)
                         if sl > 1e-6 then
-                            local w = psize[i] * 0.5 / sl
+                            local thin = 1 / sqrt(max(1, hl2 / max(size, 0.5) * 0.35))
+                            local w = size * 0.5 * thin / sl
                             sx, sy, sz = sx * w, sy * w, sz * w
-                            -- A kite: a pointed tail behind, widest just short of the rounded head.
+                            local a = pa[i]
+                            if t > FADE_START then a = a * (1 - t) / (1 - FADE_START) end
+                            local r, g, b = pr[i], pg[i], pb[i]
+                            -- A kite: a pointed tail behind, widest just short of the rounded head. First a wider,
+                            -- lighter, thin film around it, then the dark body, then a gleam toward the light.
                             local hx, hy, hz = x + ax * 0.45, y + ay * 0.45, z + az * 0.45
-                            corner(q1, x - ax, y - ay, z - az)
+                            if size >= DROP.EDGE_SIZE then
+                                corner(q1, x - ax, y - ay, z - az)
+                                corner(q2, hx + sx * 1.45, hy + sy * 1.45, hz + sz * 1.45)
+                                corner(q3, x + ax * 1.08, y + ay * 1.08, z + az * 1.08)
+                                corner(q4, hx - sx * 1.45, hy - sy * 1.45, hz - sz * 1.45)
+                                emitQuad(min(1, r * DROP.EDGE), min(1, g * DROP.EDGE), min(1, b * DROP.EDGE), a * 0.4)
+                            end
+                            corner(q1, x - ax * 0.92, y - ay * 0.92, z - az * 0.92)
                             corner(q2, hx + sx, hy + sy, hz + sz)
                             corner(q3, x + ax, y + ay, z + az)
                             corner(q4, hx - sx, hy - sy, hz - sz)
-                            local a = pa[i]
-                            if t > FADE_START then a = a * (1 - t) / (1 - FADE_START) end
-                            emitQuad(pr[i], pg[i], pb[i], a)
+                            emitQuad(r * DROP.BODY, g * DROP.BODY, b * DROP.BODY, a)
+                            if size >= DROP.FLECK_SIZE and tx * tx + ty * ty + tz * tz < DROP.FLECK_NEAR * DROP.FLECK_NEAR then
+                                -- The light is up and to the left of the camera: a small bright square near the head.
+                                local fs = max(0.25, size * 0.17)
+                                local fx = hx + (ux * 0.3 - rx * 0.25) * size * 0.4
+                                local fy = hy + (uy * 0.3 - ry * 0.25) * size * 0.4
+                                local fz = hz + (uz * 0.3 - rz * 0.25) * size * 0.4
+                                corner(q1, fx - (rx + ux) * fs, fy - (ry + uy) * fs, fz - (rz + uz) * fs)
+                                corner(q2, fx + (rx - ux) * fs, fy + (ry - uy) * fs, fz + (rz - uz) * fs)
+                                corner(q3, fx + (rx + ux) * fs, fy + (ry + uy) * fs, fz + (rz + uz) * fs)
+                                corner(q4, fx + (ux - rx) * fs, fy + (uy - ry) * fs, fz + (uz - rz) * fs)
+                                emitQuad(1, 0.86, 0.84, a * 0.75)
+                            end
                         end
                     end
                 end
             end
         end
     end
+    DECALS.prevHeavy, DECALS.prevLight = nHeavy, nLight
 end
 
 -- ---------------------------------------------------------------- lens splats
@@ -590,7 +988,7 @@ end
 -- registered below (MEL.KG / KD / KP / KGROW / KFADE) and simulate() reads them from there. The classification that picks
 -- the signature is in "Melee classification", further down. Everything lives in the one MEL table to spare locals.
 for k, v in pairs({
-    VEL_SCALE = 1,              -- engine velocity (the vel of wum.game.worms()) times this = units per second
+    VEL_SCALE = 1,              -- engine velocity (the vel of wum.game.worms(), units per second in Melange 0.6) times this
     STEAM = 3, CHAR = 4, CLOT = 5,                  -- particle kinds after DROPLET and MIST
     KG = {}, KD = {}, KP = {}, KGROW = {}, KFADE = {},  -- per kind: gravity multiple, drag per second, puff, growth, fade-in
     SIG = {},                   -- weapon id -> signature
@@ -1517,7 +1915,7 @@ local function build()
 local ceil, exp = math.ceil, math.exp
 local landRay = wum.game.landRay    -- nil on a Melange without it: the ground is then a flat plane at the worm's feet
 local hasLand = landRay ~= nil
-local VEL_SCALE = 1                 -- engine velocity (wum.game.worms() vel) to units per second, to be confirmed
+local VEL_SCALE = MEL.VEL_SCALE    -- the one scale constant: vel of wum.game.worms() is in units per second (Melange 0.6)
 
 local GUTS = { id = "bloodsand/guts", cache = {}, enabled = nil }
 local gutsMissing = false           -- the effect is not there (the old Melange cannot load it) or its shader failed
@@ -2487,6 +2885,7 @@ local function onWorld()
     VIS.updateGuts()
     MEL.tick(dt)
     simulate(dt)
+    DECALS.update(dt)
     drawGuts()
     ageSplats(dt)
 end
@@ -2609,15 +3008,7 @@ local function resend()
     if not hasPostfx then return end
     STAINS.cache, SKIN.cache = {}, {}
     VIS.clearCache()
-    for i = 1, STAIN_SLOTS do
-        if stLive[i] then
-            sendParam(STAINS, NAME_A[i], stX[i], stY[i], stZ[i])
-            sendParam(STAINS, NAME_B[i], stR[i], stSeed[i], 1)
-        else
-            sendParam(STAINS, NAME_A[i], 0, 0, 0)
-            sendParam(STAINS, NAME_B[i], 0, 0, 0)
-        end
-    end
+    DECALS.resend()
     for i = 1, SKIN_SLOTS do
         if skFrame[i] == frameId and (skSentGore[i] > 0 or skSentWound[i] > 0 or skSentEyes[i] > 0 or skSentGut[i] > 0) then
             -- The centre goes out at the next frame, which finds the cache empty; the amounts are forced here.
@@ -2638,10 +3029,7 @@ end
 
 -- Every slot of both effects starts at zero, whatever Melange saved in an earlier session.
 local function zeroAll()
-    for i = 1, STAIN_SLOTS do
-        sendParam(STAINS, NAME_A[i], 0, 0, 0)
-        sendParam(STAINS, NAME_B[i], 0, 0, 0)
-    end
+    DECALS.zero()
     for i = 1, SKIN_SLOTS do
         sendParam(SKIN, WORM_A[i], 0, 0, 0)
         sendParam(SKIN, WORM_B[i], 0, 0, 0)
@@ -2654,21 +3042,17 @@ end
 -- == Melee hooks ================================================================================================
 -- Kept at the end of the file, below every local the other sections define, so that these names find them.
 --
--- requestPool(x, y, z, size, nx, ny, nz): asks for a big pool of blood on the ground at (x, y, z), `size` being the
--- radius in world units like a stain's, with the unit surface normal (nx, ny, nz) when the game's landRay gave one. Today
--- it is a plain stain; a better version defined above this section under the same name replaces it.
-local requestPool = requestPool or function(x, y, z, size)
-    placeStain(x, y, z, min(size, STAIN_DEATH))
-end
+-- requestPool(x, y, z, size, nx, ny, nz) is the decals section's: a big pool of blood on the ground at (x, y, z), `size`
+-- being its radius, with the unit surface normal when the game's landRay gave one.
 MEL.pool = requestPool
 
--- setScorch(slot, amount): the skin side's hook for a burnt mark on a worm (0..1, raised to at least amount). It is
--- used when a setScorch defined above this section exists; the amount is also left in the worm's state as s.scorch.
+-- setScorch(slot, amount): the skin side's hook for a burnt mark on a worm (0..1, raised to at least amount); the amount
+-- is also left in the worm's state as s.scorch.
 function MEL.scorch(slot, amount)
     if slot == nil then return end
     local s = slots[slot]
     if s then s.scorch = max(s.scorch or 0, amount) end
-    if setScorch then setScorch(slot, amount) end
+    setScorch(slot, amount)
 end
 
 loadLens()
