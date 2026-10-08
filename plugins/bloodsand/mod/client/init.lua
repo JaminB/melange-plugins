@@ -158,10 +158,13 @@ local PREVIEW_WOUND = 0.7         -- the preview gives its worm this wound level
 local PREVIEW_SECS = 12
 
 -- Black eyes (the shader draws them): the level is 0 at or above EYE.START of the health fraction and 1 at or below
--- EYE.FULL. They are hidden while the worm is thrown, since its facing no longer says how it lies; eyeShow fades them.
+-- EYE.FULL. The shader brings the first eye to full strength at a level of 0.35 and the second at 0.52, so with these a worm at
+-- 85 of 100 health starts to show a faint bruise, at 70 has one eye black and the other nearly, and from 55 down both are full
+-- (the range was 0.8 to 0.3, which left a worm at 40 to 70 health with a bruise too faint to see from across the level). They
+-- are hidden while the worm is thrown, since its facing no longer says how it lies; eyeShow fades them.
 local EYE = {
-    START = 0.8,
-    FULL = 0.3,
+    START = 0.92,
+    FULL = 0.35,
     SPEED = 90,                     -- faster than this a worm counts as thrown; walking measures about 40
     FADE = 4,                       -- per second
     RESEND = 0.02,

@@ -12,7 +12,11 @@
 // glasses, a headband, a pair of ears, a moustache and the whites and pupils of the eyes are blue, green, grey, white, pink,
 // yellower (a cowboy hat 34 to 40 degrees, a helmet 47 to 51), more saturated (an orange moustache, 0.76 and up) or darker
 // brown, and fall outside it. The classifier gives 0..1, so the edge is soft, and every layer that is painted (blood,
-// gashes, bruises, scorching, the belly) is multiplied by it: on the head and the body alike.
+// gashes, bruises, scorching, the belly) is multiplied by it: on the head and the body alike. And only the worm's own surface
+// is looked at: a pixel has to lie on a shell round the worm's vertical axis (the body is a capsule 5.6 units in radius), face
+// away from the axis, stand upright along the straight part of the body, and have the depth fall away to one side of it (see
+// Worm()), because sunlit sand has the colour skin has in the sun and a ridge or a dune inside the worm's ellipsoid would take
+// the paint of a worm hidden behind it.
 //
 // Blood is not a uniform coat. It is soaked round the places that bleed (each open wound, and the place the worm was hit
 // last), spreads further down than up, runs down the body from there in long, thinning streaks with a bead at the end, is
@@ -168,8 +172,11 @@ float SkinLimit(float u, float mx) {
 // snow's); a cowboy hat is 34 to 40 degrees (0.59 to 0.71), a helmet 47 to 51, brown fur 31 to 36 and an orange moustache
 // has the skin's hue at a saturation of 0.76 to 0.84. The hue is tested without an atan: the tangent of the hue is
 // sqrt(3) (g - b) / (2 r - g - b), and the limit of 30 degrees is 0.577, soft over 3 degrees; it climbs toward 60 degrees
-// (1.75) as the brightness goes from 0.85 to 0.97, because sun that clips the red turns skin yellow-cream (hue 45 to 60,
-// saturation 0.45 to 0.6), and no hat, helmet or moustache is that bright (the brightest of them, a lit brim, is 0.63). strict is 0..1 where a hat or a moustache can be (above the eye line, round the mouth) and pulls both
+// (1.75) as the brightness goes from 0.74 to 0.9, because sun that clips the red turns skin yellow-cream (hue 45 to 60,
+// saturation 0.45 to 0.6) and poison turns it yellow (measured on a poisoned worm in game: red 0.87 to 0.95, green 0.81 to 0.94,
+// blue 0.30 to 0.36, so hue 53 to 59 and saturation 0.62 to 0.68, whatever the shading), and no hat, helmet or moustache is that
+// bright (the brightest of them, a lit brim, is 0.63). The ramp used to start at 0.85, which let only the brightest poisoned
+// skin through and left the rest to flip in and out of the mask from one pixel to the next. strict is 0..1 where a hat or a moustache can be (above the eye line, round the mouth) and pulls both
 // limits in a little.
 float SkinTone(vec3 c, float strict) {
     float mx = max(c.r, max(c.g, c.b));
@@ -181,7 +188,7 @@ float SkinTone(vec3 c, float strict) {
     float hole = smoothstep(0.415, 0.44, v) * (1.0 - smoothstep(0.505, 0.525, v)) * smoothstep(0.66, 0.70, u) * (1.0 - smoothstep(0.79, 0.84, u))
                * (1.0 - smoothstep(0.78, 0.86, mx));
     float tn = 1.7320508 * (c.g - c.b) / max(2.0 * c.r - c.g - c.b, 1e-3);
-    float tl = mix(0.577, 1.75, smoothstep(0.85, 0.97, mx)) - 0.02 * strict;
+    float tl = mix(0.577, 1.75, smoothstep(0.74, 0.9, mx)) - 0.02 * strict;
     float hue = 1.0 - smoothstep(tl, tl + 0.075, tn);
     float sat = 1.0 - smoothstep(0.72 - 0.02 * strict, 0.76 - 0.02 * strict, (mx - mn) / max(mx, 1e-3));
     return smoothstep(0.30, 0.40, u) * (1.0 - smoothstep(1.12, 1.30, u))
@@ -199,30 +206,54 @@ float WhiteTone(vec3 c) {
     return smoothstep(vt, vt + 0.06, c.b * rr) * smoothstep(0.62, 0.78, u) * step(0.3, mx);
 }
 
-// Where the eye whites are, seen from this pixel on the screen: x is how much white lies in rings around it (about 0.95 and
-// 2.3 world units out times reach, five taps on each, turned by a random angle per pixel so that the rings do not show as
-// bands; whatever the distance the rings are never nearer than 2 and 4.5 pixels, so that a black eye seen from across the
-// level still has a ring of a few pixels), 0 far from an eye and 1 right beside one, and y is how much of that white is above
-// the pixel, so 1 under an eye and 0 above it.
-vec2 WhiteNear(vec3 P, float reach) {
+// How much a scene colour is a moustache, 0..1: the orange one (the skin's hue at a saturation above what skin has) or the
+// brown one (the gap in the skin window that SkinTone cuts out as a hole).
+float MoustTone(vec3 c) {
+    float mx = max(c.r, max(c.g, c.b));
+    float mn = min(c.r, min(c.g, c.b));
+    float rr = max(c.r, 1e-3);
+    float u = c.g / rr;
+    float v = c.b / rr;
+    float orange = smoothstep(0.71, 0.76, (mx - mn) / max(mx, 1e-3)) * smoothstep(0.35, 0.5, u) * (1.0 - smoothstep(0.85, 0.95, u)) * smoothstep(0.1, 0.2, mx);
+    float brown = smoothstep(0.415, 0.44, v) * (1.0 - smoothstep(0.505, 0.525, v)) * smoothstep(0.66, 0.70, u) * (1.0 - smoothstep(0.79, 0.84, u))
+                * (1.0 - smoothstep(0.78, 0.86, mx)) * smoothstep(0.05, 0.12, mx);
+    return max(orange, brown);
+}
+
+// Where the eye whites are, seen from this pixel on the screen: x is how much white lies in two rings around it (about 0.95
+// and 2.3 world units out times reach, eight taps on each, the second turned half a step; whatever the distance the rings are
+// never nearer than 2.5 and 5.5 pixels, so that a black eye seen from across the level still has a ring of a few pixels), 0 far
+// from an eye and 1 right beside one, and y is how much of that white is above the pixel, so 1 under an eye and 0 above it.
+// The taps are at fixed angles: a ring turned by a random angle per pixel came out as a grain of single dots over the cheeks
+// and the forehead. A pixel only nudges the rings by a few degrees and a tenth of the radius, enough to break the contour
+// lines of the fixed taps into something finer than the eye can pick out. z is how near the pixel is to a moustache (within
+// about a fifth of a unit, on the four axes: the moustache sits right under the eyes, so the gap is a pixel or two).
+vec3 WhiteNear(vec3 P, float reach) {
     float ppu = 0.5 * mg_resolution.y / (abs(mg_invProj[1][1]) * max(-P.z, 1.0));
     vec2 t = mg_resolution.zw;
-    float a0 = 6.2831853 * Hash(gl_FragCoord.xy);
+    vec2 j = vec2(Hash(gl_FragCoord.xy), Hash(gl_FragCoord.yx + 17.0)) - 0.5;
+    float a0 = 0.12 * j.x;
     vec2 d1 = vec2(cos(a0), sin(a0));
-    vec2 d2 = vec2(d1.x * 0.8090170 - d1.y * 0.5877853, d1.x * 0.5877853 + d1.y * 0.8090170);
-    vec2 s1 = t * clamp(0.95 * reach * ppu, 2.0, 80.0);
-    vec2 s2 = t * clamp(2.3 * reach * ppu, 4.5, 180.0);
+    float a1 = 0.3926991 + 0.12 * j.y;
+    vec2 d2 = vec2(cos(a1), sin(a1));
+    float jr = 1.0 + 0.2 * (Hash(gl_FragCoord.xy * 1.7 + 3.0) - 0.5);
+    vec2 s1 = t * clamp(0.95 * reach * ppu, 2.5, 80.0) * jr;
+    vec2 s2 = t * clamp(2.3 * reach * ppu, 5.5, 180.0) * jr;
+    vec2 sm = t * clamp(0.2 * reach * ppu, 1.2, 12.0);
     float sum = 0.0;
     float up = 0.0;
-    for (int i = 0; i < 5; i++) {
-        float w1 = 0.16 * WhiteTone(texture2D(mg_scene, mg_uv + d1 * s1).rgb);
-        float w2 = 0.11 * WhiteTone(texture2D(mg_scene, mg_uv + d2 * s2).rgb);
+    float mo = 0.0;
+    for (int i = 0; i < 8; i++) {
+        float w1 = 0.1 * WhiteTone(texture2D(mg_scene, mg_uv + d1 * s1).rgb);
+        float w2 = 0.075 * WhiteTone(texture2D(mg_scene, mg_uv + d2 * s2).rgb);
         sum += w1 + w2;
         up += (d1.y > 0.25 ? w1 : 0.0) + (d2.y > 0.25 ? w2 : 0.0);
-        d1 = vec2(d1.x * 0.3090170 - d1.y * 0.9510565, d1.x * 0.9510565 + d1.y * 0.3090170);
-        d2 = vec2(d2.x * 0.3090170 - d2.y * 0.9510565, d2.x * 0.9510565 + d2.y * 0.3090170);
+        d1 = vec2(d1.x * 0.7071068 - d1.y * 0.7071068, d1.x * 0.7071068 + d1.y * 0.7071068);
+        d2 = vec2(d2.x * 0.7071068 - d2.y * 0.7071068, d2.x * 0.7071068 + d2.y * 0.7071068);
     }
-    return vec2(clamp(sum, 0.0, 1.0), clamp(up / max(sum, 1e-3), 0.0, 1.0));
+    mo = 0.3 * (MoustTone(texture2D(mg_scene, mg_uv + vec2(sm.x, 0.0)).rgb) + MoustTone(texture2D(mg_scene, mg_uv - vec2(sm.x, 0.0)).rgb)
+              + MoustTone(texture2D(mg_scene, mg_uv + vec2(0.0, sm.y)).rgb) + MoustTone(texture2D(mg_scene, mg_uv - vec2(0.0, sm.y)).rgb));
+    return vec3(clamp(sum, 0.0, 1.0), clamp(up / max(sum, 1e-3), 0.0, 1.0), clamp(mo, 0.0, 1.0));
 }
 
 // The blood soaked round a point of the body (a wound, or where the worm was hit): a ragged patch, heavy at its middle, that
@@ -331,10 +362,13 @@ void WoundTrail(vec3 dir, vec3 qu, float seed, float wound, float amount, float 
 void Eye(vec3 qu, float nf, float side, float strength, float mask, inout float oval) {
     if (strength <= 0.0 || qu.z <= 0.0 || nf <= 0.0) return;
     float x = (qu.x - side * EYE_X) / EYE_RX;
-    float y = (qu.y - EYE_Y) / EYE_RY;
+    float y = (qu.y - EYE_Y) / (qu.y < EYE_Y ? 0.75 * EYE_RY : EYE_RY);
     float r = sqrt(x * x + y * y + (Noise2(qu.xy * 0.6 + side * 5.0) - 0.5) * 0.3);
-    float front = smoothstep(0.0, 2.5, qu.z) * smoothstep(0.0, 0.4, nf) * strength * mask;
-    oval = max(oval, (1.0 - smoothstep(0.6, 1.0, r)) * front);
+    // The strength grows the oval (from 0.7 of its size) and only then makes it opaque, so a faint level is a small bruise of
+    // the full colour, not a full-size one that is too thin to see.
+    float sz = mix(0.7, 1.0, strength);
+    float front = smoothstep(0.0, 2.5, qu.z) * smoothstep(0.0, 0.4, nf) * smoothstep(0.0, 0.2, strength) * mask;
+    oval = max(oval, (1.0 - smoothstep(0.6 * sz, 1.0 * sz, r)) * front);
 }
 
 // Paints one torn opening, the gash or the belly, into col, which holds the skin colour there on the way in (bruised,
@@ -476,6 +510,8 @@ float Opening(vec2 o, vec2 osz, vec3 Vf, vec3 Kf, vec3 Ff, vec3 Nf, vec3 qu, flo
     return cover;
 }
 
+vec3 ViewPos(vec2 uv);
+
 // Paints one worm's blood, bruises, scorching and openings into col, which holds the scene's colour on the way in. b is the
 // blood amount (0..1, plus 2 times the bin of the side the worm was last hit from), wound level and heading and ex the eye
 // level, gut level and gut azimuth. P is the pixel's view-space
@@ -498,12 +534,20 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
     float mask = 1.0 - smoothstep(0.85, 1.0, e);
     if (mask <= 0.0) return;
 
-    // Only the worm's own surface takes blood: it faces away from the worm's centre, while the ground under the worm
-    // and a wall beside it face toward the centre and fail this.
-    float dl = length(d);
-    if (dl < 1e-4) return;
-    float facing = dot(n, d / dl);
-    mask *= smoothstep(0.2, 0.45, facing);
+    // Only the worm's own surface takes anything, and that is a thin shell: the body is a capsule about 5.6 units in radius
+    // standing on the worm's vertical axis (its head and face stand a little out of it, a slumped head a few units), and
+    // what the camera sees of it is its skin, whose normal points away from the axis. The ellipsoid above is a volume as big
+    // as a hat, so the sunlit sand of a ridge between the camera and a worm, or of a dune behind it, lies inside it as well
+    // and has the colour skin has in the sun; it fails this test, being too near the axis or too far from it, or lying flat
+    // or the wrong way. The ground at the worm's feet and a wall beside it fail the second part.
+    vec3 rv = vec3(L.x, L.y - clamp(L.y, -8.0, 8.0), L.z);
+    float rl = length(rv);
+    if (rl < 1e-4) return;
+    vec3 nWorld = n * mat3(mg_view);
+    float shell = smoothstep(2.4, 3.6, rl) * (1.0 - smoothstep(6.9, 8.1, rl));
+    // (Along the straight part of the body the skin stands upright, its normal near horizontal: a slope of sand is not.)
+    float upright = 1.0 - smoothstep(0.55, 0.85, abs(nWorld.y)) * (1.0 - smoothstep(0.0, 2.0, abs(rv.y)));
+    mask *= shell * upright * smoothstep(0.1, 0.5, dot(nWorld, rv / rl));
     if (mask <= 0.0) return;
 
     // The pattern is rotated about +Y by -heading so it turns with the worm, and offset by the seed so no two worms match.
@@ -520,19 +564,31 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
                        smoothstep(0.0, 2.0, qu.z) * Edge(EYE_Y - 1.0, EYE_Y + 1.0, qu.y) * smoothstep(EYE_Y - 12.0, EYE_Y - 8.0, qu.y));
     mask *= SkinTone(col, strict);
     if (mask <= 0.0) return;
+    // A worm stands clear of what is behind it: a little more than the body's width to either side of the pixel the depth
+    // falls away (the background is farther, or a wall at least a couple of units behind). A flat face of ground or rock
+    // between the camera and a worm, or the crest of a ridge a hidden worm stands behind, goes on to both sides at its own
+    // depth, even where its colour, its distance from the axis and its slope are those of skin. (After the colour test, which
+    // is cheaper and lets most of what is not skin go.)
+    float ppx = 0.5 * mg_resolution.y / (abs(mg_invProj[1][1]) * max(-P.z, 1.0));
+    float sxo = clamp(7.6 * ppx, 4.0, 160.0) * mg_resolution.z;
+    float gapL = P.z - ViewPos(mg_uv - vec2(sxo, 0.0)).z;
+    float gapR = P.z - ViewPos(mg_uv + vec2(sxo, 0.0)).z;
+    mask *= max(smoothstep(1.2, 3.5, gapL), smoothstep(1.2, 3.5, gapR));
+    if (mask <= 0.0) return;
 
     vec3 tint = p_blood / max(max(p_blood.r, p_blood.g), max(p_blood.b, 1e-3));
     vec3 lumW = vec3(0.299, 0.587, 0.114);
     float lum = dot(col, lumW);
     vec3 base = col;
 
-    vec3 nWorld = n * mat3(mg_view);
-    float nf = nWorld.x * sh + nWorld.z * ch;
     // The light falls on a smooth body: the depth buffer's normal is flat across each facet of the worm's mesh and jumps at
     // its edges, so a highlight or a lit lip on it alone comes out as angular shards. Shading uses almost only the body
     // ellipsoid's own normal, and the blood is placed from the body's shape too.
     vec3 nE = mat3(mg_view) * normalize(vec3(L.x / (9.5 * 9.5), L.y / (16.0 * 16.0), L.z / (9.5 * 9.5)) + vec3(0.0, 1e-6, 0.0));
     vec3 ns = normalize(mix(n, nE, 0.9));
+    // (A bruise follows the smooth normal too: along the facets of the mesh the depth buffer's normal gave it a jagged edge.)
+    vec3 nsW = ns * mat3(mg_view);
+    float nf = nsW.x * sh + nsW.z * ch;
 
     float cov = 0.0, core = 0.0, oval = 0.0;
     vec2 oW = vec2(9.0);
@@ -581,8 +637,8 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
         }
         if (eyeLevel > 0.0) {
             // One eye goes first (which one depends on the worm), the other follows as the level passes 0.3.
-            float first = clamp(eyeLevel / 0.5, 0.0, 1.0);
-            float second = clamp((eyeLevel - 0.3) / 0.7, 0.0, 1.0);
+            float first = clamp(eyeLevel / 0.35, 0.0, 1.0);
+            float second = clamp((eyeLevel - 0.12) / 0.4, 0.0, 1.0);
             float lead = Hash(vec2(seed, 91.0)) < 0.5 ? 1.0 : -1.0;
             Eye(qu, nf, lead, first, mask, oval);
             Eye(qu, nf, -lead, second, mask, oval);
@@ -624,11 +680,13 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
     float bruise = 0.0;
     if (oval > 0.04) {
         float lvl = clamp(eyeLevel, 0.0, 1.0);
-        vec2 wn = WhiteNear(P, 0.85 + 0.45 * lvl);
-        bruise = oval * (0.35 + 0.65 * smoothstep(0.03, 0.35, wn.x));
-        float socket = clamp(oval * smoothstep(0.1, 0.55, wn.x) * mix(0.75, 1.0, wn.y) * (0.8 + 0.4 * lvl), 0.0, 1.0);
-        float lid = oval * smoothstep(0.1, 0.45, wn.x) * smoothstep(0.4, 0.85, wn.y) * (0.55 + 0.45 * lvl);
-        float rim = oval * smoothstep(0.02, 0.14, wn.x) * (1.0 - smoothstep(0.14, 0.38, wn.x)) * (1.0 - wn.y);
+        vec3 wn = WhiteNear(P, 0.85 + 0.5 * lvl);
+        // Not onto a moustache: the bruise leaves a gap of clean skin round it.
+        oval *= 1.0 - smoothstep(0.0, 0.25, wn.z);
+        bruise = oval * (0.3 + 0.7 * smoothstep(0.03, 0.5, wn.x));
+        float socket = clamp(oval * smoothstep(0.1, 0.6, wn.x) * mix(0.75, 1.0, wn.y) * (0.8 + 0.4 * lvl), 0.0, 1.0);
+        float lid = oval * smoothstep(0.1, 0.5, wn.x) * smoothstep(0.4, 0.85, wn.y) * (0.55 + 0.45 * lvl);
+        float rim = oval * smoothstep(0.02, 0.16, wn.x) * (1.0 - smoothstep(0.16, 0.42, wn.x)) * (1.0 - wn.y);
         float shade = clamp(lum * 1.15, 0.3, 1.1);
         vec3 bru = mix(vec3(0.44, 0.19, 0.50), vec3(0.045, 0.014, 0.075), socket) * shade;
         bru = mix(bru, vec3(0.02, 0.006, 0.035) * shade, lid);
