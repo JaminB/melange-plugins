@@ -258,6 +258,7 @@ local COLOURS = {
 local DROPLET, MIST = 1, 2
 local MEL = {}                -- the weapon sprays and the hit classification, in one table to spare locals
 local GIBS = {}               -- meat, bone and organs thrown by deaths and big hits (see == Gibs ==, near the end)
+local SP = {}                 -- the arterial spurts (see == Arterial spurts ==): tick, hit and preview
 
 local sqrt, random, floor, min, max, abs = math.sqrt, math.random, math.floor, math.min, math.max, math.abs
 local sin, cos, pi = math.sin, math.cos, math.pi
@@ -485,7 +486,7 @@ end
 -- ones kept are meant to be the latest ones, with all the sizes there were. A new decal is not put in the place of one
 -- that is under DEC.MIN_LIFE seconds old (a pool is).
 local function decalWeight(i)
-    local w = (0.3 + 2 * math.exp(-(fxClock - DS.birth[i]) / 25)) * (1 + 0.04 * min(DS.rt[i], 40)) * (DS.kind[i] == 2 and 1.6 or 1)
+    local w = (0.3 + 2 * math.exp(-(fxClock - DS.birth[i]) / 25)) * (1 + 0.04 * min(DS.rt[i], 40)) * (DS.kind[i] >= 2 and 1.6 or 1)
     -- (a trail piece told to be held, a grave's smears, is worth three times as much until then)
     if DS.kind[i] >= 3 and fxClock < DS.hold[i] then w = w * 3 end
     return w
@@ -542,10 +543,23 @@ local function decalAdd(kind, hx, hy, hz, cx, cy, cz, nx, ny, nz, r, e, phi, thi
     end
     if not slot then
         local lowest
+        -- (A new splat does not push out a pool or a trail piece that is still worth DEC.KEEP or more: the spray of a worm that
+        -- spurts blood would otherwise wipe, within seconds, the pools and trails that same worm leaves. Only while there are not
+        -- more than DEC.KEEP_SLOTS of them, so that the spray always has room.)
+        local keep = DEC.KEEP
+        if kind == 1 then
+            local n = 0
+            for i = 1, STAIN_SLOTS do
+                if DS.kind[i] >= 2 then n = n + 1 end
+            end
+            if n > DEC.KEEP_SLOTS then keep = 1e9 end
+        else
+            keep = 1e9
+        end
         for i = 1, STAIN_SLOTS do
             if kind == 2 or fxClock - DS.t0[i] >= DEC.MIN_LIFE then
                 local w = decalWeight(i)
-                if not lowest or w < lowest then slot, lowest = i, w end
+                if (DS.kind[i] == 1 or w < keep) and (not lowest or w < lowest) then slot, lowest = i, w end
             end
         end
         -- Everything is too new, or a speck does not push out anything that is worth more than it.
@@ -611,6 +625,8 @@ end
 -- Streak) draws it centred between the ends, its half-width being rt. Pieces never merge with anything, they count against
 -- a cap (the trail cap of the amount) and the oldest goes first, they are the first thing a splat can push out of a full set
 -- of slots, and a piece is told from the one that took its slot by its generation (gen).
+DEC.KEEP_SLOTS = 18             -- ... as long as pools and pieces take no more than this many of the slots
+DEC.KEEP = 1.0                  -- a splat cannot take the slot of a pool or a piece worth this much or more (see decalAdd)
 DEC.TRAIL_PUSH = 1.6            -- a piece pushes out a splat whose worth (decalWeight) is under this, when the slots are full
 DEC.TRAIL_SEND = 1.2            -- a piece's length is sent again when it grew this much
 
@@ -2303,6 +2319,7 @@ local function burst(s, damage, dx, dy, dz, death, sig)
     end
     VIS.spillGut(s, damage)
     GIBS.onBurst(s, damage, dx, dy, dz, death)
+    if not death then SP.hit(s, damage) end
     addLens(s, damage, death)
 end
 
@@ -2789,12 +2806,17 @@ local function siteDir(seed, k)
 end
 
 local BODY_RX, BODY_RY = 5.6, 12.5  -- the body's radius and half-height, for a point on its surface from a direction
+local SH_RX, SH_RY = 9.5, 16        -- skin.frag's ellipsoid for the direction of a point (en = qu / (9.5, 16, 9.5))
+local GUT_R, GUT_Y = 5.5, -6.5      -- skin.frag's belly cylinder: its radius and its height above the body's middle
 
 -- woundSites(slot[, out]): fills out (a table the caller keeps and reuses; one is made when nil) with the open wound sites
 -- of the worm in this slot, in world units: out[i] = { x, y, z, nx, ny, nz, open, gut }, where (x, y, z) is on the body,
 -- (nx, ny, nz) is the outward unit normal, open is how open the wound is (0..1) and gut is true for the belly opening.
 -- Returns n, out: the count (entries past n are stale) and the table. Returns 0, out for a slot that is not tracked or dead.
--- Cheap, and nothing calls it yet.
+-- The point is where skin.frag draws the gash: the shader puts gash k on the ray from the body's middle in direction s (SiteDir)
+-- of its ellipsoid-normalised space qu / (SH_RX, SH_RY, SH_RX), so the point is that ray meeting the body (BODY_RX, BODY_RY),
+-- not the body's point of the same unit direction (which is up to 0.14 of a unit direction off at the upper sites). The belly
+-- opening is on the shader's cylinder: radius GUT_R, GUT_Y above the middle (sites_check.lua in the tooling compares both).
 local function sitesOf(slot, out)
     out = out or {}
     local s = slots[slot]
@@ -2804,21 +2826,17 @@ local function sitesOf(slot, out)
     local H = s.heading
     local ch, sh = cos(H), sin(H)
     local px, py, pz = s.px, s.py + CENTRE_Y, s.pz
-    local function put(lx, ly, lz, open, gut)
-        -- A local direction (the worm faces +Z) to the world: the inverse of the shader's rotation about Y.
+    -- A point (qx, qy, qz) and unit normal (mx, my, mz) in the worm's frame (it faces +Z) to the world: the inverse of the
+    -- shader's rotation about Y.
+    local function put(qx, qy, qz, mx, my, mz, open, gut)
         n = n + 1
         local e = out[n]
         if not e then
             e = {}
             out[n] = e
         end
-        local wx, wz = lx * ch + lz * sh, -lx * sh + lz * ch
-        local nx, ny, nz = lx / BODY_RX, ly / BODY_RY, lz / BODY_RX
-        local nl = sqrt(nx * nx + ny * ny + nz * nz)
-        if nl < 1e-6 then nl = 1 end
-        local nwx, nwz = (nx * ch + nz * sh) / nl, (-nx * sh + nz * ch) / nl
-        e.x, e.y, e.z = px + wx * BODY_RX, py + ly * BODY_RY, pz + wz * BODY_RX
-        e.nx, e.ny, e.nz = nwx, ny / nl, nwz
+        e.x, e.y, e.z = px + qx * ch + qz * sh, py + qy, pz - qx * sh + qz * ch
+        e.nx, e.ny, e.nz = mx * ch + mz * sh, my, -mx * sh + mz * ch
         e.open, e.gut = open, gut
     end
     for k = 0, 4 do
@@ -2827,12 +2845,19 @@ local function sitesOf(slot, out)
             if o > 1 then o = 1 end
             local az, elev = siteDir(seed, k)
             local ce = cos(elev)
-            put(cos(az) * ce, sin(elev), sin(az) * ce, o, false)
+            local lx, ly, lz = cos(az) * ce, sin(elev), sin(az) * ce
+            -- the ray in the direction (SH_RX lx, SH_RY ly, SH_RX lz) meets the body ellipsoid at t times that
+            local ax, ay = SH_RX / BODY_RX, SH_RY / BODY_RY
+            local t = 1 / sqrt(ax * ax * (lx * lx + lz * lz) + ay * ay * ly * ly)
+            local qx, qy, qz = lx * SH_RX * t, ly * SH_RY * t, lz * SH_RX * t
+            local mx, my, mz = qx / (BODY_RX * BODY_RX), qy / (BODY_RY * BODY_RY), qz / (BODY_RX * BODY_RX)
+            local ml = sqrt(mx * mx + my * my + mz * mz)
+            put(qx, qy, qz, mx / ml, my / ml, mz / ml, o, false)
         end
     end
     if s.gut > 0 then
         local a = s.gutAz
-        put(sin(a) * 0.917, -0.4, cos(a) * 0.917, min(1, 0.4 + s.gut * 0.6), true)
+        put(sin(a) * GUT_R, GUT_Y, cos(a) * GUT_R, sin(a), 0, cos(a), min(1, 0.4 + s.gut * 0.6), true)
     end
     return n, out
 end
@@ -3887,6 +3912,287 @@ local function deathBurst(s)
     PT.death(s)
 end
 
+-- == Arterial spurts ============================================================================================
+-- A worm below K.START of its health (stronger the lower it goes) spurts blood from its deepest open wounds (VIS.woundSites, the
+-- places skin.frag draws them) in time with a heartbeat, K.HZ beats a second (faster the lower it is, a little irregular, and
+-- often a weaker second beat after the first). Each beat is a pulse of K.LEN seconds: a pressurised arc of droplets (a narrow
+-- stream of the fast ones that carries furthest, and a wider spray of slow ones that is dense at the wound) and a puff of fine
+-- mist, with a weak dribble between the pulses. The droplets are ordinary particles, so they land through the usual terrain
+-- collision and leave splats. Up to one, two or three wounds spurt at once (Light, Heavy, Absurd; the second and third only
+-- when the worm is low enough), each pulse tilted a little differently from the wound's normal. The jet is worked out again at
+-- every frame from the worm's wounds, so it follows the worm as it moves and turns. Nothing spurts while the worm is thrown or
+-- falling (its facing no longer says where its wounds are), and a pulse resumes, stronger, K.RESUME seconds after it lands.
+-- A new hit (SP.hit) brings an extra pulse soon and stronger ones for a few seconds. A dying worm (health 0, waiting for the
+-- game to blow it up) goes on for K.DYING_SECS with weakening, slowing pulses. All of it draws on the frame's spawn budget
+-- only after the bursts (it runs after the worms were tracked), up to lv.cap droplets a frame shared between the worms, and
+-- never fills the pool past K.POOL_SHARE of the amount's maximum, so a burst or a death always finds room.
+-- Public: SP.tick(dt) once a frame, SP.hit(s, damage) from burst(), SP.preview(s). State is s.sp, made on first use.
+do
+local function build()
+local K = {
+    START = 0.34, STOP = 0.38, FULL = 0.04,        -- health fractions: spurting starts below START, stops above STOP, is at its strongest from FULL down
+    HZ = { 1.1, 1.6 }, IRREG = { 0.88, 1.15 },     -- beats a second at START and at FULL, and the random factor on each interval
+    LEN = { 0.15, 0.24 },                          -- seconds a pulse lasts
+    ATTACK = 0.12, ENV_AREA = 0.46,                -- a pulse's pressure rises over this share of it, then falls; the area under it (of its length)
+    DUB = 0.5, DUB_GAP = 0.2, DUB_STR = 0.55,      -- the chance of a second, weaker beat this long after the first
+    CALM_SPEED = 90, CALM_VY = 80,                 -- a worm faster than this (units per second) is thrown or falling
+    RESUME = 0.35, LAND_GAIN = 1.3,                -- seconds after landing before it spurts again, and how much stronger the first pulse is
+    DYING_SECS = 6, DYING_MIN = 0.08,
+    HIT_SECS = { 1.2, 3.5 }, HIT_PER_DAMAGE = 0.04, HIT_FULL = 50, HIT_GAIN = 0.6,   -- a new hit: strong pulses for this long, up to this much stronger
+    TILT = 0.3, UP = 0.3, MIN_DIR_Y = -0.15,       -- sideways tilt per pulse, the lift added to the wound's normal, the lowest a jet points
+    STREAM = 0.55, CONE_STREAM = 0.05, CONE_SPRAY = 0.28,
+    JET_SEV = { 0, 0.3, 0.55 }, JET_GAIN = { 1, 0.75, 0.6 },
+    MIN_OPEN = 0.15,                               -- a wound less open than this does not spurt
+    OUT = 1.2, INHERIT = 0.5,                      -- the jet starts this far off the skin and takes this share of the worm's velocity
+    POOL_SHARE = 0.6, RESERVE = 40,                -- the pool share spurts may fill, and the frame's spawns left to the bursts
+    PREVIEW_SECS = 6, PREVIEW_SEV = 0.7,
+}
+local LV = {
+    light  = { jets = 1, drops = 10, mist = 1, cap = 14, drib = 2, speed = 125 },
+    heavy  = { jets = 2, drops = 22, mist = 2, cap = 30, drib = 4, speed = 150 },
+    absurd = { jets = 3, drops = 40, mist = 3, cap = 52, drib = 7, speed = 175 },
+}
+local AS, ASLOT, ASEV = {}, {}, {}      -- the worms spurting this frame
+
+local function state(s)
+    local sp = s.sp
+    if not sp then
+        sp = { nextAt = 0, pStart = 0, pEnd = 0, len = 0.2, str = 1, nj = 0, key = { 0, 0, 0 }, t1 = { 0, 0, 0 }, t2 = { 0, 0, 0 },
+               acc = { 0, 0, 0 }, macc = { 0, 0, 0 }, dacc = 0, airAt = -100, wasAir = false, on = false, boostUntil = 0, boost = 1,
+               forceUntil = 0, dubNext = false, beatEnd = 0, fade = 1, sites = {} }
+        s.sp = sp
+    end
+    return sp
+end
+
+-- How hard the worm spurts, 0 (not at all) to 1.
+local function assess(s, sp)
+    if not s.alive or s.dead then return 0 end
+    local sev, fade = 0, 1
+    if s.dying then
+        fade = 1 - (now - s.dying) / K.DYING_SECS
+        if fade < K.DYING_MIN then return 0 end
+        sev = 1
+    else
+        local frac = s.frac
+        if frac < (sp.on and K.STOP or K.START) then
+            sp.on = true
+            sev = (K.START - frac) / (K.START - K.FULL)
+            if sev < 0.05 then sev = 0.05 elseif sev > 1 then sev = 1 end
+        else
+            sp.on = false
+        end
+    end
+    if sp.forceUntil > now and sev < K.PREVIEW_SEV then sev = K.PREVIEW_SEV end
+    sp.fade = fade
+    return sev
+end
+
+-- Starts a pulse: its strength and length, when the next beat is, and which wounds spurt (the deepest first) and how each tilts.
+local function startPulse(sp, sev, lv, n, sites)
+    local fade = sp.fade
+    local boosted = now < sp.boostUntil
+    local str = 0.6 + 0.4 * sev
+    if fade < 1 then str = str * fade ^ 0.7 end
+    if boosted then str = str * sp.boost end
+    if sp.wasAir then
+        str = str * K.LAND_GAIN
+        sp.wasAir = false
+    end
+    if sp.dubNext then
+        sp.dubNext = false
+        str = str * K.DUB_STR
+        sp.nextAt = sp.beatEnd
+    else
+        local hz = (K.HZ[1] + (K.HZ[2] - K.HZ[1]) * sev) * (0.5 + 0.5 * fade) * (boosted and 1.12 or 1)
+        local period = rnd(K.IRREG[1], K.IRREG[2]) / hz
+        if random() < K.DUB and period > 0.5 then
+            sp.dubNext, sp.beatEnd, sp.nextAt = true, now + period, now + K.DUB_GAP
+        else
+            sp.nextAt = now + period
+        end
+    end
+    if str > 1.6 then str = 1.6 end
+    local len = rnd(K.LEN[1], K.LEN[2]) * (0.85 + 0.3 * min(1, str)) * (boosted and 1.2 or 1)
+    sp.pStart, sp.pEnd, sp.len, sp.str = now, now + len, len, str
+    local key, nj = sp.key, 0
+    for j = 1, lv.jets do
+        if sev < K.JET_SEV[j] then break end
+        local best, bo, bk = 0, K.MIN_OPEN, 0
+        for i = 1, n do
+            local e = sites[i]
+            local k = e.gut and 99 or i - 1
+            if e.open > bo and (j < 2 or k ~= key[1]) and (j < 3 or k ~= key[2]) then best, bo, bk = i, e.open, k end
+        end
+        if best == 0 then break end
+        nj = j
+        key[j] = bk
+        sp.t1[j], sp.t2[j] = rnd(-1, 1) * K.TILT, rnd(-1, 1) * K.TILT
+    end
+    sp.nj = nj
+end
+
+-- One worm's frame: the beat, then the droplets, mist and dribble this frame owes. Returns how many particles it spawned (at most budget).
+local function emitWorm(s, slot, sp, sev, lv, dt, budget)
+    local vx, vy, vz = s.vx, s.vy, s.vz
+    if s.evFrame == frameId then vx, vy, vz = s.evx, s.evy, s.evz end
+    if vx * vx + vz * vz > K.CALM_SPEED * K.CALM_SPEED or abs(vy) > K.CALM_VY then sp.airAt = now end
+    if now - sp.airAt <= K.RESUME then
+        sp.wasAir = true
+        sp.pEnd = 0
+        return 0
+    end
+    local n, sites = VIS.woundSites(slot, sp.sites)
+    if n == 0 then return 0 end
+    if now >= sp.nextAt and sp.pEnd <= now then startPulse(sp, sev, lv, n, sites) end
+    local nj = sp.nj
+    if nj == 0 then return 0 end
+    local env = 0
+    if sp.pEnd > now then
+        local p = (now + dt * 0.5 - sp.pStart) / sp.len
+        if p < 0 then p = 0 elseif p > 1 then p = 1 end
+        env = p < K.ATTACK and p / K.ATTACK or ((1 - p) / (1 - K.ATTACK)) ^ 1.2
+    end
+    local far = 0
+    if CAM.ok then
+        local ex, ey, ez = s.px - CAM.px, s.py + CENTRE_Y - CAM.py, s.pz - CAM.pz
+        far = min(1, max(0, (sqrt(ex * ex + ey * ey + ez * ez) - FAR_START) / FAR_SPAN))
+    end
+    local sizeMul = 1 + 0.45 * far
+    local boosted = now < sp.boostUntil
+    local c, m = palette.droplet, palette.mist
+    local used = 0
+    local vmax = lv.speed * (0.7 + 0.3 * min(1, sp.str)) * (0.55 + 0.45 * env) * (boosted and 1.1 or 1)
+    local wvx, wvy, wvz = vx * K.INHERIT, vy * K.INHERIT, vz * K.INHERIT
+    local base = lv.drops / (sp.len * K.ENV_AREA) * env * sp.str * (1 - 0.4 * far)    -- fewer, bigger drops far away
+    local mbase = lv.mist / (sp.len * K.ENV_AREA) * env * sp.str
+    local key = sp.key
+    for j = 1, nj do
+        local e
+        for i = 1, n do
+            local ei = sites[i]
+            if (ei.gut and 99 or i - 1) == key[j] then
+                e = ei
+                break
+            end
+        end
+        if e then
+            local nx, ny, nz = e.nx, e.ny, e.nz
+            -- Two tangents of the wound, to tilt the jet off its normal, and a lift so the stream arcs up and out.
+            local tl = sqrt(nx * nx + nz * nz)
+            local t1x, t1z = 1, 0
+            if tl > 1e-3 then t1x, t1z = -nz / tl, nx / tl end
+            local t2x, t2y, t2z = ny * t1z, nz * t1x - nx * t1z, -ny * t1x
+            local a, b = sp.t1[j], sp.t2[j]
+            local dx, dy, dz = nx + t1x * a + t2x * b, ny + K.UP + t2y * b, nz + t1z * a + t2z * b
+            if dy < K.MIN_DIR_Y then dy = K.MIN_DIR_Y end
+            local dl = sqrt(dx * dx + dy * dy + dz * dz)
+            dx, dy, dz = dx / dl, dy / dl, dz / dl
+            local ox, oy, oz = e.x + nx * K.OUT, e.y + ny * K.OUT, e.z + nz * K.OUT
+            local gain = K.JET_GAIN[j]
+            local acc = sp.acc[j] + base * gain * dt
+            local cnt = floor(acc)
+            acc = acc - cnt
+            if cnt > budget - used then
+                cnt = budget - used
+                acc = 0
+            end
+            sp.acc[j] = acc
+            for _ = 1, cnt do
+                local stream = random() < K.STREAM
+                local cone = stream and K.CONE_STREAM or K.CONE_SPRAY
+                local ex, ey, ez = dx + rnd(-cone, cone), dy + rnd(-cone, cone), dz + rnd(-cone, cone)
+                local k = (stream and vmax * rnd(0.82, 1.0) or vmax * rnd(0.3, 0.8)) / sqrt(ex * ex + ey * ey + ez * ez)
+                local jvx, jvy, jvz = ex * k + wvx, ey * k + wvy, ez * k + wvz
+                local lag, shade = random() * dt, rnd(0.8, 1.2)
+                spawn(DROPLET, ox + jvx * lag + rnd(-0.4, 0.4), oy + jvy * lag + rnd(-0.4, 0.4), oz + jvz * lag + rnd(-0.4, 0.4),
+                      jvx, jvy, jvz, (stream and rnd(1.4, 2.4) or rnd(0.8, 1.5)) * sizeMul, stream and rnd(0.55, 1.5) or rnd(0.45, 0.9),
+                      min(1, c[1] * shade), min(1, c[2] * shade), min(1, c[3] * shade), DROPLET_ALPHA)
+            end
+            used = used + cnt
+            -- Fine mist at the wound while the pressure is up.
+            local macc = sp.macc[j] + mbase * gain * dt
+            local mc = floor(macc)
+            macc = macc - mc
+            if mc > 2 then mc = 2 end
+            if mc > budget - used then mc = budget - used end
+            sp.macc[j] = macc
+            for _ = 1, mc do
+                local shade, v = rnd(0.8, 1.2), rnd(20, 50)
+                spawn(MIST, ox + nx * 0.5 + rnd(-0.8, 0.8), oy + ny * 0.5 + rnd(-0.8, 0.8), oz + nz * 0.5 + rnd(-0.8, 0.8),
+                      dx * v + rnd(-8, 8) + wvx, dy * v + rnd(-8, 8) + wvy, dz * v + rnd(-8, 8) + wvz,
+                      rnd(5, 9) * (1 + 0.5 * far), rnd(0.3, 0.5), min(1, m[1] * shade), min(1, m[2] * shade), min(1, m[3] * shade),
+                      MIST_ALPHA * 0.9)
+            end
+            used = used + mc
+            -- The dribble from the deepest wound, between and under the pulses.
+            if j == 1 then
+                local dacc = sp.dacc + lv.drib * (0.35 + 0.65 * sev) * sp.fade * dt
+                local dc = floor(dacc)
+                dacc = dacc - dc
+                if dc > 2 then dc = 2 end
+                if dc > budget - used then dc = budget - used end
+                sp.dacc = dacc
+                for _ = 1, dc do
+                    local shade, v = rnd(0.7, 1.1), rnd(12, 38)
+                    spawn(DROPLET, ox + rnd(-0.5, 0.5), oy + rnd(-0.5, 0.5), oz + rnd(-0.5, 0.5),
+                          nx * v + wvx, ny * v + rnd(0, 12) + wvy, nz * v + wvz, rnd(0.9, 1.6) * sizeMul, rnd(0.5, 1.0),
+                          min(1, c[1] * shade), min(1, c[2] * shade), min(1, c[3] * shade), DROPLET_ALPHA)
+                end
+                used = used + dc
+            end
+        end
+    end
+    return used
+end
+
+function SP.tick(dt)
+    if not preset then return end
+    local lv = preset == AMOUNT.absurd and LV.absurd or preset == AMOUNT.light and LV.light or LV.heavy
+    local na = 0
+    for slot, s in pairs(slots) do
+        if s.seen == frameId and s.alive and not s.dead and (s.frac < K.STOP or s.dying or (s.sp and s.sp.forceUntil > now)) then
+            local sp = state(s)
+            local sev = assess(s, sp)
+            if sev > 0 then
+                na = na + 1
+                AS[na], ASLOT[na], ASEV[na] = s, slot, sev
+            end
+        end
+    end
+    if na == 0 then return end
+    local left = min(lv.cap, floor(min(preset.max, POOL_MAX) * K.POOL_SHARE) - nP, BUDGET.SPAWN - K.RESERVE - BUDGET.spawned)
+    for i = 1, na do
+        local s = AS[i]
+        local share = left > 0 and math.ceil(left / (na - i + 1)) or 0
+        local used = emitWorm(s, ASLOT[i], s.sp, ASEV[i], lv, dt, share)
+        left = left - used
+        AS[i] = false
+    end
+end
+
+-- A hit has been shown on the worm: an extra pulse soon, and stronger ones for a while (more for a bigger hit).
+function SP.hit(s, damage)
+    local sp = state(s)
+    sp.boostUntil = now + min(K.HIT_SECS[2], K.HIT_SECS[1] + damage * K.HIT_PER_DAMAGE)
+    sp.boost = 1 + min(1, damage / K.HIT_FULL) * K.HIT_GAIN
+    if sp.nextAt > now + 0.12 then
+        sp.nextAt = now + 0.12
+        sp.dubNext = false
+    end
+end
+
+-- The preview worm spurts for a few seconds whatever its health.
+function SP.preview(s)
+    local sp = state(s)
+    sp.forceUntil = now + K.PREVIEW_SECS
+    sp.airAt = -100
+    sp.nextAt = now + 0.1
+end
+end
+build()
+end
+
 local function trackWorms(worms, dt)
     for i = 1, #worms do
         local w = worms[i]
@@ -4182,6 +4488,7 @@ local function onWorld()
     VIS.updateGuts()
     GIBS.tick(dt)
     MEL.tick(dt)
+    SP.tick(dt)
     simulate(dt)
     PT.tick(dt)
     DECALS.update(dt, slots, frameId)
@@ -4322,6 +4629,7 @@ local function preview()
     if cfg.vomit then startHeave(s) end
     GIBS.preview(s)
     PT.preview(s)
+    SP.preview(s)
 end
 
 -- ---------------------------------------------------------------- start
@@ -4426,6 +4734,7 @@ local AMT = {
 local T = {
     BIG = 45, BIG_ABSURD = 30,          -- damage that throws gibs besides a death
     COOLDOWN = 0.6,                     -- a worm throws gibs for hits no closer together than this
+    FRAME_THROWS = 20,                  -- gibs thrown between two frames, all worms together (more only recycle the ones just thrown)
     SPEED = { 55, 150 }, UP = { 0.35, 1.1 },
     REST = { [0] = 0.22, 0.38, 0.24, 0.2, 0.26, 0.5 },      -- restitution by kind (bounce)
     MU = 330,                           -- sliding friction: deceleration on a flat floor, units/s^2
@@ -4454,7 +4763,7 @@ local st, X, Y, Z, VX, VY, VZ = F.st, F.x, F.y, F.z, F.vx, F.vy, F.vz
 local QX, QY, QZ, QW, WX, WY, WZ = F.qx, F.qy, F.qz, F.qw, F.wx, F.wy, F.wz
 local H1, H2, H3, KIND = F.h1, F.h2, F.h3, F.kind
 local G = { clock = 0, serial = 0, n = 0, top = 0, rays = 0, wake = 0, pv = 0, anyVis = false, countSent = -1, clockSent = -1,
-            fwdx = 0, fwdy = 0, fwdz = 1, tex = nil, texChecked = false, spriteOK = false, bitsN = 0, bitsTried = false }
+            fwdx = 0, fwdy = 0, fwdz = 1, tex = nil, texChecked = false, spriteOK = false, bitsN = 0, bitsTried = false, thrown = 0 }
 
 local B = {}                            -- the bits of meat: struct of arrays
 for _, k in ipairs({ "x", "y", "z", "vx", "vy", "vz", "age", "life", "size", "tex", "r", "g", "b", "floor" }) do
@@ -4727,6 +5036,9 @@ local function fire(s, dx, dy, dz, n, nbits, strength, death)
         far = min(1, max(0, (sqrt(ex * ex + ey * ey + ez * ez) - FAR_START) / FAR_SPAN))
     end
     local sm = 1.15 * (1 + 0.3 * far)
+    n = max(0, min(n, T.FRAME_THROWS - G.thrown))
+    G.thrown = G.thrown + n
+    nbits = max(0, min(nbits, BMAX - G.bitsN))
     for k = 1, n do
         local kind = pickKind(k, death, n)
         local a, up = random() * 2 * pi, rnd(T.UP[1], T.UP[2])
@@ -5012,6 +5324,7 @@ local function inView(i)
 end
 
 function GIBS.tick(dt)
+    G.thrown = 0
     if G.n == 0 and G.bitsN == 0 then
         if FX.enabled or WARM.on[FX.id] then fxEnable(false) end
         return

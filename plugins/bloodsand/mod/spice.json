@@ -4,7 +4,7 @@
   "version": "1.3.0",
   "name": "Bloodsand",
   "authors": ["Melange"],
-  "description": "A client-only, cosmetic gore mod: worms spray blood when hit, with a spray for each melee weapon, wear it on their skin, open layered wounds, get black eyes, throw up blood and spill simulated intestines when nearly dead. Droplets leave splats and drying pools on floors and walls, and heavy hits spatter the lens. Only reads game state and draws. No effect on the simulation.",
+  "description": "A client-only, cosmetic gore mod: worms spray blood when hit, wear it on their skin, open layered wounds, get black eyes, throw up blood, spill intestines, spurt from their arteries and leave trails and pools. Deaths and big hits throw meat, bone and organs. Droplets leave splats and drying pools; heavy hits spatter the lens. Only reads game state and draws. No effect on the simulation.",
   "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/bloodsand",
   "kind": "client-only",
   "melange": { "range": ">=0.3.5 <0.7.0" },
@@ -42,7 +42,7 @@
       "key": "gibs",
       "type": "bool",
       "default": true,
-      "label": "Gibs and organs"
+      "label": "Gibs"
     },
     {
       "key": "stains",
