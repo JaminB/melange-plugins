@@ -44,7 +44,8 @@ A held melee weapon only counts for a worm that was knocked, and a donkey's blas
 Intestines need Blood on worms. Where more than four decals overlap, the least deeply held ones are dropped instead of
 whole decals being cut off along a circle, and two overlapping gutted worms both draw their guts.
 
-Droplets, mist and steam were flat diamonds and see-through squares; they are round now. A droplet is a teardrop with a
+Droplets, mist and steam were flat diamonds and see-through squares; they are round now (as triangle fans; on Melange 0.6
+and later they are textured sprites, below). A droplet is a teardrop with a
 rounded head and a tapering tail, a fainter fringe of its own colour for an anti-aliased edge, and no white square (only
 a tiny faint glint on a big one up close). Far droplets are one thin streak and ones narrower than two pixels are grown a little, so
 blood reads at the distance the game is played from; a burst far from the camera throws bigger droplets and more mist.
@@ -74,8 +75,8 @@ Seen in the game and put right: blood on a pillar or a faceted rock is no longer
 decal takes surface turned up to about 60 degrees from its own and near its plane by a tolerance that grows away from
 the middle, and every pixel's normal comes from its own neighbours, so no edge steps in twos); an explosion's crater
 takes the decals in it, so a pool no longer leaves dark bands on the crater's walls or a bar over the water; hats and
-helmets stay clean, both of decals (the worm's volume is taller) and of the blood and wounds on the skin (above the brow
-only skin-coloured pixels take any); the eyes stay clear and a black eye shows through the blood on a bloodied face; the
+helmets stay clean of decals (the worm's volume is taller; the skin pass keeps them and everything else that is not skin
+clean, above); the eyes stay clear and a black eye shows through the blood on a bloodied face; the
 wounds and the blood's sheen are lit from a smooth normal, so the worm's mesh facets no longer show as angular shards,
 and edges inside the worm no longer leave bright yellow lines of bare skin; blood on the ground fades out between 48
 and 18 units from the camera, so the aim camera in front of a bloodied rock is no longer half red; a big pool is a
@@ -91,8 +92,14 @@ out) stretched along its velocity, a heavy clot is a lumpy glossy blob (four sha
 of noise (three and two shapes), burnt flakes are ragged flecks (two), and a big close droplet also gets a small additive
 white spark. All tinted per particle with the blood colour (so green blood works), at the same sizes, stretch, near-camera
 fade and size limits as before. Each is one call instead of two to six quads, so the script's instruction count drops by a
-quarter to a third on a big blast. On older Melange, or if a texture will not load, the fans are drawn as in the earlier 1.2 builds.
-The fourteen small textures (`mod/textures/bs_*.png`, about 155 KB) are made by `tools/make_blood_sprites.js`.
+third on a big blast (a 12-worm Absurd blast peaks at 175000 VM instructions instead of 258000). The sprites are drawn after
+the world's other primitives, depth-tested and sorted back to front with other mods' sprites, and a change of texture
+in that order costs a draw call, so there are only fourteen small textures (`mod/textures/bs_*.png`, about 155 KB, made by
+`tools/make_blood_sprites.js`); a frame draws about 500 at most and a blast peaks at about 280 draw calls a frame. Bloodsand
+checks the call once with a sprite of no width, and if it raises, a kind has no textures or a texture will not load, that
+kind keeps the fans (older Melange, 0.3.5 to 0.5, always does). Melange 0.6 also gives every texture mipmaps and trilinear
+filtering, which only makes the flat HUD lens splats smoother when scaled down. Terrain rays (`wum.game.landRay`) and worm
+velocity are also 0.6; each feature falls back on its own, so one plugin runs from Melange 0.3.5 to 0.6.
 
 ## 1.1.3
 

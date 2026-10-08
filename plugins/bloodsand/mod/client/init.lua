@@ -1011,6 +1011,13 @@ end
 -- colour tints them. Without the call, or a texture that will not load, the particle kind keeps the fans above.
 -- DROP.TK[kind] is that kind's list of textures, nil when it has none; DROP.RC and RS are the cosine and sine of a puff's turn
 -- (its seed 0..255 of a full circle), which a puff passes as its axis so that it can be rotated.
+-- What Melange does with the call (docs/lua-api.md, Sprites): the texture must be one this mod loaded with wum.draw.texture (any
+-- other number raises an error, so the ids are only kept from DROP.load, run once per load); calling outside a "world" or
+-- "worldLate" callback raises (simulate runs inside onWorld only); a zero axis is a round billboard of 2*halfW that ignores halfL;
+-- a non-zero axis with halfL 0 draws nothing (halfL here is always above zero); v = 0, the PNG's top row, is the tail at
+-- centre - axis*halfL; sprites of all mods are sorted by depth, so textures that alternate in depth cost a draw call each (the
+-- sets are kept small: 2 droplet, 4 clot, 3 mist, 2 steam, 2 char, 1 spark); a mod may draw 4096 a frame and past that the call
+-- returns false (about 500 are drawn).
 function DROP.load()
     DROP.TK, DROP.RC, DROP.RS = nil, nil, nil
     if not (wum.draw.sprite and wum.draw.texture) then return end
@@ -1031,12 +1038,26 @@ function DROP.load()
     local RC, RS = {}, {}
     for k = 0, 255 do RC[k + 1], RS[k + 1] = cos(k * 0.02454), sin(k * 0.02454) end
     DROP.TK, DROP.RC, DROP.RS = TK, RC, RS
+    local first = TK[DROPLET] or TK[MIST] or TK[MEL.STEAM] or TK[MEL.CHAR] or TK[MEL.CLOT]
+    DROP.probeTex, DROP.checked = first[1], false
+end
+
+-- Once, in the first world callback, before the first sprite: a sprite of no width (Melange draws nothing for it and answers
+-- true). If the call raises for any reason, the particles keep the fans for the rest of the session instead of faulting the
+-- callback every frame.
+function DROP.check()
+    DROP.checked = true
+    if not pcall(wum.draw.sprite, DROP.probeTex, 0, 0, 0, 0, 0, 0, 0, 0) then
+        DROP.TK = nil
+        if wum.log and wum.log.warn then wum.log.warn("Bloodsand: wum.draw.sprite failed, so the particles are drawn as fans") end
+    end
 end
 
 -- Integrates and draws every live particle. Droplets are drops stretched along their velocity that turn to face the
 -- camera; mist puffs are flat against the screen. With wum.game.landRay a droplet or clot that reaches the terrain is removed
 -- and leaves a decal (see == Droplet collision ==).
 local function simulate(dt)
+    if DROP.TK and not DROP.checked then DROP.check() end
     local px, py, pz, pvx, pvy, pvz = P.x, P.y, P.z, P.vx, P.vy, P.vz
     local psize, page, plife, pkind, pr, pg, pb, pa = P.size, P.age, P.life, P.kind, P.r, P.g, P.b, P.a
     local plx, ply, plz, pph, plt = P.lx, P.ly, P.lz, P.ph, P.lt
