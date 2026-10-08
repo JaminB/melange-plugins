@@ -24,6 +24,11 @@ local AMOUNT = {
 }
 local POOL_MAX = 480
 local BURST_MAX = 150           -- droplets in one burst, however much damage it was
+-- A Lua callback may run 500000 VM instructions (Melange stops it after three faults for the rest of the session), and a
+-- spawned particle costs a few hundred. So one frame spawns about SPAWN particles for bursts; a burst that finds the budget
+-- spent waits in a queue of QUEUE entries for the next frames (and is dropped after QUEUE_SECS), and a burst never takes
+-- more than half of the room the pool has left (but FAIR_MIN at least) so the worms of one blast share it.
+local BUDGET = { SPAWN = 200, MIN_LEFT = 30, QUEUE = 24, QUEUE_SECS = 0.75, FAIR_MIN = 24, spawned = 0 }
 local BURST_BASE = 8            -- every hit sprays as if it did this much more damage, so a light one still shows
 local DEATH_DAMAGE = 60         -- a death counts as this much damage
 
@@ -97,6 +102,10 @@ local DEC = {
     -- droplets (wider than HEAVY_SIZE or faster than HEAVY_SPEED) are tested first and share HEAVY_RAYS of them; the
     -- rest take turns, no droplet waiting more than STRIDE_MAX frames. A droplet of SPLIT_SIZE or more breaks up.
     RAY_BUDGET = 48, HEAVY_RAYS = 30, HEAVY_SIZE = 1.9, HEAVY_SPEED = 170, SPLIT_SIZE = 2.1, STRIDE_MAX = 12,
+    -- Every landRay call the plugin makes is counted in DECALS.rayUsed (reset once per frame) and none runs past RAY_TOTAL;
+    -- the pools, the melee ground rays and the intestines' probes ("low" callers) stop at RAY_LOW so the droplets keep theirs.
+    RAY_TOTAL = 64, RAY_LOW = 24,
+    RETRY_SECS = 10,            -- after landRay answered "unavailable" (or threw) it is tried again this much later, and at every match start
 }
 
 -- Blood on the worms' skin. Gore is 0..1 per worm and each point of damage adds 1/GORE_DAMAGE of it.
@@ -156,6 +165,8 @@ local GUT = {
     STEP = 1 / 72,                  -- the simulation's fixed step, and the most steps in one frame
     MAX_STEPS = 2,
     ITER = 4,
+    ITER_LITE = 2,                  -- (and one step a frame) while more than two chains are going
+    STALE = 0.3,                    -- a chain not simulated for this long starts over
     FRICTION = 0.3,                 -- share of its sideways speed a point on the ground loses per step
     BODY_R = 6.3,                   -- the worm's body for the chain to stay out of: a capsule of this radius...
     BODY_Y0 = 6.5,                  -- ...from this height above the feet...
@@ -288,7 +299,7 @@ end
 -- the rest of the file uses is declared here and set below: updateStainEnable, clearStains, requestPool, placeStain,
 -- and the DECALS table (update, resend, zero, cast, splat, rayOK, rayUsed).
 local updateStainEnable, clearStains, requestPool, placeStain
-local DECALS = { rayUsed = 0, rayOK = false, frame = 0, prevHeavy = 0, prevLight = 0 }
+local DECALS = { rayUsed = 0, rayOK = false, frame = 0, prevHeavy = 0, prevLight = 0, now = 0 }
 do
 local DS = { live = {}, x = {}, y = {}, z = {}, nx = {}, ny = {}, nz = {}, np = {}, r = {}, rt = {}, e = {}, phi = {},
              birth = {}, seed = {}, kind = {}, thick = {}, dirtyA = {}, dirtyB = {}, sentRq = {} }
@@ -540,12 +551,17 @@ function DECALS.update(dt)
     updateStainEnable()
 end
 
--- Sends everything again, for the insurance resend: every slot, empty ones as zeros.
-function DECALS.resend()
-    for i = 1, STAIN_SLOTS do
+-- Sends slots first..last again, for the insurance resend: live ones as they are, empty ones as zeros.
+function DECALS.resend(first, last)
+    for i = first, min(last, STAIN_SLOTS) do
+        STAINS.cache[DEC_A[i]], STAINS.cache[DEC_B[i]] = nil, nil
         DS.dirtyA[i], DS.dirtyB[i] = true, true
         decalSend(i)
     end
+end
+
+function DECALS.resendMisc()
+    STAINS.cache.clock, STAINS.cache.count, STAINS.cache.blood = nil, nil, nil
     sendParam(STAINS, "clock", fxClock)
     sendCount()
 end
@@ -563,21 +579,45 @@ end
 local landRay = wum.game.landRay
 DECALS.rayOK = type(landRay) == "function"
 
--- Returns t (0..1 along the segment) and the unit normal of the hit, or nil.
-local function castRay(x0, y0, z0, x1, y1, z1)
-    DECALS.rayUsed = DECALS.rayUsed + 1
+-- One flag (DECALS.rayOK) says whether landRay can be used, for the decals, the melee code and the intestines alike. Melange
+-- answers "unavailable" for the current level or thread as well as for a build without it, so the flag is not final: it is set
+-- again at the next match start and RETRY_SECS after a failure.
+DECALS.hasFn = type(landRay) == "function"
+DECALS.rayRetryAt = 0
+
+local function rayFailed()
+    DECALS.rayOK = false
+    DECALS.rayRetryAt = os.clock() + DEC.RETRY_SECS
+end
+
+-- Returns t (0..1 along the segment) and the unit normal of the hit. A miss is nil alone; nil and a reason is a ray that did
+-- not run or whose answer was no use ("budget": the frame's cap, ours or Melange's; "unavailable"; "bad"). A "low" caller
+-- (anything but a droplet) is refused earlier, see RAY_LOW.
+local function castRay(x0, y0, z0, x1, y1, z1, low)
+    if not DECALS.rayOK then return nil, "unavailable" end
+    local used = DECALS.rayUsed
+    if used >= (low and DEC.RAY_LOW or DEC.RAY_TOTAL) then return nil, "budget" end
+    DECALS.rayUsed = used + 1
     local ok, t, nx, ny, nz = pcall(landRay, x0, y0, z0, x1, y1, z1)
     if not ok then
-        DECALS.rayOK = false
-        return nil
+        rayFailed()
+        return nil, "unavailable"
     end
     if t == nil then
-        if nx == "unavailable" then DECALS.rayOK = false end
+        if nx == "unavailable" then
+            rayFailed()
+            return nil, "unavailable"
+        elseif nx == "budget" then
+            DECALS.rayUsed = DEC.RAY_TOTAL      -- Melange's cap for all mods: nothing more this frame
+            return nil, "budget"
+        elseif nx ~= nil then
+            return nil, "bad"
+        end
         return nil
     end
-    if type(t) ~= "number" or type(nx) ~= "number" or type(ny) ~= "number" or type(nz) ~= "number" then return nil end
+    if type(t) ~= "number" or type(nx) ~= "number" or type(ny) ~= "number" or type(nz) ~= "number" then return nil, "bad" end
     local l = sqrt(nx * nx + ny * ny + nz * nz)
-    if l < 1e-6 then return nil end
+    if l < 1e-6 then return nil, "bad" end
     return t, nx / l, ny / l, nz / l
 end
 
@@ -585,12 +625,12 @@ end
 -- the terrain can be asked, otherwise at the given height, facing up) and spreads over about two seconds. A caller that
 -- already knows the ground passes its unit normal (nx, ny, nz) and (x, y, z) is then taken to be on the surface.
 function requestPool(x, y, z, size, gx, gy, gz)
-    if not (hasPostfx and preset and cfg.stains) then return end
+    if not (hasPostfx and preset and cfg.stains) or STAINS.failed then return end
     local px, py, pz, nx, ny, nz = x, y, z, 0, 1, 0
     if gx and gy and gz and gy > 0.2 then
         nx, ny, nz = gx, gy, gz
     elseif DECALS.rayOK then
-        local t, hx, hy, hz = castRay(x, y + 14, z, x, y - 36, z)
+        local t, hx, hy, hz = castRay(x, y + 14, z, x, y - 36, z, true)
         if t then
             py = y + 14 - 50 * t
             nx, ny, nz = hx, hy, hz
@@ -612,10 +652,10 @@ end
 local P = { x = {}, y = {}, z = {}, vx = {}, vy = {}, vz = {}, size = {}, age = {}, life = {}, kind = {},
             r = {}, g = {}, b = {}, a = {} }
 local PARTS = { P.x, P.y, P.z, P.vx, P.vy, P.vz, P.size, P.age, P.life, P.kind, P.r, P.g, P.b, P.a }
--- == Collision state == per droplet: the point its last terrain ray started from and a phase that staggers its rays.
+-- == Collision state == per droplet: the point its last terrain ray started from, when that was, and a phase that staggers its rays.
 -- spawn does not set them: simulate does on a particle's first step (its age is still 0 then).
-P.lx, P.ly, P.lz, P.ph = {}, {}, {}, {}
-for _, arr in ipairs({ P.lx, P.ly, P.lz, P.ph }) do PARTS[#PARTS + 1] = arr end
+P.lx, P.ly, P.lz, P.ph, P.lt = {}, {}, {}, {}, {}
+for _, arr in ipairs({ P.lx, P.ly, P.lz, P.ph, P.lt }) do PARTS[#PARTS + 1] = arr end
 local nP = 0
 for _, arr in ipairs(PARTS) do
     for i = 1, POOL_MAX do arr[i] = 0 end
@@ -624,11 +664,19 @@ end
 local function spawn(kind, x, y, z, vx, vy, vz, size, life, r, g, b, a)
     if not preset or nP >= preset.max or nP >= POOL_MAX then return end
     nP = nP + 1
+    BUDGET.spawned = BUDGET.spawned + 1
     local i = nP
     P.x[i], P.y[i], P.z[i] = x, y, z
     P.vx[i], P.vy[i], P.vz[i] = vx, vy, vz
     P.size[i], P.age[i], P.life[i], P.kind[i] = size, 0, life, kind
     P.r[i], P.g[i], P.b[i], P.a[i] = r, g, b, a
+    P.lt[i] = 1e9           -- no terrain test yet: a start from a stale slot is not trusted (see simulate)
+end
+
+-- How many more particles fit in the pool (what this amount allows, and the arrays' size).
+local function poolRoom()
+    if not preset then return 0 end
+    return min(preset.max, POOL_MAX) - nP
 end
 
 local function removeParticle(i)
@@ -682,7 +730,7 @@ end
 local function simulate(dt)
     local px, py, pz, pvx, pvy, pvz = P.x, P.y, P.z, P.vx, P.vy, P.vz
     local psize, page, plife, pkind, pr, pg, pb, pa = P.size, P.age, P.life, P.kind, P.r, P.g, P.b, P.a
-    local plx, ply, plz, pph = P.lx, P.ly, P.lz, P.ph
+    local plx, ply, plz, pph, plt = P.lx, P.ly, P.lz, P.ph, P.lt
     local draw = CAM.ok
     local KP, KD, KG, KGROW, KFADE = MEL.KP, MEL.KD, MEL.KG, MEL.KGROW, MEL.KFADE
     local CLOTK = MEL.CLOT        -- heavy clots from the melee sprays collide like droplets; steam and char do not
@@ -692,12 +740,14 @@ local function simulate(dt)
     -- being swept from where it was last tested, so a droplet that waits a few frames still cannot pass through.
     local frame = DECALS.frame + 1
     DECALS.frame = frame
-    DECALS.rayUsed = 0
-    local collide = DECALS.rayOK and hasPostfx and preset ~= nil and cfg.stains and true or false
+    local collide = DECALS.rayOK and hasPostfx and preset ~= nil and cfg.stains and not STAINS.failed and true or false
     local ceil, castRay, decalSplat = math.ceil, DECALS.cast, DECALS.splat
     local strideH = max(1, min(DEC.STRIDE_MAX, ceil(DECALS.prevHeavy / DEC.HEAVY_RAYS)))
     local strideL = max(1, min(DEC.STRIDE_MAX, ceil(DECALS.prevLight / max(1, DEC.RAY_BUDGET - DEC.HEAVY_RAYS))))
     local nHeavy, nLight = 0, 0
+    local tnow = DECALS.now         -- the frame's clock (the file's `now` is declared further down)
+    local heavyRays, lightRays = 0, 0       -- rays spent on each class this frame, against HEAVY_RAYS and the rest of RAY_BUDGET
+    local lightCap = DEC.RAY_BUDGET - DEC.HEAVY_RAYS
     local heavySpeed2 = DEC.HEAVY_SPEED * DEC.HEAVY_SPEED
     for i = nP, 1, -1 do
         local age = page[i] + dt
@@ -720,17 +770,22 @@ local function simulate(dt)
             local hit = false
             if collide and (kd == DROPLET or kd == CLOTK) then
                 if first then
-                    plx[i], ply[i], plz[i], pph[i] = ox, oy, oz, random(0, 255)
+                    plx[i], ply[i], plz[i], pph[i], plt[i] = ox, oy, oz, random(0, 255), tnow
                 end
                 local size = psize[i]
                 local heavy = size >= DEC.HEAVY_SIZE or vx * vx + vy * vy + vz * vz >= heavySpeed2
                 if heavy then nHeavy = nHeavy + 1 else nLight = nLight + 1 end
                 local stride = heavy and strideH or strideL
-                if DECALS.rayUsed < DEC.RAY_BUDGET and (stride == 1 or (frame + pph[i]) % stride == 0) then
+                if (heavy and heavyRays < DEC.HEAVY_RAYS or not heavy and lightRays < lightCap)
+                    and (stride == 1 or (frame + pph[i]) % stride == 0) then
+                    if heavy then heavyRays = heavyRays + 1 else lightRays = lightRays + 1 end
                     local sx, sy, sz = plx[i], ply[i], plz[i]
                     local dx, dy, dz = x - sx, y - sy, z - sz
-                    -- A stale start (a stride of many frames, or a droplet that was not tracked) is not trusted far.
-                    if dx * dx + dy * dy + dz * dz > 40 * 40 then
+                    -- The start is the point of the last test, which may be a stride of frames back: the way since then is
+                    -- about speed times the time, and a start further off than that (one that was not tracked, or a jump)
+                    -- is not trusted: only the last step is swept then.
+                    local trust = max(40, min(2000, sqrt(vx * vx + vy * vy + vz * vz) * (tnow - plt[i]) * 1.5))
+                    if dx * dx + dy * dy + dz * dz > trust * trust then
                         sx, sy, sz = ox, oy, oz
                     end
                     local t, nx, ny, nz = castRay(sx, sy, sz, x, y, z)
@@ -759,9 +814,9 @@ local function simulate(dt)
                             end
                         end
                         removeParticle(i)
-                    else
-                        plx[i], ply[i], plz[i] = x, y, z
-                    end
+                    elseif nx == nil then
+                        plx[i], ply[i], plz[i], plt[i] = x, y, z, tnow
+                    end     -- (a ray the budget refused leaves the start where it was, so the next sweep covers this step too)
                 end
             end
             if draw and not hit then
@@ -924,6 +979,7 @@ local function newSlot(x, y, z, health, alive)
         health = health, alive = alive, seen = frameId,
         px = x, py = y, pz = z, vx = 0, vy = 0, vz = 0, pt = now,
         ix = 0, iy = 0, iz = 0, iat = -100,
+        mvx = 0, mvy = 0, mvz = 0, mvOk = false,    -- the engine velocity of the last frame, for the impulse (MEL.track)
         credited = 0, creditAt = -100, shownAt = -100,
         bleedUntil = 0, bleedRate = 0, bleedAcc = 0,
         stainRadius = nil, stainAt = 0, restSince = nil,
@@ -989,6 +1045,7 @@ end
 -- the signature is in "Melee classification", further down. Everything lives in the one MEL table to spare locals.
 for k, v in pairs({
     VEL_SCALE = 1,              -- engine velocity (the vel of wum.game.worms(), units per second in Melange 0.6) times this
+    VEL_SAMPLE = 60, VEL_SAMPLE_EV = 15,   -- the scale is checked only for a worm moving faster than the first by its position and the second by its velocity
     STEAM = 3, CHAR = 4, CLOT = 5,                  -- particle kinds after DROPLET and MIST
     KG = {}, KD = {}, KP = {}, KGROW = {}, KFADE = {},  -- per kind: gravity multiple, drag per second, puff, growth, fade-in
     SIG = {},                   -- weapon id -> signature
@@ -1090,6 +1147,8 @@ do
     -- Jet: a narrow pressurised cone. p: cone, s0 s1 (speed), z0 z1 (size), l0 l1 (life), mode, kind, gap (the drops come
     -- in up to three pulses this far apart along the jet).
     local function jet(p, ox, oy, oz, dx, dy, dz, n)
+        n = min(n, poolRoom())
+        if n <= 0 then return 0 end
         basis(dx, dy, dz)
         local kind, mode, gap = p.kind or DROPLET, p.mode or 1, p.gap
         for _ = 1, n do
@@ -1104,6 +1163,8 @@ do
     -- Arc: a flat fan around a direction with long streaks. p: half (radians), s0 s1, z0 z1, l0 l1, vlo vhi (vertical
     -- speed fraction added), swing (sideways speed along the swing), mode, kind.
     local function arc(p, ox, oy, oz, dx, dy, dz, n, sign)
+        n = min(n, poolRoom())
+        if n <= 0 then return 0 end
         basis(dx, dy, dz)
         local kind, mode, swing = p.kind or DROPLET, p.mode or 1, (p.swing or 0) * sign
         for _ = 1, n do
@@ -1120,6 +1181,7 @@ do
     end
 
     local function mist(ox, oy, oz, dx, dy, dz, n, spread, speed, sizeMul)
+        n = min(n, poolRoom())
         for _ = 1, n do
             local sp = rnd(0.4, 1) * speed
             puff(MIST, 7, ox + rnd(-4, 4), oy + rnd(-4, 4), oz + rnd(-3, 3),
@@ -1130,6 +1192,8 @@ do
 
     -- Fine fast drops in every direction.
     local function shred(cx, cy, cz, n, s0, s1)
+        n = min(n, poolRoom())
+        if n <= 0 then return 0 end
         for _ = 1, n do
             local ey, a = rnd(-1, 1), random() * 2 * pi
             local rr = sqrt(1 - ey * ey)
@@ -1141,6 +1205,8 @@ do
 
     -- A flat ring that hugs the ground. p: s0 s1, z0 z1, l0 l1, vlo vhi (vertical speed), kind.
     local function pancake(x, y, z, n, p)
+        n = min(n, poolRoom())
+        if n <= 0 then return 0 end
         local kind = p.kind or DROPLET
         for _ = 1, n do
             local ang = random() * 2 * pi
@@ -1154,6 +1220,8 @@ do
 
     -- Drops spawned along a line behind the origin, all flung forward: faster at the front.
     local function smear(ox, oy, oz, dx, dy, dz, n, length, s0, s1)
+        n = min(n, poolRoom())
+        if n <= 0 then return 0 end
         for _ = 1, n do
             local back = random()
             local sp = s0 + (s1 - s0) * (1 - back) * rnd(0.6, 1)
@@ -1165,12 +1233,11 @@ do
     end
 
     -- The ground under a worm: its feet, or the landscape from a ray when the game offers one (landRay).
-    local hasRay = wum.game.landRay ~= nil
     function MEL.ground(s)
-        if hasRay then
+        if DECALS.rayOK then
             -- From the middle of the worm's body (always open air) down past its feet.
-            local ok, t, nx, ny, nz = pcall(wum.game.landRay, s.px, s.py + CENTRE_Y, s.pz, s.px, s.py - 30, s.pz)
-            if ok and type(t) == "number" and type(ny) == "number" and t > 0.02 then
+            local t, nx, ny, nz = DECALS.cast(s.px, s.py + CENTRE_Y, s.pz, s.px, s.py - 30, s.pz, true)
+            if t and t > 0.02 then
                 return s.py + CENTRE_Y - t * (CENTRE_Y + 30), nx, ny, nz
             end
         end
@@ -1225,9 +1292,12 @@ do
                     end
                     j.acc = j.acc + rate * dt
                     local n = 0
-                    while j.acc >= 1 and n < 6 do
+                    -- A puff or two per turn of the loop: stop when the pool or the frame's spawn budget is spent.
+                    local room = min(poolRoom(), BUDGET.SPAWN + 60 - BUDGET.spawned)
+                    while j.acc >= 1 and n < 6 and room > 1 do
                         j.acc = j.acc - 1
                         n = n + 1
+                        room = room - 2
                         local p = j.p
                         if jt == JET then
                             basis(j.dx, j.dy, j.dz)
@@ -1309,7 +1379,7 @@ do
         jet(PR.FP_BLOOD, cx, cy - 2, cz, ux, uy, uz, nBlood)
         local embers = 4 + floor(n / 14)
         jet(PR.FP_EMBER, cx, cy, cz, ux, uy, uz, embers)
-        for _ = 1, 3 do
+        for _ = 1, min(3, poolRoom()) do
             puff(STEAM, 6, cx + rnd(-4, 4), cy + rnd(-4, 6), cz + rnd(-3, 3), rnd(-12, 12), rnd(40, 80), rnd(-12, 12),
                  rnd(12, 18), rnd(1.0, 1.6), 0.5)
         end
@@ -1343,7 +1413,7 @@ do
         pancake(cx, gy, cz, ring, PR.PAN)
         local clots = 4 + floor(n / 25)
         pancake(cx, gy, cz, clots, PR.PAN_CLOT)
-        for _ = 1, preset.mist + 4 do
+        for _ = 1, min(preset.mist + 4, poolRoom()) do
             local a = random() * 2 * pi
             local sp = rnd(30, 70)
             puff(MIST, 7, cx + cos(a) * 4, gy + 3, cz + sin(a) * 4, cos(a) * sp, rnd(0, 15), sin(a) * sp,
@@ -1456,26 +1526,30 @@ function MEL.lens(s, damage, near)
     if dx * dx + dy * dy + dz * dz < near * near then addSplat() end
 end
 
--- A burst of blood at a worm's body. (dx, dy, dz) is the direction the blood goes, in any length. A weapon signature
--- (see Melee sprays) sprays first and takes its share of the droplets; the ordinary spray gets sig.generic of its usual
--- amount.
-local function burst(s, damage, dx, dy, dz, death, sig)
-    if not preset then return end
-    local len = sqrt(dx * dx + dy * dy + dz * dz)
-    if len < 1e-4 then
-        dx, dy, dz, len = 0, 1, 0, 1
-    end
-    dx, dy, dz = dx / len, dy / len, dz / len
+-- The queue of bursts whose droplets did not fit in a frame's spawn budget (BUDGET), a ring in arrays so nothing is allocated.
+-- Each entry keeps the context MEL.hit set for it (the victim's slot, the attacker's position, whether it was an explosion).
+local BQ = { n = 0, head = 1, s = {}, dmg = {}, dx = {}, dy = {}, dz = {}, death = {}, sig = {}, at = {},
+             vslot = {}, hasA = {}, ax = {}, ay = {}, az = {}, expl = {} }
+
+-- The droplets, mist and weapon spray of one burst: the part that costs. The direction is a unit vector. The caller has
+-- checked that the pool has room and the frame's spawn budget is not spent.
+local function emitBurst(s, damage, dx, dy, dz, death, sig)
+    local room = poolRoom()
+    if room <= 0 then return end
     local cx, cy, cz = s.px, s.py + CENTRE_Y, s.pz
     local strength = min(damage, DEATH_DAMAGE) / DEATH_DAMAGE
     local spread = death and 1.1 or 0.55
     local count = min(BURST_MAX, floor((damage + BURST_BASE) * preset.perDamage + 0.5))
+    -- No more than the frame has left to spawn, and no more than half of the room in the pool (FAIR_MIN at least), so the
+    -- worms of one blast, which burst one after another, each get a share.
+    count = min(count, BUDGET.SPAWN - BUDGET.spawned, max(BUDGET.FAIR_MIN, floor(room * 0.5)))
     local gen = 1
     if sig then
         gen = sig.generic or 0
         local used = MEL.spray(sig, s, damage, count, dx, dy, dz, cx, cy, cz)
         count = max(0, min(floor(count * gen + 0.5), BURST_MAX - used))
     end
+    count = min(count, poolRoom())
     local c = palette.droplet
     for _ = 1, count do
         local ex, ey, ez = dx + rnd(-1, 1) * spread, dy + rnd(-1, 1) * spread, dz + rnd(-1, 1) * spread
@@ -1488,13 +1562,57 @@ local function burst(s, damage, dx, dy, dz, death, sig)
               min(1, c[1] * shade), min(1, c[2] * shade), min(1, c[3] * shade), DROPLET_ALPHA)
     end
     local m = palette.mist
-    for _ = 1, floor((death and preset.mist * 2 or preset.mist) * gen + 0.5) do
+    for _ = 1, min(floor((death and preset.mist * 2 or preset.mist) * gen + 0.5), poolRoom()) do
         local shade = rnd(0.8, 1.2)
         local speed = rnd(DROPLET_SPEED[1], DROPLET_SPEED[2]) * 0.25
         spawn(MIST, cx + rnd(-4, 4), cy + rnd(-4, 4), cz + rnd(-2, 2),
               (dx + rnd(-0.5, 0.5)) * speed, (dy + rnd(-0.5, 0.5)) * speed, (dz + rnd(-0.5, 0.5)) * speed,
               rnd(MIST_SIZE[1], MIST_SIZE[2]), rnd(MIST_LIFE[1], MIST_LIFE[2]),
               min(1, m[1] * shade), min(1, m[2] * shade), min(1, m[3] * shade), MIST_ALPHA)
+    end
+end
+
+local function enqueueBurst(s, damage, dx, dy, dz, death, sig)
+    if BQ.n >= BUDGET.QUEUE then return end        -- a storm of hits: the rest only bleed and stain
+    local i = (BQ.head + BQ.n - 1) % BUDGET.QUEUE + 1
+    BQ.n = BQ.n + 1
+    BQ.s[i], BQ.dmg[i], BQ.dx[i], BQ.dy[i], BQ.dz[i], BQ.death[i], BQ.sig[i], BQ.at[i] = s, damage, dx, dy, dz, death, sig, now
+    BQ.vslot[i], BQ.hasA[i], BQ.ax[i], BQ.ay[i], BQ.az[i], BQ.expl[i] = MEL.vslot, MEL.hasA, MEL.ax, MEL.ay, MEL.az, MEL.expl
+end
+
+-- Once a frame, before anything else bursts: the queued bursts go first, oldest first, while the frame has budget left.
+local function drainBursts()
+    while BQ.n > 0 do
+        local i = BQ.head
+        local stale = now - BQ.at[i] > BUDGET.QUEUE_SECS
+        if not stale then
+            if BUDGET.SPAWN - BUDGET.spawned < BUDGET.MIN_LEFT or poolRoom() <= 0 then break end
+            MEL.vslot, MEL.hasA, MEL.ax, MEL.ay, MEL.az, MEL.expl = BQ.vslot[i], BQ.hasA[i], BQ.ax[i], BQ.ay[i], BQ.az[i], BQ.expl[i]
+            emitBurst(BQ.s[i], BQ.dmg[i], BQ.dx[i], BQ.dy[i], BQ.dz[i], BQ.death[i], BQ.sig[i])
+        end
+        BQ.s[i], BQ.sig[i] = nil, nil
+        BQ.head = i % BUDGET.QUEUE + 1
+        BQ.n = BQ.n - 1
+    end
+end
+
+-- A burst of blood at a worm's body. (dx, dy, dz) is the direction the blood goes, in any length. A weapon signature
+-- (see Melee sprays) sprays first and takes its share of the droplets; the ordinary spray gets sig.generic of its usual
+-- amount. The droplets wait for the next frame when this one has spawned its share (BUDGET); the bleeding, gore, stain and
+-- lens below are cheap and happen at once.
+local function burst(s, damage, dx, dy, dz, death, sig)
+    if not preset then return end
+    local len = sqrt(dx * dx + dy * dy + dz * dz)
+    if len < 1e-4 then
+        dx, dy, dz, len = 0, 1, 0, 1
+    end
+    dx, dy, dz = dx / len, dy / len, dz / len
+    if poolRoom() > 0 then
+        if BQ.n > 0 or BUDGET.SPAWN - BUDGET.spawned < BUDGET.MIN_LEFT then
+            enqueueBurst(s, damage, dx, dy, dz, death, sig)
+        else
+            emitBurst(s, damage, dx, dy, dz, death, sig)
+        end
     end
 
     if death then
@@ -1628,6 +1746,7 @@ MEL.firedWeapon, MEL.firedSlot, MEL.firedAt, MEL.firedLeft, MEL.explUsedAt = nil
 MEL.snapWeapon, MEL.snapSlot, MEL.snapFired = nil, nil, false
 MEL.vSum, MEL.vN, MEL.velOk = 0, 0, true
 MEL.dbgAt, MEL.dbgN = -100, 0
+MEL.rsStep = 0                  -- the insurance resend's next step, 0 when idle
 MEL.pv = 0
 
 do
@@ -1667,28 +1786,32 @@ do
             evx, evy, evz = evx * k, evy * k, evz * k
             -- Whether the velocity is in the units assumed: compared with the speed worked out from positions while a
             -- worm moves at a plain pace. A ratio far from 1 means VEL_SCALE is wrong, and the velocity is then ignored.
+            -- The engine's velocity is about zero while a worm stands or walks, so only a worm that moves fast by its position
+            -- (thrown, falling, knocked) and has some velocity says anything about the scale.
             local sp = sqrt(s.vx * s.vx + s.vy * s.vy + s.vz * s.vz)
-            if sp > 40 and sp < 600 then
-                local ev = sqrt(evx * evx + evy * evy + evz * evz)
-                MEL.vSum, MEL.vN = MEL.vSum + min(100, sp / (ev + 1e-3)), MEL.vN + 1
+            local ev = sqrt(evx * evx + evy * evy + evz * evz)
+            if sp > MEL.VEL_SAMPLE and ev > MEL.VEL_SAMPLE_EV and sp < 600 then
+                MEL.vSum, MEL.vN = MEL.vSum + min(100, sp / ev), MEL.vN + 1
                 if MEL.vN >= 200 then MEL.vSum, MEL.vN = MEL.vSum * 0.5, MEL.vN * 0.5 end
                 if DEBUG and MEL.vN % 50 == 0 then dbg("vel ratio (position speed / vel)", MEL.vSum / MEL.vN) end
             end
             MEL.velOk = MEL.vN < 30 or (MEL.vSum / MEL.vN >= 0.5 and MEL.vSum / MEL.vN <= 2)
             if MEL.velOk then
-                if s.evOk then
-                    local cx, cy, cz = evx - s.evx, evy - s.evy, evz - s.evz
+                -- The change since the last frame's engine velocity. (s.evx and the like belong to the intestines'
+                -- noteEngineVel, which has already put this frame's value there, so the last one is kept apart.)
+                if s.mvOk then
+                    local cx, cy, cz = evx - s.mvx, evy - s.mvy, evz - s.mvz
                     if cx * cx + cy * cy + cz * cz > IMPULSE_MIN * IMPULSE_MIN then
                         s.ix, s.iy, s.iz, s.iat = cx, cy, cz, now
                     end
                 end
-                s.evx, s.evy, s.evz, s.evOk = evx, evy, evz, true
+                s.mvx, s.mvy, s.mvz, s.mvOk = evx, evy, evz, true
                 vy = evy
             else
-                s.evOk = false
+                s.mvOk = false
             end
         else
-            s.evOk = false
+            s.mvOk = false
         end
         if vy < -40 and vy <= (s.fallV or 0) then
             s.fallV, s.fallAt = vy, now
@@ -1712,7 +1835,10 @@ do
         local wid, slot, fired
         local fw = MEL.firedWeapon
         local fsig = fw and MEL.SIG[fw]
-        if fsig and MEL.firedLeft > 0 and t - MEL.firedAt <= (fsig.window or 2.5) then
+        -- A blast that was shaped by the fired weapon (explSig) is over after a moment: a later damage message, the fall of a
+        -- worm it knocked for one, is not the weapon's.
+        local blastOver = MEL.explUsedAt and t - MEL.explUsedAt > 0.3
+        if fsig and MEL.firedLeft > 0 and not blastOver and t - MEL.firedAt <= (fsig.window or 2.5) then
             wid, slot, fired = fw, MEL.firedSlot, true
         else
             wid, slot = MEL.curWeapon, MEL.active
@@ -1770,8 +1896,9 @@ do
                         local ok
                         if sig.reach then
                             ok = d <= sig.reach and abs(ry) <= 30
-                            -- With the weapon only held, a worm that just landed from a fall is a fall.
-                            if ok and not MEL.snapFired and (s.fallV or 0) < -FALL_MIN then ok = false end
+                            -- With the weapon only held, a worm that just landed from a fall is a fall, and only a worm that was
+                            -- knocked can be the victim (any other worm that stands near the attacker is not one).
+                            if ok and not MEL.snapFired and ((s.fallV or 0) < -FALL_MIN or imp <= 0) then ok = false end
                             if ok and sig.needImpulse and imp <= 0 then ok = false end
                         else
                             local along = rx * fx + rz * fz
@@ -1913,8 +2040,7 @@ local function build()
 -- and stretches when it is knocked) and drawn by the bloodsand/guts post-FX effect, which ray-marches it as tubes. Only
 -- when that effect is missing or failed are the old flat ribbons drawn instead (drawGuts).
 local ceil, exp = math.ceil, math.exp
-local landRay = wum.game.landRay    -- nil on a Melange without it: the ground is then a flat plane at the worm's feet
-local hasLand = landRay ~= nil
+-- The ground comes from DECALS.cast (the one landRay user, with its flag and per-frame count); without it it is a flat plane at the worm's feet.
 local VEL_SCALE = MEL.VEL_SCALE    -- the one scale constant: vel of wum.game.worms() is in units per second (Melange 0.6)
 
 local GUTS = { id = "bloodsand/guts", cache = {}, enabled = nil }
@@ -2042,6 +2168,7 @@ local function initGut(s)
     end
     s.gutLive, s.gutLen, s.gutExtra, s.gutStretch, s.gutTwitch, s.gutAcc = false, 0, 0, 0, 0, 0
     s.gutNa, s.gutHitAt = 0, -100
+    s.gutSimAt, s.gutDrawnAt = -100, -100
     s.gvx, s.gvy, s.gvz = 0, 0, 0
     s.pax, s.pay, s.paz, s.plx, s.ply, s.plz = 0, 0, 0, 0, 0, 0
     s.evx, s.evy, s.evz, s.evFrame = 0, 0, 0, -1
@@ -2057,7 +2184,7 @@ end
 
 -- The engine's own velocity of a worm, when Melange reports it; otherwise the velocity worked out from its movement.
 local function noteEngineVel(s, vel)
-    if type(vel) ~= "table" then return end
+    if type(vel) ~= "table" or not MEL.velOk then return end     -- MEL.track decides that the velocity is in other units
     local x, y, z = vec(vel)
     if not x then return end
     s.evx, s.evy, s.evz, s.evFrame = x * VEL_SCALE, y * VEL_SCALE, z * VEL_SCALE, frameId
@@ -2097,20 +2224,16 @@ end
 local probesThisFrame = 0
 
 local function probeGround(s, k, x, y, z)
-    if not hasLand or probesThisFrame >= GUT.PROBE_BUDGET then return end
+    if not DECALS.rayOK or probesThisFrame >= GUT.PROBE_BUDGET then return end
     probesThisFrame = probesThisFrame + 1
-    local ok, t, nx, ny, nz = pcall(landRay, x, y + GUT.PROBE_UP, z, x, y - GUT.PROBE_DOWN, z)
-    if not ok then return end
+    local t, nx, ny, nz = DECALS.cast(x, y + GUT.PROBE_UP, z, x, y - GUT.PROBE_DOWN, z, true)
     if t == nil then
-        if nx == "unavailable" then
-            hasLand = false
-        elseif k ~= 1 then
-            s.gpok[k] = false   -- no ground under that part of the chain: it hangs there. Under the worm it keeps its plane.
-        end
+        -- A clean miss (no second value) means no ground under that part of the chain: it hangs there. Under the worm it
+        -- keeps its plane. A refused or failed ray says nothing.
+        if nx == nil and k ~= 1 then s.gpok[k] = false end
         return
     end
-    nx, ny, nz = tonumber(nx), tonumber(ny), tonumber(nz)
-    if not (nx and ny and nz) or ny < 0.2 then return end   -- a wall: keep the old plane
+    if ny < 0.2 then return end   -- a wall: keep the old plane
     s.gpx[k], s.gpy[k], s.gpz[k] = x, y + GUT.PROBE_UP - t * (GUT.PROBE_UP + GUT.PROBE_DOWN), z
     s.gpnx[k], s.gpny[k], s.gpnz[k] = nx, ny, nz
     s.gpok[k] = true
@@ -2149,7 +2272,7 @@ local function startGut(s, rx, ry, rz, lx, ly, lz, sh, ch)
         s.gpok[k] = true
         s.gpx[k], s.gpy[k], s.gpz[k], s.gpnx[k], s.gpny[k], s.gpnz[k] = s.px, s.py + FEET_Y, s.pz, 0, 1, 0
     end
-    if hasLand then probeGround(s, 1, s.px, s.py + 6, s.pz) end
+    if DECALS.rayOK then probeGround(s, 1, s.px, s.py + 6, s.pz) end
 end
 
 -- Adds a point just outside the lip (index 3) or takes it away, so the chain's length grows and shrinks at the belly.
@@ -2174,9 +2297,20 @@ end
 -- The gut level, and the chain. Points 1 and 2 are pinned to the worm (the root inside the belly and the lip of the opening);
 -- gutLen is the number of segments out beyond the lip: it follows what the wound level and the hits give, sliding out at
 -- GUT.FEED units per second.
+-- The worms that have a gut this frame, with their distance to the camera: gutUpdate (once per worm per frame, cheap) fills the
+-- list and simGuts (once per frame) simulates the closest GUT.SLOTS of them, the ones the effect can draw. The others keep their
+-- chain as it was and start it over when they are among the closest again.
+local gutSimList, gutSimD, gutSimN = {}, {}, 0
+
+local function beginGuts()
+    gutSimN = 0
+end
+
+-- The gut level of a worm, and a candidate for the simulation.
 local function gutUpdate(s, dt)
     local level = 0
-    if s.alive and cfg.guts then
+    -- The tubes come out of the belly opening that bloodsand/skin paints, so no skin, no guts.
+    if s.alive and cfg.guts and cfg.skin ~= false and not SKIN.failed then
         if s.hasGut and s.wound > GUT.START then level = min(1, (s.wound - GUT.START) / (1 - GUT.START)) end
         if s.previewGut > level then level = s.previewGut end
     end
@@ -2186,10 +2320,30 @@ local function gutUpdate(s, dt)
         return
     end
     local px, py, pz = s.px, s.py, s.pz
-    local rx, ry, rz, lx, ly, lz, sh, ch = gutRoot(s)
     local jx, jy, jz = px - s.gutPx, py - s.gutPy, pz - s.gutPz
     s.gutPx, s.gutPy, s.gutPz = px, py, pz
-    if not s.gutLive or jx * jx + jy * jy + jz * jz > GUT.JUMP * GUT.JUMP then
+    if jx * jx + jy * jy + jz * jz > GUT.JUMP * GUT.JUMP then s.gutLive = false end   -- teleported: starts over
+    local n = gutSimN + 1
+    gutSimN = n
+    gutSimList[n] = s
+    if CAM.ok then
+        local dx, dy, dz = px - CAM.px, py - CAM.py, pz - CAM.pz
+        -- A worm whose guts are drawn this frame has some lead over one of about the same distance, so two worms near the
+        -- fourth place do not take turns.
+        gutSimD[n] = (dx * dx + dy * dy + dz * dz) * (s.gutDrawnAt == frameId - 1 and 0.64 or 1)
+    else
+        gutSimD[n] = s.id or 0
+    end
+end
+
+-- One step of the chain of a worm that is simulated this frame. With more than two chains going it takes one fixed step and
+-- fewer constraint passes.
+local function gutStep(s, dt, lite)
+    local px, py, pz = s.px, s.py, s.pz
+    local rx, ry, rz, lx, ly, lz, sh, ch = gutRoot(s)
+    local stale = now - s.gutSimAt > GUT.STALE
+    s.gutSimAt = now
+    if not s.gutLive or stale then
         startGut(s, rx, ry, rz, lx, ly, lz, sh, ch)
         return
     end
@@ -2209,7 +2363,7 @@ local function gutUpdate(s, dt)
     s.gutTwitch = max(0, s.gutTwitch - dt / GUT.TWITCH_SECS)
 
     -- Length: the segments out follow the target, sliding.
-    local want = min(GUT.POINTS - 2, GUT.OUT_BASE + GUT.OUT_LEVEL * level + s.gutExtra)
+    local want = min(GUT.POINTS - 2, GUT.OUT_BASE + GUT.OUT_LEVEL * s.gut + s.gutExtra)
     local feed = GUT.FEED * dt / GUT.SEG
     if s.gutLen < want then
         s.gutLen = min(want, s.gutLen + feed)
@@ -2233,7 +2387,7 @@ local function gutUpdate(s, dt)
 
     -- Ground: one probe per frame in turn (the worm, the middle of the chain, its end) when Melange can say where it is.
     local gx, gy, gz, hx, hy, hz, gr = s.gx, s.gy, s.gz, s.hx, s.hy, s.hz, s.gr
-    if hasLand then
+    if DECALS.rayOK then
         local k = s.gpNext
         s.gpNext = k % 3 + 1
         if k == 1 then
@@ -2261,8 +2415,9 @@ local function gutUpdate(s, dt)
     -- The simulation in fixed steps; the pinned points move from where they were last frame to where they are now.
     s.gutAcc = s.gutAcc + dt
     local steps = floor(s.gutAcc / GUT.STEP)
-    if steps > GUT.MAX_STEPS then
-        steps = GUT.MAX_STEPS
+    local maxSteps = lite and 1 or GUT.MAX_STEPS
+    if steps > maxSteps then
+        steps = maxSteps
         s.gutAcc = 0
     else
         s.gutAcc = s.gutAcc - steps * GUT.STEP
@@ -2296,7 +2451,7 @@ local function gutUpdate(s, dt)
             end
             gx[i], gy[i], gz[i] = x + wx + sx, y + wy + fall, z + wz + sz
         end
-        for _ = 1, GUT.ITER do
+        for _ = 1, lite and GUT.ITER_LITE or GUT.ITER do
             for i = 2, na - 1 do
                 local j = i + 1
                 local dx, dy, dz = gx[j] - gx[i], gy[j] - gy[i], gz[j] - gz[i]
@@ -2390,6 +2545,26 @@ local function gutUpdate(s, dt)
     end
 end
 
+-- Simulates the chains of the (up to GUT.SLOTS) closest worms that have a gut.
+local function simGuts(dt)
+    local n = gutSimN
+    gutSimN = 0
+    while n > GUT.SLOTS do
+        local far = 1
+        for i = 2, n do
+            if gutSimD[i] > gutSimD[far] then far = i end
+        end
+        gutSimList[far], gutSimD[far] = gutSimList[n], gutSimD[n]
+        n = n - 1
+    end
+    local lite = n > 2
+    for i = 1, n do
+        local s = gutSimList[i]
+        gutSimList[i] = false
+        gutStep(s, dt, lite)
+    end
+end
+
 -- Which worms' guts the effect draws, in which of its slots. A worm keeps its slot while it stays among the closest.
 local gutSlotOf = {}                -- effect slot (1..GUT.SLOTS) -> worm slot, or nil
 local gutCand, gutCandD = {}, {}
@@ -2434,11 +2609,11 @@ end
 -- Runs once per frame after the worms were tracked: gives the (up to four) closest gutted worms a slot of the effect and
 -- sends their chains, and keeps the effect on only while one is drawn.
 local function updateGuts()
-    local want = hasPostfx and preset ~= nil and cfg.guts ~= false and not gutsMissing
+    local want = hasPostfx and preset ~= nil and cfg.guts ~= false and cfg.skin ~= false and not SKIN.failed and not gutsMissing
     local n = 0
     if want then
         for slot, s in pairs(slots) do
-            if s.gutLive and s.alive and s.seen == frameId and s.gutNa >= 2 then
+            if s.gutLive and s.alive and s.seen == frameId and s.gutNa >= 2 and s.gutSimAt == now then
                 n = n + 1
                 gutCand[n] = slot
                 local dx, dy, dz = s.px - CAM.px, s.py - CAM.py, s.pz - CAM.pz
@@ -2484,6 +2659,7 @@ local function updateGuts()
         local w = gutSlotOf[k]
         if w ~= nil then
             drawn = drawn + 1
+            slots[w].gutDrawnAt = frameId
             sendGutSlot(k, slots[w])
         end
     end
@@ -2493,6 +2669,9 @@ end
 
 -- Is the guts effect usable? Melange lists effects with a failed flag, which a shader that does not compile or does not
 -- draw sets. The old ribbons are drawn while it is not.
+-- The skin and stains effects have no fallback to draw instead: when a driver links one and then draws nothing, Melange marks it
+-- failed. What can be done is to say so in the log once, and to stop doing the work for it (SKIN.failed and STAINS.failed: no
+-- droplet rays or decals, and no guts, whose tubes need the torn belly the skin effect paints).
 local function checkGutsFx()
     if not (hasPostfx and wum.postfx.list) then return end
     local ok, list = pcall(wum.postfx.list)
@@ -2500,10 +2679,20 @@ local function checkGutsFx()
     local found = false
     for i = 1, #list do
         local e = list[i]
-        if type(e) == "table" and e.id == GUTS.id then
-            found = true
-            gutsMissing = e.failed == true
-            break
+        if type(e) == "table" then
+            if e.id == GUTS.id then
+                found = true
+                gutsMissing = e.failed == true
+            elseif e.id == SKIN.id or e.id == STAINS.id then
+                local fx = e.id == SKIN.id and SKIN or STAINS
+                fx.failed = e.failed == true
+                if fx.failed and not fx.warned then
+                    fx.warned = true
+                    if wum.log and wum.log.warn then
+                        wum.log.warn("Bloodsand: the effect " .. fx.id .. " failed to draw on this graphics driver, so it is off")
+                    end
+                end
+            end
         end
     end
     if not found then gutsMissing = true end
@@ -2537,7 +2726,7 @@ end
 local function gutDraw()
     if not CAM.ok or not (gutsMissing or not hasPostfx) then return end
     for _, s in pairs(slots) do
-        if s.gutLive and s.seen == frameId and s.alive and s.gutNa >= 2 then
+        if s.gutLive and s.seen == frameId and s.alive and s.gutNa >= 2 and s.gutSimAt == now then
             drawRibbons(s, 1.0, palette.gutDark)
             drawRibbons(s, GUT.CORE, palette.gut)
         end
@@ -2563,6 +2752,8 @@ VIS.initGut = initGut
 VIS.noteEngineVel = noteEngineVel
 VIS.spillGut = spillGut
 VIS.updateGuts = updateGuts
+VIS.beginGuts = beginGuts
+VIS.simGuts = simGuts
 VIS.checkFx = checkGutsFx
 VIS.reset = clearGuts
 setScorch, woundSites, updateGut, drawGuts = scorchSet, sitesOf, gutUpdate, gutDraw
@@ -2572,15 +2763,17 @@ function VIS.setBlood(c)
     sendParam(GUTS, "blood", c[1], c[2], c[3])
 end
 
-function VIS.clearCache()
-    GUTS.cache = {}
+-- The insurance resend and the start-up zeroing (see resend and zeroAll): the effect slot k is forgotten, so that whatever it
+-- holds (a chain going out of the next sendGutSlot, or zeros) is sent again.
+function VIS.resendSlot(k)
+    local cache = GUTS.cache
+    cache[GUT_A[k]], cache[GUT_B[k]], cache[GUT_C[k]], cache[GUT_D[k]] = nil, nil, nil, nil
+    for i = 1, GUT.POINTS do cache[GUT_P[k][i]] = nil end
+    if gutSlotOf[k] == nil then sendParam4(GUTS, GUT_A[k], 0, 0, 0, 0) end
 end
 
--- The insurance resend and the start-up zeroing (see resend and zeroAll).
-function VIS.resend()
-    for k = 1, GUT.SLOTS do
-        if gutSlotOf[k] == nil then sendParam4(GUTS, GUT_A[k], 0, 0, 0, 0) end
-    end
+function VIS.resendBlood()
+    GUTS.cache.blood = nil
 end
 
 function VIS.zero()
@@ -2718,6 +2911,8 @@ local function trackWorms(worms, dt)
     for e = 1, nExp do
         if abs(EX.at[e] - hurtAt) <= DAMAGED_WINDOW then
             local ex, ey, ez, damage, radius = EX.x[e], EX.y[e], EX.z[e], EX.dmg[e], EX.radius[e]
+            -- Taken before the worms are looked at: if this frame is stopped half way, the entry must not match again.
+            EX.at[e] = -1000
             for _, s in pairs(slots) do
                 if s.seen == frameId and s.alive then
                     local dx, dy, dz = s.px - ex, s.py + CENTRE_Y - ey, s.pz - ez
@@ -2841,12 +3036,14 @@ end
 
 local function clearParticles()
     nP, nL, nExp = 0, 0, 0
+    BQ.n, BQ.head = 0, 1
     hurtOpen = false
     MEL.clear()
 end
 
 -- Everything back to nothing: the match ended or started, or the amount was turned off.
 local function resetAll()
+    DECALS.rayOK = DECALS.hasFn         -- landRay is asked again in every match: "unavailable" can be about one level only
     slots = {}
     clearParticles()
     clearStains()
@@ -2873,14 +3070,21 @@ local function onWorld()
     end
     live = true
     frameId = frameId + 1
+    BUDGET.spawned = 0
+    DECALS.rayUsed = 0
+    DECALS.now = t
+    if not DECALS.rayOK and DECALS.hasFn and t >= DECALS.rayRetryAt then DECALS.rayOK = true end
     readCamera()
     MEL.beginFrame()
+    drainBursts()
     local worms = wum.game.worms()
+    VIS.beginGuts()
     if type(worms) == "table" then
         trackWorms(worms, dt)
     else
         nExp = 0
     end
+    VIS.simGuts(dt)
     updateSkin()
     VIS.updateGuts()
     MEL.tick(dt)
@@ -2888,6 +3092,7 @@ local function onWorld()
     DECALS.update(dt)
     drawGuts()
     ageSplats(dt)
+    MEL.resendStep()
 end
 
 -- ---------------------------------------------------------------- settings
@@ -3004,27 +3209,53 @@ end
 -- Melange keeps a transient value across an effect reload unless the reload removes the param or changes its size, so
 -- this is only insurance: everything live is sent again from time to time, zeros included for the slots that are not in
 -- use, in case an effect was reloaded with a changed parameter list or a value was lost some other way.
-local function resend()
+local RESEND_STEPS = 17
+
+-- One step of the insurance resend: steps 1-8 are four decal slots each, 9-12 four skin slots each, 13-16 one slot of the guts
+-- effect each and 17 the colours and the rest. One step runs per frame (see startResend), so no frame pays for the lot.
+local function resendStep()
+    local k = MEL.rsStep
+    if k == 0 then return end
+    MEL.rsStep = k < RESEND_STEPS and k + 1 or 0
     if not hasPostfx then return end
-    STAINS.cache, SKIN.cache = {}, {}
-    VIS.clearCache()
-    DECALS.resend()
-    for i = 1, SKIN_SLOTS do
-        if skFrame[i] == frameId and (skSentGore[i] > 0 or skSentWound[i] > 0 or skSentEyes[i] > 0 or skSentGut[i] > 0) then
-            -- The centre goes out at the next frame, which finds the cache empty; the amounts are forced here.
-            skSentGore[i], skSentWound[i], skSentEyes[i], skSentGut[i] = -1, -1, -1, -1
-        else
-            sendParam(SKIN, WORM_A[i], 0, 0, 0)
-            sendParam(SKIN, WORM_B[i], 0, 0, 0)
-            sendParam(SKIN, WORM_C[i], 0, 0, 0)
+    if k <= 8 then
+        DECALS.resend((k - 1) * 4 + 1, k * 4)
+    elseif k <= 12 then
+        local first = (k - 9) * 4 + 1
+        for i = first, first + 3 do
+            SKIN.cache[WORM_A[i]], SKIN.cache[WORM_B[i]], SKIN.cache[WORM_C[i]] = nil, nil, nil
+            if skFrame[i] == frameId and (skSentGore[i] > 0 or skSentWound[i] > 0 or skSentEyes[i] > 0 or skSentGut[i] > 0
+                                          or VIS.scorchLevel(i) > 0) then
+                -- The centre goes out at the next frame, which finds the cache empty; the amounts are forced here.
+                skSentGore[i], skSentWound[i], skSentEyes[i], skSentGut[i] = -1, -1, -1, -1
+            else
+                sendParam(SKIN, WORM_A[i], 0, 0, 0)
+                sendParam(SKIN, WORM_B[i], 0, 0, 0)
+                sendParam(SKIN, WORM_C[i], 0, 0, 0)
+            end
         end
+    elseif k <= 16 then
+        VIS.resendSlot(k - 12)
+    else
+        DECALS.resendMisc()
+        SKIN.cache.blood, SKIN.cache.seed = nil, nil
+        local c = palette.stain
+        sendParam(STAINS, "blood", c[1], c[2], c[3])
+        sendParam(SKIN, "blood", c[1], c[2], c[3])
+        VIS.resendBlood()
+        VIS.setBlood(c)
+        sendSeed()
     end
-    local c = palette.stain
-    sendParam(STAINS, "blood", c[1], c[2], c[3])
-    sendParam(SKIN, "blood", c[1], c[2], c[3])
-    VIS.setBlood(c)
-    VIS.resend()
-    sendSeed()
+end
+MEL.resendStep = resendStep
+
+-- Every RESEND_SECS: starts the steps. In a match they run one a frame (onWorld); outside one they all run now.
+local function startResend()
+    if not hasPostfx then return end
+    MEL.rsStep = 1
+    if not live then
+        while MEL.rsStep ~= 0 do resendStep() end
+    end
 end
 
 -- Every slot of both effects starts at zero, whatever Melange saved in an earlier session.
@@ -3066,6 +3297,6 @@ if hasMenu then wum.ui.menu("Preview", preview) end
 -- The same preview for anything that emits the mod event, such as the Lua console.
 if wum.events and wum.events.on then wum.events.on("mod.bloodsand.preview", preview) end
 wum.timers.every(0.5, applySettings)
-wum.timers.every(RESEND_SECS, resend)
+wum.timers.every(RESEND_SECS, startResend)
 VIS.checkFx()
 wum.timers.every(2, VIS.checkFx)

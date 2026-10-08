@@ -152,10 +152,17 @@ four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0
   about 0.2 ms for a deliberately dense pile of 32 covering a sixth of the screen. It is switched off while there are none.
 - **Script**: in a stress test with six worms and explosions, weapon sprays and previews back to back, an average of
   about 0.3 ms a frame on Heavy and 0.4 ms on Absurd. A gutted worm takes under 0.1 ms and six take about 0.3 ms. With
-  Blood set to Off it takes under 0.01 ms.
-- **Terrain rays**: at most about 60 calls of `wum.game.landRay` a frame (48 for droplets, 8 for guts, a few for pools
-  and sprays). Melange 0.6 logs their average and worst cost at the end of each match; a few microseconds each is
-  expected, and if it is more, the droplets' share is what to lower.
+  Blood set to Off it takes under 0.01 ms. A Lua callback may run 500000 VM instructions and Melange stops it for the
+  session after three faults, so the script keeps clear of that: one frame spawns about 200 particles for bursts (the rest of
+  a big blast waits a few frames in a queue, and a burst takes at most half of what the pool has left, so the worms of one
+  blast share it), and only the four gutted worms nearest the camera are simulated (with one fixed step and fewer passes
+  while more than two are going). In the mock host the world callback peaked at about 230000 instructions for sixteen
+  worms in one Absurd blast and at about 260000 for sixteen gutted worms.
+- **Terrain rays**: at most 64 calls of `wum.game.landRay` a frame, all counted together (48 for droplets, at most 24
+  between the guts' 8 probes, the pools and the melee sprays' ground rays). Melange 0.6 logs their average and worst cost
+  at the end of each match; a few microseconds each is expected, and if it is more, the droplets' share is what to lower.
+- **Resend**: every two seconds everything is sent to the effects again as insurance; this is spread over 17 frames so no
+  single frame makes more than about 80 `wum.postfx.setTransient` calls.
 
 Re-measure with the *Mirage/Post-FX* panel on your own machine.
 
@@ -165,10 +172,13 @@ Re-measure with the *Mirage/Post-FX* panel on your own machine.
 - Needs Melange 0.3.5 or later, for `wum.postfx.setTransient` and the worms' facing angle.
 - Melange 0.6 adds `wum.game.landRay` and the worms' velocity, which Bloodsand uses when they are there. Without them
   droplets do not collide with the terrain (the ground only gets pools), the guts lie on a flat ground at the worm's
-  feet and knocks and falls are read from how the worm's position changes. Everything else works the same.
+  feet and knocks and falls are read from how the worm's position changes. Everything else works the same. If
+  `landRay` answers "unavailable" (for one odd level, say) the plugin goes without it for ten seconds and again at the next
+  match start, instead of for the rest of the session.
 - A weapon's signature depends on seeing its weapon id on the active worm. If a build of the game clears it before the
-  hit and no firing message came, the hit gets the ordinary blunt burst instead. A held melee weapon only needs a worm
-  within reach, so an unrelated hit next to a worm holding a bat can be taken for a bat swing. The spray shapes, the fall
+  hit and no firing message came, the hit gets the ordinary blunt burst instead. A held melee weapon (no firing message)
+  needs a worm within reach that was also knocked just then, so an unrelated hit next to a worm holding a bat is not
+  taken for a bat swing, but a poke that moves nobody shows nothing. The spray shapes, the fall
   threshold and the reach distances are untuned guesses until seen in the game. A melee hit that the game reports as an
   explosion takes the ordinary burst.
 - Everything on a worm's skin is painted from the depth buffer inside the worm's volume. It travels and turns with the
@@ -177,12 +187,14 @@ Re-measure with the *Mirage/Post-FX* panel on your own machine.
   a bruise can sit a little off the eye, and it is not drawn while a worm is thrown. Only skin-coloured pixels are
   darkened, which keeps most hats clean but also makes the bruise faint on a poisoned (green) worm or under strongly
   coloured light.
-- The intestines are ray-marched in a screen-space pass. They stay out of the worm's body (a guessed capsule) and on the
+- The intestines come out of the belly opening that the skin pass paints, so they need Blood on worms (and are off with it).
+  They are ray-marched in a screen-space pass. They stay out of the worm's body (a guessed capsule) and on the
   ground below them, but they do not collide with other worms or with walls, and at most four gutted worms (the closest
   to the camera) are drawn at once. They are lit by a fixed key light and the camera, not the level's lights. Where the
   opening sits on the belly was set by eye and may need adjusting.
-- Decals are projected from the depth buffer: there are 32 of them, more than four overlapping at one pixel can drop
-  one, and a decal vanishes where the terrain under it is destroyed. Droplets are tested against the terrain only, not
+- Decals are projected from the depth buffer: there are 32 of them, and a pixel shades at most four. Where more than
+  four overlap, the ones that hold the pixel least deeply are dropped (a pool with many splats on it can still show a
+  hard edge here and there), and a decal vanishes where the terrain under it is destroyed. Droplets are tested against the terrain only, not
   against worms, crates or water.
 - Wounds are placed from a per-match seed, not where the hit landed, and which worms have intestines to show is
   chosen at random each match.
@@ -192,7 +204,9 @@ Re-measure with the *Mirage/Post-FX* panel on your own machine.
 - Up to 16 worms can wear blood and wounds at once.
 - The guts shader repeats its shape function several times and was tried on one AMD driver only. Another driver could
   link it and draw nothing; the flat ribbons of 1.1 are drawn instead if Melange reports the pass as failed (checked every
-  two seconds).
+  two seconds). The skin and stains shaders are big as well and were tried on the same driver only; they have no
+  fallback, so if Melange reports one as failed Bloodsand writes a line to the log and stops feeding it (no droplet rays,
+  no guts).
 - No sound.
 
 ## Tools

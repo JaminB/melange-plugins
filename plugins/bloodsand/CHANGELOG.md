@@ -27,6 +27,17 @@ ask where the terrain is (`wum.game.landRay`) and see how fast a worm moves: Blo
 collision, for the guts to lie on slopes and for sharper knock and fall detection. On older Melange the droplets fly
 through the ground, the guts lie on a flat ground and everything else works as before. Needs Melange 0.3.5 or later.
 
+Keeps clear of Melange's instruction limit (a Lua callback that runs 500000 VM instructions is stopped, and after three
+faults the plugin would be off for the session): a frame spawns about 200 particles for bursts and queues the rest, only
+the four nearest gutted worms are simulated, the two-second resend is spread over 17 frames, and a blast is dropped from
+the match list before its worms are processed. Droplets that fly fast between ray tests are still swept from where they
+were last tested, so they leave a splat instead of falling through the ground. All terrain rays are counted together (at
+most 64 a frame) and are tried again after "unavailable" instead of being off for the session. Engine-velocity knock
+detection now works (it compared a value with itself), and the check of the velocity's units no longer trips on walking.
+A held melee weapon only counts for a worm that was knocked, and a donkey's blast no longer explains a later fall.
+Intestines need Blood on worms. Where more than four decals overlap, the least deeply held ones are dropped instead of
+whole decals being cut off along a circle, and two overlapping gutted worms both draw their guts.
+
 ## 1.1.3
 
 Runs on Melange 0.5. No other change.
