@@ -11,6 +11,8 @@
 -- bloodsand/guts (up to four worms), a chain simulated here and ray-marched there; all three are fed with
 -- wum.postfx.setTransient, which writes nothing to Melange.ini. The lens splatter is the bloodsand/lens post-FX effect, which
 -- runs before the HUD (only if it cannot run are the splat textures drawn at the "hud" stage instead).
+-- Gibs (meat, bone and organs thrown by deaths and very big hits) are the bloodsand/gibs post-FX effect, ray-marched, and are simulated in
+-- the == Gibs == section near the end of this file.
 
 if not (wum.draw and wum.draw.on and wum.game and wum.game.worms) then return end
 
@@ -255,6 +257,7 @@ local COLOURS = {
 
 local DROPLET, MIST = 1, 2
 local MEL = {}                -- the weapon sprays and the hit classification, in one table to spare locals
+local GIBS = {}               -- meat, bone and organs thrown by deaths and big hits (see == Gibs ==, near the end)
 
 local sqrt, random, floor, min, max, abs = math.sqrt, math.random, math.floor, math.min, math.max, math.abs
 local sin, cos, pi = math.sin, math.cos, math.pi
@@ -2175,6 +2178,7 @@ local function burst(s, damage, dx, dy, dz, death, sig)
         requestStain(s, death and STAIN_DEATH or min(STAIN_MAX, STAIN_BASE + damage * STAIN_PER_DAMAGE))
     end
     VIS.spillGut(s, damage)
+    GIBS.onBurst(s, damage, dx, dy, dz, death)
     addLens(s, damage, death)
 end
 
@@ -3648,6 +3652,7 @@ local function resetAll()
     clearStains()
     clearSkin()
     VIS.reset()
+    GIBS.clear()
     -- A new match seed, so the wounds are not in the same places every match.
     matchSeed = random(0, 1000)
     sendSeed()
@@ -3666,6 +3671,7 @@ function WARM.step()
     WARM.started = true
     local allowed = { ["bloodsand/stains"] = cfg.stains ~= false, ["bloodsand/skin"] = cfg.skin ~= false,
                       ["bloodsand/guts"] = cfg.guts ~= false, ["bloodsand/lens"] = cfg.lens ~= false }
+    allowed["bloodsand/gibs"] = cfg.gibs ~= false
     local last = WARM.GAP * #WARM.ids + WARM.HOLD
     for k = 1, #WARM.ids do
         local id, t0 = WARM.ids[k], WARM.GAP * k
@@ -3711,6 +3717,7 @@ local function onWorld()
     VIS.simGuts(dt)
     updateSkin()
     VIS.updateGuts()
+    GIBS.tick(dt)
     MEL.tick(dt)
     simulate(dt)
     DECALS.update(dt, slots, frameId)
@@ -3728,6 +3735,7 @@ local function applySettings()
     -- Turning either off takes effect at the next frame: updateGut drops the chains and updateVomit ends the heaves.
     cfg.vomit = wum.config.get("vomit") ~= false
     cfg.guts = wum.config.get("guts") ~= false
+    cfg.gibs = wum.config.get("gibs") ~= false
     local colour = wum.config.get("colour") or "red"
 
     if amount ~= cfg.amount then
@@ -3762,6 +3770,7 @@ local function applySettings()
         sendParam(SKIN, "blood", c[1], c[2], c[3])
         VIS.setBlood(c)
         LS.setBlood(palette.lens)
+        GIBS.setBlood(c)
     end
     if not preset then
         clearStains()
@@ -3769,6 +3778,7 @@ local function applySettings()
         VIS.reset()
     end
     updateStainEnable()
+    GIBS.apply(cfg.gibs)
     -- Outside a match nothing drives the skin effect, so settle a persisted enabled=1 here instead of waiting for a frame.
     if skinCount == 0 then sendEnabled(SKIN, false) end
 end
@@ -3781,6 +3791,7 @@ if wum.events and wum.events.on then
         if not x then return end
         -- Whatever it hurt: the crater takes the decals in it, and a dying worm it goes off at is blowing up.
         DECALS.blast(x, y, z, tonumber(p.landDamageRadius))
+        GIBS.blast(x, y, z, tonumber(p.landDamageRadius), tonumber(p.wormDamageRadius))
         local t, reach = os.clock(), BUDGET.DYING_REACH
         for _, s in pairs(slots) do
             if s.dying and not s.dead and t - s.dying >= BUDGET.DYING_MIN then
@@ -3840,6 +3851,7 @@ local function preview()
     -- A scorch patch too, so it can be seen: it fades over a few seconds, so press Preview again to see it again.
     setScorch(pick.slot, 1)
     if cfg.vomit then startHeave(s) end
+    GIBS.preview(s)
 end
 
 -- ---------------------------------------------------------------- start
@@ -3855,6 +3867,7 @@ local function resendStep()
     if k == 0 then return end
     MEL.rsStep = k < RESEND_STEPS and k + 1 or 0
     if not hasPostfx then return end
+    GIBS.resendStep(k)
     if k <= 8 then
         DECALS.resend((k - 1) * 4 + 1, k * 4)
     elseif k <= 12 then
@@ -3905,7 +3918,829 @@ local function zeroAll()
     end
     VIS.zero()
     VIS.zeroScorch()
+    GIBS.zero()
 end
+
+-- == Gibs ==
+-- Meat chunks, bone shards and a few organs (a kidney, a liver lobe, a heart, an eye) thrown out of a worm that dies and out of
+-- a very big hit. They fly, bounce, roll and come to rest on the terrain, and stay there (up to 16, the oldest recycled) as
+-- ray-marched signed distance fields, drawn by the bloodsand/gibs post-FX effect (see tools/gibs.frag.in), with a splat where
+-- each first lands, a streak where it slides and a pool where it rests. Small bits of meat (sprites) fly out with them.
+--
+-- The simulation is a sphere per gib against wum.game.landRay: a ray from where the gib was to where it is going, stretched by
+-- its radius (along the motion, or down when it is slow), gives the contact point and the surface normal; the gib then bounces
+-- (restitution and friction by kind), rolls (its spin follows its velocity) and, once slow, settles: its radius shrinks to the
+-- height of the face it rests on, it turns that face to the ground, and after a quarter of a second at rest it sleeps (no more
+-- rays, nothing sent to the effect). A sleeping gib is looked at by one ray a frame in turn, so that terrain dug out from
+-- under it lets it fall. An explosion near a gib throws it again (a direct hit pops flesh into bits). Without landRay a gib
+-- lands on the plane at the height of the worm's feet.
+--
+-- The effect's four vec4 per slot: a = (x, y, z, bounding radius), b = orientation quaternion (x, y, z, w), c = half extents and
+-- kind, d = (seed, birth, wetness, bloodiness). A flying gib sends a and b every frame (rounded, so a sleeping one sends nothing);
+-- c and d go out once. The effect dries a gib from its birth against our clock over about a minute.
+-- All of it is in one function called once, so that its locals are its own (the file's main function is nearly full).
+do
+local function build()
+local exp = math.exp
+local N, BMAX = 16, 96
+local FLY, SETTLE, SLEEP = 1, 2, 3
+local MEAT, BONE, KIDNEY, LIVER, HEART, EYE = 0, 1, 2, 3, 4, 5
+local FX = { id = "bloodsand/gibs", cache = {}, enabled = nil, failed = false, missing = false }
+-- Per "Blood" setting: the pool (never more than the effect's 16 slots), gibs thrown by a death and by a very big hit, and the
+-- bits of meat that fly out with them.
+local AMT = {
+    light  = { pool = 8,  death = 3, big = 1, bits = 10, bitsBig = 4 },
+    heavy  = { pool = 14, death = 6, big = 2, bits = 26, bitsBig = 10 },
+    absurd = { pool = 16, death = 9, big = 4, bits = 46, bitsBig = 20 },
+}
+local T = {
+    BIG = 45, BIG_ABSURD = 30,          -- damage that throws gibs besides a death
+    COOLDOWN = 0.6,                     -- a worm throws gibs for hits no closer together than this
+    SPEED = { 55, 150 }, UP = { 0.35, 1.1 },
+    REST = { [0] = 0.22, 0.38, 0.24, 0.2, 0.26, 0.5 },      -- restitution by kind (bounce)
+    MU = 330,                           -- sliding friction: deceleration on a flat floor, units/s^2
+    SETTLE_SPEED = 28, SLEEP_SPEED = 6, SLEEP_SECS = 0.25,
+    DRAG = 0.12,                        -- fraction of speed lost per second in the air
+    RAYS = 20,                          -- terrain rays a frame
+    STREAK_EVERY = 9, STREAK_SPEED = 40, DECALS = 3,
+    REACH_MIN = 16, POP_FRAC = 0.4, POP_CHANCE = 0.65, GRACE = 0.35,
+    BIT_LIFE = { 0.55, 1.15 }, BIT_SIZE = { 1.5, 3.0 },
+    KILL_BELOW = 700,                   -- a gib this far under where it started has fallen out of the world
+}
+local PA, PB, PC, PD = {}, {}, {}, {}
+for i = 1, N do
+    PA[i], PB[i], PC[i], PD[i] = "g" .. (i - 1) .. "a", "g" .. (i - 1) .. "b", "g" .. (i - 1) .. "c", "g" .. (i - 1) .. "d"
+end
+
+-- One array per field, a slot per gib.
+local F = {}
+for _, k in ipairs({ "st", "x", "y", "z", "vx", "vy", "vz", "qx", "qy", "qz", "qw", "wx", "wy", "wz", "h1", "h2", "h3", "kind", "seed",
+                     "birth", "wet", "blood", "cr", "cre", "hrT", "floor", "born", "lastC", "cnx", "cny", "cnz", "sleepT", "streak",
+                     "decals", "serial", "bound", "splatAt", "lowY", "axis", "stare" }) do
+    F[k] = {}
+    for i = 1, N do F[k][i] = 0 end
+end
+local st, X, Y, Z, VX, VY, VZ = F.st, F.x, F.y, F.z, F.vx, F.vy, F.vz
+local QX, QY, QZ, QW, WX, WY, WZ = F.qx, F.qy, F.qz, F.qw, F.wx, F.wy, F.wz
+local H1, H2, H3, KIND = F.h1, F.h2, F.h3, F.kind
+local G = { clock = 0, serial = 0, n = 0, top = 0, rays = 0, wake = 0, pv = 0, anyVis = false, countSent = -1, clockSent = -1,
+            fwdx = 0, fwdy = 0, fwdz = 1, tex = nil, texChecked = false, spriteOK = false, bitsN = 0, bitsTried = false }
+
+local B = {}                            -- the bits of meat: struct of arrays
+for _, k in ipairs({ "x", "y", "z", "vx", "vy", "vz", "age", "life", "size", "tex", "r", "g", "b", "floor" }) do
+    B[k] = {}
+    for i = 1, BMAX do B[k][i] = 0 end
+end
+local col = { r = 1, g = 1, b = 1, a = 1 }
+
+-- ---------------------------------------------------------------- the effect
+local function sendV4(name, a, b, c, d)
+    if not hasPostfx then return end
+    local old = FX.cache[name]
+    if old and old[1] == a and old[2] == b and old[3] == c and old[4] == d then return end
+    local ok, res = pcall(wum.postfx.setTransient, FX.id, name, a, b, c, d)
+    if not ok or res == false then return end
+    if not old then
+        old = {}
+        FX.cache[name] = old
+    end
+    old[1], old[2], old[3], old[4] = a, b, c, d
+end
+
+local function r05(v) return floor(v * 20 + 0.5) / 20 end
+local function r10(v) return floor(v * 1024 + 0.5) / 1024 end
+
+-- What the effect is told of slot i. A free slot is all zeros (a radius of 0 means unused).
+local function sendSlot(i, moved)
+    if st[i] == 0 then
+        sendV4(PA[i], 0, 0, 0, 0)
+        sendV4(PB[i], 0, 0, 0, 0)
+        sendV4(PC[i], 0, 0, 0, 0)
+        sendV4(PD[i], 0, 0, 0, 0)
+        return
+    end
+    sendV4(PA[i], r05(X[i]), r05(Y[i]), r05(Z[i]), F.bound[i])
+    sendV4(PB[i], r10(QX[i]), r10(QY[i]), r10(QZ[i]), r10(QW[i]))
+    sendV4(PC[i], H1[i], H2[i], H3[i], KIND[i])
+    sendV4(PD[i], F.seed[i], floor(F.birth[i] * 100 + 0.5) / 100, F.wet[i], F.blood[i])
+end
+
+local function fxEnable(on)
+    on = on and not FX.missing and not FX.failed
+    if WARM.on[FX.id] then on = true end
+    if not hasPostfx or FX.enabled == on then return end
+    local ok, res = pcall(wum.postfx.enable, FX.id, on)
+    if not ok then return end
+    if res == false then
+        FX.missing = true
+        return
+    end
+    FX.enabled = on
+end
+
+local function recount()
+    local n, top = 0, 0
+    for i = 1, N do
+        if st[i] ~= 0 then
+            n = n + 1
+            top = i
+        end
+    end
+    G.n, G.top = n, top
+end
+
+-- ---------------------------------------------------------------- small maths
+-- Rotates the orientation by the angle `ang` about the world axis (ax, ay, az), a unit vector.
+local function rotate(i, ax, ay, az, ang)
+    local s, c = sin(ang * 0.5), cos(ang * 0.5)
+    local rx, ry, rz, rw = ax * s, ay * s, az * s, c
+    local qx, qy, qz, qw = QX[i], QY[i], QZ[i], QW[i]
+    local nx = rw * qx + rx * qw + ry * qz - rz * qy
+    local ny = rw * qy - rx * qz + ry * qw + rz * qx
+    local nz = rw * qz + rx * qy - ry * qx + rz * qw
+    local nw = rw * qw - rx * qx - ry * qy - rz * qz
+    local l = 1 / sqrt(nx * nx + ny * ny + nz * nz + nw * nw)
+    QX[i], QY[i], QZ[i], QW[i] = nx * l, ny * l, nz * l, nw * l
+end
+
+-- Where the gib's local axis k (1 x, 2 y, 3 z) points in the world.
+local function localAxis(i, k)
+    local x, y, z, w = QX[i], QY[i], QZ[i], QW[i]
+    if k == 1 then return 1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y) end
+    if k == 2 then return 2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x) end
+    return 2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)
+end
+
+-- Turns the gib about the world axis that takes its local axis k (times sign) to the direction (tx, ty, tz) by at most `step`
+-- radians, and returns the angle that was left before the turn.
+local function turnAxis(i, k, sign, tx, ty, tz, step)
+    local ax, ay, az = localAxis(i, k)
+    ax, ay, az = ax * sign, ay * sign, az * sign
+    local cx, cy, cz = ay * tz - az * ty, az * tx - ax * tz, ax * ty - ay * tx
+    local sn = sqrt(cx * cx + cy * cy + cz * cz)
+    local ang = math.atan(sn, ax * tx + ay * ty + az * tz)
+    if sn > 1e-5 and ang > 1e-4 then rotate(i, cx / sn, cy / sn, cz / sn, ang * min(1, step / ang)) end
+    return ang
+end
+
+-- Lays the gib down on the surface with the unit normal n, turning by at most `step` radians: the face it lies on is the local
+-- axis most nearly along the normal, the shorter axes counting for more (a box lies on its big face, a bone on its side). The half
+-- extent along it (the height of the centre when it lies there) is kept in hrT and the angle still to go is returned. An eye is a
+-- ball: it needs no face, and one that stares turns its iris towards the camera and up instead.
+local function settleTurn(i, nx, ny, nz, step)
+    local kind = KIND[i]
+    if kind == EYE then
+        F.hrT[i] = H1[i] * 0.97
+        if F.stare[i] ~= 1 or not CAM.ok then return 0 end
+        local tx, ty, tz = CAM.px - X[i], CAM.py - Y[i], CAM.pz - Z[i]
+        local tl = sqrt(tx * tx + ty * ty + tz * tz)
+        if tl < 1 then return 0 end
+        tx, ty, tz = nx * 0.7 + tx / tl * 0.7, ny * 0.7 + ty / tl * 0.7, nz * 0.7 + tz / tl * 0.7
+        local l = sqrt(tx * tx + ty * ty + tz * tz)
+        if l < 1e-3 then return 0 end
+        return turnAxis(i, 1, 1, tx / l, ty / l, tz / l, step)
+    end
+    local h1, h2, h3 = H1[i], H2[i], H3[i]
+    local hm = min(h1, min(h2, h3))
+    local best, bk, bsign = -1, 1, 1
+    local hs = { h1, h2, h3 }
+    for k = 1, 3 do
+        local ax, ay, az = localAxis(i, k)
+        local d = ax * nx + ay * ny + az * nz
+        local sc = abs(d) * (hm / hs[k]) ^ 1.6
+        if sc > best then best, bk, bsign = sc, k, d < 0 and -1 or 1 end
+    end
+    local hk = hs[bk]
+    if kind == BONE then hk = (h2 + h3) * 0.5 end
+    F.axis[i], F.hrT[i] = bk, hk * 0.86
+    return turnAxis(i, bk, bsign, nx, ny, nz, step)
+end
+
+-- ---------------------------------------------------------------- decals
+-- The ground takes a splat where a gib hits it hard, a streak where it slides and a pool where it comes to rest. All through
+-- the decal section (they are not made when the ground stains are off).
+local function stainsOn()
+    return hasPostfx and preset ~= nil and cfg.stains ~= false and not STAINS.failed
+end
+
+local SPLAT_SIZE = { [0] = 3.6, 1.6, 3.0, 3.4, 3.2, 2.0 }
+local POOL_SIZE = { [0] = 6.5, 2.6, 5.2, 6.0, 5.4, 2.6 }
+
+local function splatAt(i, px, py, pz, nx, ny, nz, vx, vy, vz, size)
+    if not stainsOn() then return end
+    DECALS.splat(px, py, pz, nx, ny, nz, vx, vy, vz, size)
+end
+
+-- ---------------------------------------------------------------- spawning
+local function freeSlot()
+    local am = AMT[cfg.amount] or AMT.heavy
+    local pool = min(N, am.pool)
+    for i = 1, pool do
+        if st[i] == 0 then return i end
+    end
+    -- the oldest goes, a sleeping one before one in the air
+    local pick, pickKey
+    for i = 1, pool do
+        local key = F.serial[i] + (st[i] == SLEEP and 0 or 1e6)
+        if not pickKey or key < pickKey then pick, pickKey = i, key end
+    end
+    return pick
+end
+
+-- A random unit quaternion.
+local function randQuat(i)
+    local a, b, c, d = rnd(-1, 1), rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)
+    local l = sqrt(a * a + b * b + c * c + d * d)
+    if l < 0.1 then a, b, c, d, l = 0, 0, 0, 1, 1 end
+    QX[i], QY[i], QZ[i], QW[i] = a / l, b / l, c / l, d / l
+end
+
+local function dims(kind, sm)
+    if kind == MEAT then return rnd(3.0, 4.8) * sm, rnd(2.0, 3.1) * sm, rnd(2.0, 3.1) * sm end
+    if kind == BONE then return rnd(4.0, 7.0) * sm, rnd(1.0, 1.4) * sm, rnd(0.7, 1.0) * sm end
+    if kind == KIDNEY then return 2.8 * sm * rnd(0.9, 1.1), 1.8 * sm * rnd(0.9, 1.1), 1.9 * sm * rnd(0.9, 1.1) end
+    if kind == LIVER then return 5.0 * sm * rnd(0.85, 1.1), 1.5 * sm * rnd(0.9, 1.1), 3.3 * sm * rnd(0.85, 1.1) end
+    if kind == HEART then return 2.6 * sm * rnd(0.9, 1.1), 3.0 * sm * rnd(0.9, 1.1), 2.4 * sm * rnd(0.9, 1.1) end
+    local r = 1.8 * sm * rnd(0.92, 1.08)
+    return r, r, r
+end
+
+-- One gib, thrown from (x, y, z) with a velocity; floorY is the plane it lands on without landRay.
+local function throwGib(kind, x, y, z, vx, vy, vz, floorY, sm)
+    local i = freeSlot()
+    if not i then return end
+    G.serial = G.serial + 1
+    local h1, h2, h3 = dims(kind, sm)
+    st[i], KIND[i] = FLY, kind
+    X[i], Y[i], Z[i], VX[i], VY[i], VZ[i] = x, y, z, vx, vy, vz
+    H1[i], H2[i], H3[i] = h1, h2, h3
+    randQuat(i)
+    local sp = rnd(5, 13)
+    local ax, ay, az = rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)
+    local al = sqrt(ax * ax + ay * ay + az * az)
+    if al < 0.05 then ax, ay, az, al = 1, 0, 0, 1 end
+    WX[i], WY[i], WZ[i] = ax / al * sp, ay / al * sp, az / al * sp
+    local cr
+    if kind == BONE then cr = max(h2 * 1.5, h1 * 0.3)
+    elseif kind == LIVER then cr = (h1 + h3) * 0.25
+    elseif kind == EYE then cr = h1 * 0.95
+    else cr = (h1 + h2 + h3) / 3 * 0.8 end
+    F.cr[i], F.cre[i], F.hrT[i] = cr, cr, cr
+    F.seed[i] = floor(random() * 970) / 10
+    F.birth[i] = G.clock
+    F.wet[i] = rnd(0.85, 1)
+    F.blood[i] = kind == EYE and 0.3 or (kind == BONE and 0.45 or 0.55)
+    F.floor[i], F.lowY[i], F.born[i] = floorY, floorY - T.KILL_BELOW, G.clock
+    F.lastC[i], F.cnx[i], F.cny[i], F.cnz[i] = -9, 0, 1, 0
+    F.sleepT[i], F.streak[i], F.decals[i], F.splatAt[i] = 0, 0, T.DECALS, -9
+    F.serial[i], F.axis[i] = G.serial, 0
+    F.stare[i] = (kind == EYE and random() < 0.5) and 1 or 0
+    local R = sqrt(h1 * h1 + h2 * h2 + h3 * h3)
+    F.bound[i] = kind == BONE and floor(((h1 + 1.5 * h2) * 1.15 + 3) * 10) / 10 or floor((R * 1.2 + 3) * 10) / 10
+    recount()
+    sendSlot(i)
+end
+
+-- The colour (a tint for a grey sprite) of one bit: muscle, a pink scrap, fat or a speck of bone; with a blood colour that is not
+-- red (Green) the flesh takes some of it, as the effect's does.
+local function bitColour()
+    local r, g, b
+    local pick = random()
+    if pick < 0.55 then r, g, b = rnd(0.62, 0.85), rnd(0.07, 0.13), rnd(0.07, 0.11)         -- muscle
+    elseif pick < 0.8 then r, g, b = rnd(0.92, 1.0), rnd(0.42, 0.55), rnd(0.4, 0.5)            -- pink scrap
+    elseif pick < 0.93 then r, g, b = 1.0, rnd(0.82, 0.92), rnd(0.55, 0.65)                    -- fat
+    else r, g, b = 1.0, 0.95, 0.82 end                                                          -- bone
+    local sc = palette.stain
+    local m = max(sc[1], sc[2], sc[3], 1e-3)
+    local f = 0.35 * (1 - sc[1] / m)
+    if f > 0.01 and pick < 0.93 then
+        local lum = (0.3 * r + 0.59 * g + 0.11 * b) * 1.8
+        r, g, b = min(1, r + (lum * sc[1] / m - r) * f), min(1, g + (lum * sc[2] / m - g) * f), min(1, b + (lum * sc[3] / m - b) * f)
+    end
+    return r, g, b
+end
+
+local function addBit(x, y, z, vx, vy, vz, size, floorY)
+    local n = G.bitsN
+    if n >= BMAX then return end
+    n = n + 1
+    G.bitsN = n
+    B.x[n], B.y[n], B.z[n], B.vx[n], B.vy[n], B.vz[n] = x, y, z, vx, vy, vz
+    B.age[n], B.life[n], B.size[n] = 0, rnd(T.BIT_LIFE[1], T.BIT_LIFE[2]), size
+    B.tex[n] = random(1, 3)
+    B.r[n], B.g[n], B.b[n] = bitColour()
+    B.floor[n] = floorY
+end
+
+local function pickKind(k, death, n)
+    if death and k == 1 then
+        local r = random()
+        return r < 0.45 and HEART or (r < 0.7 and EYE or (r < 0.85 and LIVER or KIDNEY))
+    end
+    if k == 2 and n >= 6 then return BONE end
+    local r = random()
+    if r < 0.5 then return MEAT end
+    if r < 0.7 then return BONE end
+    if r < 0.78 then return KIDNEY end
+    if r < 0.86 then return LIVER end
+    if r < 0.94 then return HEART end
+    return EYE
+end
+
+-- The gibs and bits of one worm's death or very big hit. (dx, dy, dz) is the unit direction of the blow.
+local function fire(s, dx, dy, dz, n, nbits, strength, death)
+    local cx, cy, cz = s.px, s.py + CENTRE_Y, s.pz
+    local floorY = s.py + FEET_Y
+    local far = 0
+    if CAM.ok then
+        local ex, ey, ez = cx - CAM.px, cy - CAM.py, cz - CAM.pz
+        far = min(1, max(0, (sqrt(ex * ex + ey * ey + ez * ez) - FAR_START) / FAR_SPAN))
+    end
+    local sm = 1.15 * (1 + 0.3 * far)
+    for k = 1, n do
+        local kind = pickKind(k, death, n)
+        local a, up = random() * 2 * pi, rnd(T.UP[1], T.UP[2])
+        local ex, ey, ez = dx * 0.9 + cos(a) * rnd(0.5, 1), dy * 0.5 + up, dz * 0.9 + sin(a) * rnd(0.5, 1)
+        local el = sqrt(ex * ex + ey * ey + ez * ez)
+        if el < 1e-4 then ex, ey, ez, el = 0, 1, 0, 1 end
+        local sp = rnd(T.SPEED[1], T.SPEED[2]) * (0.65 + 0.5 * strength) / el
+        throwGib(kind, cx + rnd(-4, 4), cy + rnd(-5, 6), cz + rnd(-2, 2), ex * sp, ey * sp, ez * sp, floorY, sm)
+    end
+    for _ = 1, nbits do
+        local a, up = random() * 2 * pi, rnd(0.2, 1.2)
+        local ex, ey, ez = dx * 0.6 + cos(a), dy * 0.4 + up, dz * 0.6 + sin(a)
+        local el = sqrt(ex * ex + ey * ey + ez * ez)
+        if el < 1e-4 then ex, ey, ez, el = 0, 1, 0, 1 end
+        local sp = rnd(110, 300) * (0.6 + 0.5 * strength) / el
+        addBit(cx + rnd(-4, 4), cy + rnd(-5, 6), cz + rnd(-2, 2), ex * sp, ey * sp, ez * sp, rnd(T.BIT_SIZE[1], T.BIT_SIZE[2]) * sm, floorY)
+    end
+end
+
+-- Called by burst() for every burst of blood: a death, and a hit of at least BIG damage.
+function GIBS.onBurst(s, damage, dx, dy, dz, death)
+    if not preset or cfg.gibs == false then return end
+    local am = AMT[cfg.amount] or AMT.heavy
+    local n, nb, strength
+    if death then
+        n, nb, strength = am.death, am.bits, 1
+    else
+        local thr = cfg.amount == "absurd" and T.BIG_ABSURD or T.BIG
+        if damage < thr then return end
+        if s.gibAt and G.clock - s.gibAt < T.COOLDOWN then return end
+        n = am.big + (damage >= thr * 2 and 1 or 0)
+        nb = am.bitsBig
+        strength = min(1, damage / DEATH_DAMAGE)
+    end
+    s.gibAt = G.clock
+    fire(s, dx, dy, dz, min(n, floor(min(N, am.pool) / 2)), nb, strength, death)
+end
+
+-- ---------------------------------------------------------------- simulation
+-- Where the segment from (x0, y0, z0) to the point r further on along (ex, ey, ez) from (x1, y1, z1) first meets the terrain: the
+-- unit normal, the point and how far the end of the segment is beyond the surface (along the normal), or nil.
+local function contact(i, x0, y0, z0, x1, y1, z1, ex, ey, ez, r)
+    local ax, ay, az = x1 + ex * r, y1 + ey * r, z1 + ez * r
+    if DECALS.rayOK then
+        if G.rays >= T.RAYS then return nil end
+        G.rays = G.rays + 1
+        local t, nx, ny, nz = DECALS.cast(x0, y0, z0, ax, ay, az, false)
+        if t then
+            local hx, hy, hz = x0 + (ax - x0) * t, y0 + (ay - y0) * t, z0 + (az - z0) * t
+            return nx, ny, nz, hx, hy, hz, max(0, (hx - ax) * nx + (hy - ay) * ny + (hz - az) * nz)
+        end
+        return nil
+    end
+    local fy = F.floor[i]
+    if ay <= fy then return 0, 1, 0, ax, fy, az, fy - ay end
+    return nil
+end
+
+local function stepGib(i, dt)
+    local x0, y0, z0 = X[i], Y[i], Z[i]
+    local vx, vy, vz = VX[i], VY[i], VZ[i]
+    local dk = 1 - T.DRAG * dt
+    vx, vy, vz = vx * dk, (vy + GRAVITY * dt) * dk, vz * dk
+    local x1, y1, z1 = x0 + vx * dt, y0 + vy * dt, z0 + vz * dt
+    local r = F.cre[i]
+    local sp = sqrt(vx * vx + vy * vy + vz * vz)
+    local clock = G.clock
+    local ex, ey, ez
+    if sp * dt > 0.35 * r then
+        local k = 1 / sp
+        ex, ey, ez = vx * k, vy * k, vz * k
+    elseif clock - F.lastC[i] < 0.3 then
+        ex, ey, ez = -F.cnx[i], -F.cny[i], -F.cnz[i]
+    else
+        ex, ey, ez = 0, -1, 0
+    end
+    local kind = KIND[i]
+    local nx, ny, nz, hx, hy, hz, pen = contact(i, x0, y0, z0, x1, y1, z1, ex, ey, ez, r)
+    local touching = false
+    if nx then
+        touching = true
+        local wasOn = clock - F.lastC[i] < 0.05
+        -- pushed back out along the normal by how far it went in (not set down at the hit point: that creeps down a slope)
+        x1, y1, z1 = x1 + nx * pen, y1 + ny * pen, z1 + nz * pen
+        local vn = vx * nx + vy * ny + vz * nz
+        if vn < 0 then
+            local imp = -vn
+            local tx, ty, tz = vx - vn * nx, vy - vn * ny, vz - vn * nz
+            local rest = imp < 55 and 0 or T.REST[kind]
+            vx, vy, vz = tx * 0.72 - nx * vn * rest, ty * 0.72 - ny * vn * rest, tz * 0.72 - nz * vn * rest
+            -- a blow leaves blood where it lands, no more often than every tenth of a second
+            if imp > 70 and clock - F.splatAt[i] > 0.1 then
+                F.splatAt[i] = clock
+                splatAt(i, hx, hy, hz, nx, ny, nz, tx - nx * imp, ty - ny * imp, tz - nz * imp, SPLAT_SIZE[kind] * (0.8 + 0.4 * min(1, imp / 250)))
+            end
+        end
+        F.lastC[i], F.cnx[i], F.cny[i], F.cnz[i] = clock, nx, ny, nz
+        -- friction against the surface, a little less on a slope
+        local vn2 = vx * nx + vy * ny + vz * nz
+        local tx, ty, tz = vx - vn2 * nx, vy - vn2 * ny, vz - vn2 * nz
+        local ts = sqrt(tx * tx + ty * ty + tz * tz)
+        if ts > 0 then
+            local ts2 = max(0, ts - T.MU * max(ny, 0.15) * dt)
+            local k = ts2 / ts
+            vx, vy, vz = vx - tx * (1 - k), vy - ty * (1 - k), vz - tz * (1 - k)
+            ts = ts2
+        end
+        -- held by friction: it does not slip down the slope by what this frame's gravity would have moved it
+        if ts <= 0 and wasOn and st[i] ~= FLY then x1, y1, z1 = x0, y0, z0 end
+        -- it rolls: the spin follows the velocity (a bone only turns slowly, it does not roll)
+        local roll = kind == BONE and 0 or min(1, 7 * dt)
+        local rwx, rwy, rwz = (ny * tz - nz * ty) / r, (nz * tx - nx * tz) / r, (nx * ty - ny * tx) / r
+        local damp = exp(-(kind == BONE and 3.5 or 1.2) * dt)
+        WX[i], WY[i], WZ[i] = (WX[i] + (rwx - WX[i]) * roll) * damp, (WY[i] + (rwy - WY[i]) * roll) * damp, (WZ[i] + (rwz - WZ[i]) * roll) * damp
+        -- a streak where it slides
+        if ts > T.STREAK_SPEED and F.decals[i] > 0 then
+            F.streak[i] = F.streak[i] + ts * dt
+            if F.streak[i] > T.STREAK_EVERY then
+                F.streak[i] = 0
+                F.decals[i] = F.decals[i] - 1
+                splatAt(i, x1 - nx * r, y1 - ny * r, z1 - nz * r, nx, ny, nz, tx - nx * 20, ty - ny * 20, tz - nz * 20,
+                        kind == BONE and 1.0 or 1.5)
+            end
+        end
+        if st[i] == FLY and ts < T.SETTLE_SPEED and vn2 < 30 and ny > 0.45 then st[i] = SETTLE end
+    elseif st[i] == SETTLE and clock - F.lastC[i] > 0.25 then
+        -- it went over an edge: in the air again
+        st[i] = FLY
+        F.cre[i] = F.cr[i]
+        F.sleepT[i] = 0
+    end
+
+    -- turning: tumbling in the air, or lying down on a face once it has settled
+    local wx, wy, wz = WX[i], WY[i], WZ[i]
+    local wl = sqrt(wx * wx + wy * wy + wz * wz)
+    if st[i] == SETTLE then
+        local cnx, cny, cnz = F.cnx[i], F.cny[i], F.cnz[i]
+        local err = settleTurn(i, cnx, cny, cnz, 9 * dt)
+        local ds = 1 - exp(-6 * dt)
+        WX[i], WY[i], WZ[i] = wx * (1 - ds), wy * (1 - ds), wz * (1 - ds)
+        F.cre[i] = F.cre[i] + (F.hrT[i] - F.cre[i]) * min(1, 10 * dt)
+        local still = sqrt(vx * vx + vy * vy + vz * vz) < T.SLEEP_SPEED and wl < 0.5 and err < 0.05 and abs(F.cre[i] - F.hrT[i]) < 0.15 and touching
+        if still then
+            F.sleepT[i] = F.sleepT[i] + dt
+            if F.sleepT[i] >= T.SLEEP_SECS then
+                st[i] = SLEEP
+                vx, vy, vz = 0, 0, 0
+                WX[i], WY[i], WZ[i] = 0, 0, 0
+                -- the pool it lies in
+                if stainsOn() and cny > 0.2 then
+                    requestPool(x1 - cnx * F.cre[i], y1 - cny * F.cre[i], z1 - cnz * F.cre[i], POOL_SIZE[kind], cnx, cny, cnz)
+                end
+            end
+        else
+            F.sleepT[i] = 0
+        end
+    elseif wl > 1e-3 then
+        local k = 0.5 * dt
+        local qx, qy, qz, qw = QX[i], QY[i], QZ[i], QW[i]
+        local nqx = qx + k * (qw * wx + wy * qz - wz * qy)
+        local nqy = qy + k * (qw * wy + wz * qx - wx * qz)
+        local nqz = qz + k * (qw * wz + wx * qy - wy * qx)
+        local nqw = qw - k * (wx * qx + wy * qy + wz * qz)
+        local l = 1 / sqrt(nqx * nqx + nqy * nqy + nqz * nqz + nqw * nqw)
+        QX[i], QY[i], QZ[i], QW[i] = nqx * l, nqy * l, nqz * l, nqw * l
+    end
+    X[i], Y[i], Z[i], VX[i], VY[i], VZ[i] = x1, y1, z1, vx, vy, vz
+    if y1 < F.lowY[i] then
+        st[i] = 0
+        sendSlot(i)
+        recount()
+    end
+end
+
+-- One sleeping gib a frame, in turn, is asked whether the ground is still under it: when it is not (an explosion dug it away),
+-- it falls.
+local function wakeCheck()
+    local k = G.wake % N + 1
+    G.wake = G.wake + 1
+    if st[k] ~= SLEEP or not DECALS.rayOK or G.rays >= T.RAYS + 4 then return end
+    local nx, ny, nz = F.cnx[k], F.cny[k], F.cnz[k]
+    local reach = F.cre[k] + 2.5
+    G.rays = G.rays + 1
+    local t, reason = DECALS.cast(X[k], Y[k], Z[k], X[k] - nx * reach, Y[k] - ny * reach, Z[k] - nz * reach, true)
+    -- (a miss, not a refusal: the ground under it is gone)
+    if not t and reason == nil then
+        st[k] = FLY
+        F.cre[k], F.sleepT[k], F.lastC[k] = F.cr[k], 0, -9
+    end
+end
+
+-- ---------------------------------------------------------------- the bits
+local function loadTex()
+    G.texChecked = true
+    if not (wum.draw.sprite and wum.draw.texture) then return end
+    local list = {}
+    for k = 1, 3 do
+        local ok, tex = pcall(wum.draw.texture, "textures/bs_bit" .. k .. ".png")
+        if not (ok and tex) then return end
+        list[k] = tex
+    end
+    G.tex = list
+end
+
+local function probeSprite()
+    G.spriteOK = G.tex ~= nil and pcall(wum.draw.sprite, G.tex[1], 0, 0, 0, 0, 0, 0, 0, 0)
+end
+
+local function stepBits(dt)
+    local n = G.bitsN
+    local spr = wum.draw.sprite
+    local tex = G.tex
+    local ok = G.spriteOK
+    local i = 1
+    while i <= n do
+        local age = B.age[i] + dt
+        local x, y, z = B.x[i], B.y[i], B.z[i]
+        local vx, vy, vz = B.vx[i], B.vy[i], B.vz[i]
+        local life = B.life[i]
+        if age >= life or y < B.floor[i] then
+            -- gone: the last one takes its place
+            local m = n
+            B.x[i], B.y[i], B.z[i], B.vx[i], B.vy[i], B.vz[i] = B.x[m], B.y[m], B.z[m], B.vx[m], B.vy[m], B.vz[m]
+            B.age[i], B.life[i], B.size[i], B.tex[i] = B.age[m], B.life[m], B.size[m], B.tex[m]
+            B.r[i], B.g[i], B.b[i], B.floor[i] = B.r[m], B.g[m], B.b[m], B.floor[m]
+            n = n - 1
+        else
+            local dk = 1 - 0.4 * dt
+            vx, vy, vz = vx * dk, (vy + GRAVITY * 0.9 * dt) * dk, vz * dk
+            x, y, z = x + vx * dt, y + vy * dt, z + vz * dt
+            B.x[i], B.y[i], B.z[i], B.vx[i], B.vy[i], B.vz[i], B.age[i] = x, y, z, vx, vy, vz, age
+            if ok then
+                local t = age / life
+                local a = t > 0.7 and (1 - t) / 0.3 or 1
+                local sp = sqrt(vx * vx + vy * vy + vz * vz)
+                col.r, col.g, col.b, col.a = min(1, B.r[i] * 1.25), min(1, B.g[i] * 1.25), min(1, B.b[i] * 1.25), a
+                local hw = B.size[i] * 0.6
+                local k = sp > 1 and 1 / sp or 0
+                spr(tex[B.tex[i]], x, y, z, hw, hw * (1 + min(0.8, sp * 0.003)), vx * k, vy * k, vz * k, col, "alpha")
+            end
+            i = i + 1
+        end
+    end
+    G.bitsN = n
+end
+
+-- ---------------------------------------------------------------- the fallback
+-- Without the effect (an old Melange, or a driver it failed on) a gib is a sprite or two: a lump for flesh, a long pale one for
+-- bone.
+local function drawFallback()
+    if not (G.spriteOK and G.tex) then return end
+    local spr = wum.draw.sprite
+    for i = 1, N do
+        if st[i] ~= 0 then
+            local kind = KIND[i]
+            if kind == BONE then
+                local ax, ay, az = localAxis(i, 1)
+                col.r, col.g, col.b, col.a = 1, 0.95, 0.82, 1
+                spr(G.tex[1], X[i], Y[i], Z[i], H2[i] * 1.2, H1[i], ax, ay, az, col, "alpha")
+            else
+                if kind == EYE then col.r, col.g, col.b = 1, 0.92, 0.9
+                elseif kind == MEAT then col.r, col.g, col.b = 0.9, 0.15, 0.12
+                else col.r, col.g, col.b = 0.75, 0.1, 0.1 end
+                col.a = 1
+                local hw = (H1[i] + H2[i] + H3[i]) / 3
+                spr(G.tex[(i % 3) + 1], X[i], Y[i], Z[i], hw, hw, 0, 0, 0, col, "alpha")
+            end
+        end
+    end
+end
+
+-- ---------------------------------------------------------------- per frame
+local function inView(i)
+    if not CAM.ok then return true end
+    local dx, dy, dz = X[i] - CAM.px, Y[i] - CAM.py, Z[i] - CAM.pz
+    local z = dx * G.fwdx + dy * G.fwdy + dz * G.fwdz
+    local r = F.bound[i]
+    if z < -r then return false end
+    local zr = max(z, 0) + r
+    if abs(dx * CAM.rx + dy * CAM.ry + dz * CAM.rz) > zr * 1.0 + r then return false end
+    if abs(dx * CAM.ux + dy * CAM.uy + dz * CAM.uz) > zr * 0.7 + r then return false end
+    return true
+end
+
+function GIBS.tick(dt)
+    if G.n == 0 and G.bitsN == 0 then
+        if FX.enabled or WARM.on[FX.id] then fxEnable(false) end
+        return
+    end
+    if not preset or cfg.gibs == false then
+        GIBS.clear()
+        return
+    end
+    if dt <= 0 then return end
+    if not G.texChecked then loadTex() end
+    if G.tex and not G.bitsTried then
+        G.bitsTried = true
+        probeSprite()
+    end
+    G.clock = G.clock + dt
+    G.rays = 0
+    if CAM.ok then
+        G.fwdx, G.fwdy, G.fwdz = CAM.uy * CAM.rz - CAM.uz * CAM.ry, CAM.uz * CAM.rx - CAM.ux * CAM.rz, CAM.ux * CAM.ry - CAM.uy * CAM.rx
+    end
+    if G.bitsN > 0 then stepBits(dt) end
+    local vis = false
+    for i = 1, N do
+        local s = st[i]
+        if s == FLY or s == SETTLE then
+            stepGib(i, dt)
+            if st[i] ~= 0 then sendSlot(i, true) end
+        end
+        if not vis and st[i] ~= 0 and inView(i) then vis = true end
+    end
+    G.anyVis = vis
+    wakeCheck()
+    -- the effect: a clock it dries by, how many slots to look at, on only while a gib may be on the screen
+    local ck = floor(G.clock * 4) / 4
+    if ck ~= G.clockSent then
+        G.clockSent = ck
+        sendParam(FX, "clock", ck)
+    end
+    if G.top ~= G.countSent then
+        G.countSent = G.top
+        sendParam(FX, "count", G.top)
+    end
+    local useFx = not FX.missing and not FX.failed and hasPostfx
+    fxEnable(useFx and vis)
+    if not useFx and G.n > 0 then drawFallback() end
+end
+
+-- ---------------------------------------------------------------- explosions
+-- An explosion at (x, y, z) that digs a crater of radius landR and hurts worms within wormR: gibs near it are thrown again, away
+-- from it, harder the nearer; a flesh gib right in the crater is blown into bits.
+function GIBS.blast(x, y, z, landR, wormR)
+    if G.n == 0 then return end
+    landR, wormR = landR or 0, wormR or 0
+    local reach = max(landR * 1.6, min(wormR, 90) * 0.7)
+    if reach <= 0 then return end
+    reach = max(reach, T.REACH_MIN)
+    local clock = G.clock
+    for i = 1, N do
+        if st[i] ~= 0 and clock - F.born[i] > T.GRACE then
+            local dx, dy, dz = X[i] - x, Y[i] - y, Z[i] - z
+            local d2 = dx * dx + dy * dy + dz * dz
+            if d2 < reach * reach then
+                local d = sqrt(d2)
+                local f = 1 - d / reach
+                local kind = KIND[i]
+                if d < landR * T.POP_FRAC and kind ~= BONE and random() < T.POP_CHANCE then
+                    -- popped: bits where it was, and the slot is free
+                    local floorY = F.floor[i]
+                    for _ = 1, 7 do
+                        local a, up = random() * 2 * pi, rnd(0.2, 1.1)
+                        local sp = rnd(110, 280)
+                        local l = sqrt(1 + up * up)
+                        addBit(X[i], Y[i], Z[i], cos(a) / l * sp, up / l * sp, sin(a) / l * sp, rnd(T.BIT_SIZE[1], T.BIT_SIZE[2]), floorY)
+                    end
+                    st[i] = 0
+                    sendSlot(i)
+                else
+                    local l = d > 1e-3 and 1 / d or 0
+                    local ox, oy, oz = dx * l, dy * l, dz * l
+                    if d <= 1e-3 then ox, oy, oz = 0, 1, 0 end
+                    oy = oy + 0.55
+                    local ol = sqrt(ox * ox + oy * oy + oz * oz)
+                    local sp = (70 + 190 * f) * rnd(0.8, 1.2) / ol
+                    VX[i], VY[i], VZ[i] = ox * sp, oy * sp, oz * sp
+                    local wl = rnd(6, 14)
+                    local a = random() * 2 * pi
+                    WX[i], WY[i], WZ[i] = cos(a) * wl, rnd(-0.5, 0.5) * wl, sin(a) * wl
+                    st[i] = FLY
+                    F.cre[i], F.sleepT[i], F.lastC[i], F.decals[i] = F.cr[i], 0, -9, T.DECALS
+                    F.lowY[i] = min(F.lowY[i], Y[i] - T.KILL_BELOW * 0.5)
+                end
+            end
+        end
+    end
+    recount()
+end
+
+-- ---------------------------------------------------------------- the rest
+function GIBS.clear()
+    for i = 1, N do
+        st[i] = 0
+        sendSlot(i)
+    end
+    G.n, G.top, G.bitsN, G.anyVis = 0, 0, 0, false
+    G.countSent = -1
+    sendParam(FX, "count", 0)
+    fxEnable(false)
+end
+
+function GIBS.apply(on)
+    if on == false and (G.n > 0 or G.bitsN > 0) then GIBS.clear() end
+    -- a smaller pool takes the slots above it away
+    local pool = min(N, (AMT[cfg.amount] or AMT.heavy).pool)
+    local changed = false
+    for i = pool + 1, N do
+        if st[i] ~= 0 then
+            st[i] = 0
+            sendSlot(i)
+            changed = true
+        end
+    end
+    if changed then recount() end
+end
+
+function GIBS.setBlood(c)
+    sendParam(FX, "blood", c[1], c[2], c[3])
+end
+
+-- Every slot goes out again, one at a time (steps 1..16 of the insurance resend) and the rest at step 17.
+function GIBS.resendStep(k)
+    if not hasPostfx then return end
+    if k <= N then
+        FX.cache[PA[k]], FX.cache[PB[k]], FX.cache[PC[k]], FX.cache[PD[k]] = nil, nil, nil, nil
+        sendSlot(k)
+    else
+        FX.cache.clock, FX.cache.count, FX.cache.blood, FX.cache.dryTime = nil, nil, nil, nil
+        G.clockSent, G.countSent = -1, -1
+        GIBS.setBlood(palette.stain)
+    end
+end
+
+function GIBS.zero()
+    for i = 1, N do sendSlot(i) end
+    sendParam(FX, "count", 0)
+    sendParam(FX, "clock", 0)
+    GIBS.setBlood(palette.stain)
+end
+
+-- Is the effect there and does it run? Asked every couple of seconds.
+function GIBS.checkFx()
+    if not (hasPostfx and wum.postfx.list) then return end
+    local ok, list = pcall(wum.postfx.list)
+    if not ok or type(list) ~= "table" then return end
+    local found = false
+    for i = 1, #list do
+        local e = list[i]
+        if type(e) == "table" and e.id == FX.id then
+            found = true
+            FX.failed = e.failed == true
+        end
+    end
+    FX.missing = not found
+    if FX.failed and not FX.warned then
+        FX.warned = true
+        if wum.log and wum.log.warn then
+            wum.log.warn("Bloodsand: the effect " .. FX.id .. " failed to draw on this graphics driver, so the gibs are drawn as flat sprites")
+        end
+    end
+end
+
+-- One press of Preview: gibs thrown from the worm like a very big hit, and from every third press like a death.
+function GIBS.preview(s)
+    if not preset or cfg.gibs == false then return end
+    G.pv = G.pv + 1
+    local dx, dz
+    if CAM.ok then dx, dz = CAM.rx, CAM.rz else dx, dz = sin(s.heading or 0), cos(s.heading or 0) end
+    local l = sqrt(dx * dx + dz * dz)
+    if l < 1e-3 then dx, dz, l = 1, 0, 1 end
+    local am = AMT[cfg.amount] or AMT.heavy
+    local death = G.pv % 3 == 0
+    fire(s, dx / l * 0.8, 0.5, dz / l * 0.8, death and am.death or am.big + 1, death and am.bits or am.bitsBig + 4, death and 1 or 0.7, death)
+end
+
+-- For the tests: the live gibs.
+function GIBS.stats()
+    local o = { n = G.n, bits = G.bitsN, fly = 0, settle = 0, sleep = 0, top = G.top }
+    for i = 1, N do
+        local s = st[i]
+        if s == FLY then o.fly = o.fly + 1 elseif s == SETTLE then o.settle = o.settle + 1 elseif s == SLEEP then o.sleep = o.sleep + 1 end
+    end
+    return o
+end
+
+
+end
+build()
+end
+WARM.ids[#WARM.ids + 1] = "bloodsand/gibs"
+wum.timers.every(2, GIBS.checkFx)
+-- == end Gibs ==
 
 -- == Melee hooks ================================================================================================
 -- Kept at the end of the file, below every local the other sections define, so that these names find them.

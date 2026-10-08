@@ -1,3 +1,19 @@
+## 1.3.0
+
+Gibs. A worm that dies, and one that takes a very big hit (45 damage or more, 30 on Absurd), now throws chunks of meat,
+shards of bone and a few organs (a kidney, a liver lobe, a heart, an eyeball on its stump of nerve), with small bits of meat
+flying out around them, and they stay: up to 16 on Absurd (14 on Heavy, 8 on Light), the oldest recycled. They are ray-marched
+signed distance fields drawn by a new Post-FX pass, `bloodsand/gibs` (PostWorld, order 53, after the guts): flesh is dark red with
+lighter fibres, cream marbling, silverskin and fibrous tear faces, bone ivory with a jagged, hollow, porous break, the eye
+bloodshot with an iris and a pupil; all wet and glossy with light through the thin flesh at first, drying over about a minute to
+a dark, brown, matte finish. They fly with spin, bounce, roll and slide on the terrain (`wum.game.landRay`; on the plane at the
+worm's feet without it), come to rest lying on their flattest face and sleep (no rays, nothing sent to the effect), and leave
+a splat where they land hard, a streak where they slide and a pool where they lie. An explosion near them throws them again, and
+flesh in the middle of its crater is blown into bits; ground dug out from under one lets it fall. A new setting, Gibs and organs
+(on), and Preview throws some. If the pass cannot run each gib is drawn as a flat sprite. Needs no new Melange: the sprites
+and `landRay` of 0.6 are used where there. The pass costs about 0.18 ms with sixteen on screen at 1080p in the test rig and
+nothing while none may be seen; the script about 0.003 ms with sixteen at rest.
+
 ## 1.2.0
 
 Much gorier, and it looks like flesh. A worm's intestines are now ray-marched, simulated tubes: a sixteen-point chain

@@ -9,6 +9,7 @@
 //   bs_mist1..3.png              128x128  a soft round puff of fine mist: radial fall-off broken up by noise
 //   bs_steam1..2.png             128x128  a billowing puff for steam and smoke: lit from above left, so it has volume
 //   bs_char1..2.png              64x64    a dry, ragged flake of char or ash
+//   bs_bit1..3.png               64x64    a small torn fragment of flesh for the gibs: ragged straight-edged outline, fibre ridges, wet glint
 //   bs_glint.png                 32x32    a small round white spark for an additive highlight on big droplets
 //
 // All are straight-alpha RGBA, 8 bit. The colour is NEUTRAL (grey, a touch warm): the sprite's tint multiplies it, so the
@@ -332,6 +333,49 @@ function makeChar(seed) {
   });
 }
 
+// ---------------------------------------------------------------- meat bits
+// A small torn fragment of flesh for the gibs: a ragged outline of straight-ish edges (5 to 7 corners), a flat-topped lump with
+// fibre ridges running along it, a lighter, rougher torn rim and a wet glint or two. Grey: the sprite's colour makes it muscle,
+// fat or a pink scrap.
+function makeBit(seed) {
+  const N = 64, R = rng(seed * 8191 + 13);
+  const nv = 5 + Math.floor(R() * 3), rot = R() * 6.283, el = 0.62 + R() * 0.3, ang = R() * 3.1416;
+  const vr = [];
+  for (let i = 0; i < nv; i++) vr.push(0.5 + R() * 0.5);
+  const rad = (th) => {
+    const t = ((th + rot) / (2 * Math.PI) % 1 + 1) % 1 * nv, i = Math.floor(t), f = t - i;
+    return mix(vr[i % nv], vr[(i + 1) % nv], f);          // straight edges between the corners
+  };
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const shape = (px, py) => {
+    const X = px + 0.5 - N / 2, Y = py + 0.5 - N / 2;
+    const x = X * ca + Y * sa, y = -X * sa + Y * ca;      // along the fibre: x
+    const r = Math.hypot(x / el, y);
+    const rr = rad(Math.atan2(y, x / el)) * N * 0.42;
+    const wob = (fbm(px * 0.4, py * 0.4, seed * 5, 3) - 0.5) * 3.6;
+    return { d: rr - r + wob, x, y };
+  };
+  const hf = (px, py) => {
+    const o = shape(px, py);
+    if (o.d <= 0) return 0;
+    const t = Math.min(o.d / 9, 1);
+    const fibre = fbm(o.x * 0.08 + 3, o.y * 0.55, seed * 11, 3) - 0.5;
+    return 5.5 * Math.pow(t, 0.55) + fibre * 3.2 * Math.min(1, o.d / 6);
+  };
+  return render(N, N, (u, v, px, py) => {
+    const o = shape(px, py);
+    const alpha = smooth(-0.8, 1.1, o.d);
+    const [gx, gy] = slopes(hf, px + 0.5, py + 0.5);
+    const sl = shade(gx / 2.4, gy / 2.4, 1, 30);
+    const dd = Math.max(o.d, 0);
+    const streak = fbm(o.x * 0.1 + 7, o.y * 0.7, seed * 17, 3);
+    const rim = Math.exp(-dd / 2.2);
+    let val = 0.34 + 0.55 * sl.diffuse + (streak - 0.5) * 0.4 + 0.12 * rim - 0.1 * (1 - smooth(0, 6, dd));
+    val += sl.spec * 0.5 + Math.exp(-(Math.pow((u - 0.38) / 0.1, 2) + Math.pow((v - 0.36) / 0.07, 2))) * 0.55;
+    return [clamp(val, 0.1, 1.1), alpha];
+  });
+}
+
 // ---------------------------------------------------------------- glint
 function makeGlint() {
   const N = 32;
@@ -359,6 +403,9 @@ const files = {
   'bs_steam2.png': () => makeSteam(2),
   'bs_char1.png': () => makeChar(1),
   'bs_char2.png': () => makeChar(2),
+  'bs_bit1.png': () => makeBit(1),
+  'bs_bit2.png': () => makeBit(2),
+  'bs_bit3.png': () => makeBit(3),
   'bs_glint.png': () => makeGlint(),
 };
 
@@ -384,7 +431,7 @@ if (require.main === module) {
     let k = 0;
     for (const [name, img] of Object.entries(made)) {
       const cx = (k % per) * cellW, cy = Math.floor(k / per) * cellH;
-      const tint = name.includes('steam') ? [0.85, 0.85, 0.88] : name.includes('char') ? [0.3, 0.26, 0.24] : name.includes('glint') ? [1, 1, 1] : [0.62, 0.03, 0.03];
+      const tint = name.includes('steam') ? [0.85, 0.85, 0.88] : name.includes('char') ? [0.3, 0.26, 0.24] : name.includes('glint') ? [1, 1, 1] : name.includes('bit') ? [0.62, 0.09, 0.07] : [0.62, 0.03, 0.03];
       const sc = Math.min(3.2, (cellW - 8) / Math.max(img.w, img.h));
       for (let y = 0; y < cellH; y++) for (let x = 0; x < cellW; x++) {
         const ix = (x - cellW / 2) / sc + img.w / 2, iy = (y - cellH / 2) / sc + img.h / 2;
