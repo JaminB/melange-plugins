@@ -189,6 +189,7 @@ local COLOURS = {
 }
 
 local DROPLET, MIST = 1, 2
+local MEL = {}                -- the weapon sprays and the hit classification, in one table to spare locals
 
 local sqrt, random, floor, min, max, abs = math.sqrt, math.random, math.floor, math.min, math.max, math.abs
 local sin, cos, pi = math.sin, math.cos, math.pi
@@ -370,11 +371,10 @@ end
 -- Integrates and draws every live particle. Droplets are drops stretched along their velocity that turn to face the
 -- camera; mist puffs are flat against the screen.
 local function simulate(dt)
-    local drag = max(0, 1 - DRAG * dt)
-    local mdrag = max(0, 1 - MIST_DRAG * dt)
     local px, py, pz, pvx, pvy, pvz = P.x, P.y, P.z, P.vx, P.vy, P.vz
     local psize, page, plife, pkind, pr, pg, pb, pa = P.size, P.age, P.life, P.kind, P.r, P.g, P.b, P.a
     local draw = CAM.ok
+    local KP, KD, KG, KGROW, KFADE = MEL.KP, MEL.KD, MEL.KG, MEL.KGROW, MEL.KFADE
     local cpx, cpy, cpz = CAM.px, CAM.py, CAM.pz
     local rx, ry, rz, ux, uy, uz = CAM.rx, CAM.ry, CAM.rz, CAM.ux, CAM.uy, CAM.uz
     for i = nP, 1, -1 do
@@ -385,20 +385,21 @@ local function simulate(dt)
         else
             page[i] = age
             local vx, vy, vz = pvx[i], pvy[i], pvz[i]
-            local mist = pkind[i] == MIST
-            if mist then
-                vx, vy, vz = vx * mdrag, vy * mdrag + GRAVITY * MIST_GRAVITY * dt, vz * mdrag
-            else
-                vx, vy, vz = vx * drag, vy * drag + GRAVITY * dt, vz * drag
-            end
+            local kd = pkind[i]
+            local mist = KP[kd]
+            local dr = 1 - KD[kd] * dt
+            if dr < 0 then dr = 0 end
+            vx, vy, vz = vx * dr, vy * dr + GRAVITY * KG[kd] * dt, vz * dr
             pvx[i], pvy[i], pvz[i] = vx, vy, vz
             local x, y, z = px[i] + vx * dt, py[i] + vy * dt, pz[i] + vz * dt
             px[i], py[i], pz[i] = x, y, z
             if draw then
                 local t = age / life
                 if mist then
-                    local h = psize[i] * (0.5 + t) * 0.5
+                    local h = psize[i] * (0.5 + t * KGROW[kd]) * 0.5
                     local a = pa[i] * (1 - t) * (1 - t)
+                    local fi = KFADE[kd]
+                    if fi > 0 and t * fi < 1 then a = a * t * fi end
                     -- A square and the same square turned 45 degrees overlap into a soft-cornered puff.
                     corner(q1, x - (rx + ux) * h, y - (ry + uy) * h, z - (rz + uz) * h)
                     corner(q2, x + (rx - ux) * h, y + (ry - uy) * h, z + (rz - uz) * h)
@@ -582,8 +583,485 @@ local function addBleed(s, damage)
     s.bleedUntil = max(s.bleedUntil, now + min(BLEED_SECS[2], BLEED_SECS[1] + damage * BLEED_SECS_PER_DAMAGE))
 end
 
--- A burst of blood at a worm's body. (dx, dy, dz) is the direction the blood goes, in any length.
-local function burst(s, damage, dx, dy, dz, death)
+-- == Melee sprays ===============================================================================================
+-- A blood signature for each weapon, built from a few emitters on the particle pool: jets (a narrow pressurised cone;
+-- a job runs one over time so it pulses), arcs (a flat fan with long streaks), clots (big slow heavy drops), mist, shred
+-- (fine fast drops in every direction), a pancake that hugs the ground and a smear along a line. Particle kinds are
+-- registered below (MEL.KG / KD / KP / KGROW / KFADE) and simulate() reads them from there. The classification that picks
+-- the signature is in "Melee classification", further down. Everything lives in the one MEL table to spare locals.
+for k, v in pairs({
+    VEL_SCALE = 1,              -- engine velocity (the vel of wum.game.worms()) times this = units per second
+    STEAM = 3, CHAR = 4, CLOT = 5,                  -- particle kinds after DROPLET and MIST
+    KG = {}, KD = {}, KP = {}, KGROW = {}, KFADE = {},  -- per kind: gravity multiple, drag per second, puff, growth, fade-in
+    SIG = {},                   -- weapon id -> signature
+    JOB_MAX = 24,
+    -- the context of the hit being sprayed: set by the classification (or the preview) just before burst()
+    vslot = nil, hasA = false, ax = 0, ay = 0, az = 0, expl = false,
+}) do MEL[k] = v end
+
+do
+    local STEAM, CHAR, CLOT = MEL.STEAM, MEL.CHAR, MEL.CLOT
+    local PR, F = {}, {}        -- parameter sets and spray functions, in tables to spare locals
+
+    -- gravity multiple, drag (fraction of speed lost per second), puff (a flat soft quad) or streak (a stretched drop),
+    -- growth of a puff over its life and the share of life it takes to fade in
+    local KIND = {
+        [DROPLET] = { g = 1, drag = DRAG, puff = false },
+        [MIST] = { g = MIST_GRAVITY, drag = MIST_DRAG, puff = true, grow = 1, fade = 0 },
+        [STEAM] = { g = -0.4, drag = 1.3, puff = true, grow = 3.4, fade = 5 },
+        [CHAR] = { g = 1, drag = 0.9, puff = false },
+        [CLOT] = { g = 1.5, drag = 0.25, puff = false },
+    }
+    for k, d in pairs(KIND) do
+        MEL.KG[k], MEL.KD[k], MEL.KP[k], MEL.KGROW[k], MEL.KFADE[k] = d.g, d.drag, d.puff, d.grow or 1, d.fade or 0
+    end
+
+    -- Colour modes: 1 blood, 2 char (blackened), 3 poison (sickly), 4 ember, 5 steam, 6 smoke, 7 mist.
+    local function colour(mode)
+        local c = palette.droplet
+        local r, g, b
+        if mode == 1 then
+            local k = rnd(0.65, 1.15)
+            r, g, b = c[1] * k, c[2] * k, c[3] * k
+        elseif mode == 2 then
+            local k = rnd(0.5, 1.2)
+            r, g, b = (0.045 + c[1] * 0.18) * k, (0.045 + c[2] * 0.18) * k, (0.045 + c[3] * 0.18) * k
+        elseif mode == 3 then
+            local k = rnd(0.7, 1.1)
+            r, g, b = (c[1] * 0.3 + 0.16) * k, (c[2] * 0.3 + 0.22) * k, (c[3] * 0.3 + 0.02) * k
+        elseif mode == 4 then
+            r, g, b = 1, rnd(0.35, 0.6), 0.08
+        elseif mode == 5 then
+            local k = rnd(0.62, 0.84)
+            r, g, b = k, k, k * 1.02
+        elseif mode == 6 then
+            local k = rnd(0.12, 0.26)
+            r, g, b = k, k, k
+        else
+            local m, k = palette.mist, rnd(0.8, 1.2)
+            r, g, b = m[1] * k, m[2] * k, m[3] * k
+        end
+        return min(1, r), min(1, g), min(1, b)
+    end
+
+    local function dropv(kind, mode, x, y, z, vx, vy, vz, size, life, alpha)
+        local r, g, b = colour(mode)
+        spawn(kind, x, y, z, vx, vy, vz, size, life, r, g, b, alpha or DROPLET_ALPHA)
+    end
+
+    local function drop(kind, mode, x, y, z, ex, ey, ez, speed, size, life)
+        local r, g, b = colour(mode)
+        spawn(kind, x, y, z, ex * speed, ey * speed, ez * speed, size, life, r, g, b, DROPLET_ALPHA)
+    end
+
+    local function puff(kind, mode, x, y, z, vx, vy, vz, size, life, alpha)
+        local r, g, b = colour(mode)
+        spawn(kind, x, y, z, vx, vy, vz, size, life, r, g, b, alpha)
+    end
+
+    -- A horizontal "side" vector and an "up" vector perpendicular to a direction, for fans and cones.
+    local SX, SZ, UX, UY, UZ = 1, 0, 0, 1, 0
+    local function basis(dx, dy, dz)
+        local sx, sz = dz, -dx
+        local l = sqrt(sx * sx + sz * sz)
+        if l < 1e-3 then
+            sx, sz, l = 1, 0, 1
+        end
+        SX, SZ = sx / l, sz / l
+        UX, UY, UZ = dy * SZ, dz * SX - dx * SZ, -dy * SX
+    end
+
+    local function coneDir(dx, dy, dz, spread)
+        local rr = spread * sqrt(random())
+        local a = random() * 2 * pi
+        local ca, sa = cos(a) * rr, sin(a) * rr
+        local ex, ey, ez = dx + SX * ca + UX * sa, dy + UY * sa, dz + SZ * ca + UZ * sa
+        local l = sqrt(ex * ex + ey * ey + ez * ez)
+        if l < 1e-4 then return dx, dy, dz end
+        return ex / l, ey / l, ez / l
+    end
+
+    local function tilt(dx, dy, dz, up)
+        dy = dy + up
+        local l = sqrt(dx * dx + dy * dy + dz * dz)
+        if l < 1e-4 then return 0, 1, 0 end
+        return dx / l, dy / l, dz / l
+    end
+
+    -- ------------------------------------------------------------ emitters
+    -- Jet: a narrow pressurised cone. p: cone, s0 s1 (speed), z0 z1 (size), l0 l1 (life), mode, kind, gap (the drops come
+    -- in up to three pulses this far apart along the jet).
+    local function jet(p, ox, oy, oz, dx, dy, dz, n)
+        basis(dx, dy, dz)
+        local kind, mode, gap = p.kind or DROPLET, p.mode or 1, p.gap
+        for _ = 1, n do
+            local ex, ey, ez = coneDir(dx, dy, dz, p.cone)
+            local back = gap and floor(random() * 3) * gap or 0
+            drop(kind, mode, ox - dx * back, oy - dy * back, oz - dz * back, ex, ey, ez, rnd(p.s0, p.s1), rnd(p.z0, p.z1),
+                 rnd(p.l0, p.l1))
+        end
+        return n
+    end
+
+    -- Arc: a flat fan around a direction with long streaks. p: half (radians), s0 s1, z0 z1, l0 l1, vlo vhi (vertical
+    -- speed fraction added), swing (sideways speed along the swing), mode, kind.
+    local function arc(p, ox, oy, oz, dx, dy, dz, n, sign)
+        basis(dx, dy, dz)
+        local kind, mode, swing = p.kind or DROPLET, p.mode or 1, (p.swing or 0) * sign
+        for _ = 1, n do
+            local th = rnd(-p.half, p.half)
+            local c, s = cos(th), sin(th)
+            local ex, ey, ez = dx * c + SX * s, dy * c + rnd(p.vlo, p.vhi), dz * c + SZ * s
+            local l = sqrt(ex * ex + ey * ey + ez * ez)
+            local sp = rnd(p.s0, p.s1) / l
+            local sw = swing * rnd(0.4, 1)
+            dropv(kind, mode, ox + rnd(-3, 3), oy + rnd(-4, 4), oz + rnd(-3, 3), ex * sp + SX * sw, ey * sp, ez * sp + SZ * sw,
+                  rnd(p.z0, p.z1), rnd(p.l0, p.l1))
+        end
+        return n
+    end
+
+    local function mist(ox, oy, oz, dx, dy, dz, n, spread, speed, sizeMul)
+        for _ = 1, n do
+            local sp = rnd(0.4, 1) * speed
+            puff(MIST, 7, ox + rnd(-4, 4), oy + rnd(-4, 4), oz + rnd(-3, 3),
+                 (dx + rnd(-spread, spread)) * sp, (dy + rnd(-spread, spread)) * sp, (dz + rnd(-spread, spread)) * sp,
+                 rnd(MIST_SIZE[1], MIST_SIZE[2]) * sizeMul, rnd(MIST_LIFE[1], MIST_LIFE[2]), MIST_ALPHA)
+        end
+    end
+
+    -- Fine fast drops in every direction.
+    local function shred(cx, cy, cz, n, s0, s1)
+        for _ = 1, n do
+            local ey, a = rnd(-1, 1), random() * 2 * pi
+            local rr = sqrt(1 - ey * ey)
+            drop(DROPLET, 1, cx + rnd(-3, 3), cy + rnd(-3, 3), cz + rnd(-3, 3), rr * cos(a), ey, rr * sin(a),
+                 rnd(s0, s1), rnd(0.7, 1.3), rnd(0.5, 1.0))
+        end
+        return n
+    end
+
+    -- A flat ring that hugs the ground. p: s0 s1, z0 z1, l0 l1, vlo vhi (vertical speed), kind.
+    local function pancake(x, y, z, n, p)
+        local kind = p.kind or DROPLET
+        for _ = 1, n do
+            local ang = random() * 2 * pi
+            local ca, sa = cos(ang), sin(ang)
+            local sp = rnd(p.s0, p.s1)
+            dropv(kind, 1, x + ca * rnd(2, 6), y + rnd(1, 3), z + sa * rnd(2, 6), ca * sp, rnd(p.vlo, p.vhi), sa * sp,
+                  rnd(p.z0, p.z1), rnd(p.l0, p.l1))
+        end
+        return n
+    end
+
+    -- Drops spawned along a line behind the origin, all flung forward: faster at the front.
+    local function smear(ox, oy, oz, dx, dy, dz, n, length, s0, s1)
+        for _ = 1, n do
+            local back = random()
+            local sp = s0 + (s1 - s0) * (1 - back) * rnd(0.6, 1)
+            dropv(DROPLET, 1, ox - dx * back * length + rnd(-1.5, 1.5), oy + rnd(-4, 4), oz - dz * back * length + rnd(-1.5, 1.5),
+                  (dx + rnd(-0.12, 0.12)) * sp, dy * sp + rnd(-10, 40), (dz + rnd(-0.12, 0.12)) * sp,
+                  rnd(1.1, 2.4), rnd(0.7, 1.3))
+        end
+        return n
+    end
+
+    -- The ground under a worm: its feet, or the landscape from a ray when the game offers one (landRay).
+    local hasRay = wum.game.landRay ~= nil
+    function MEL.ground(s)
+        if hasRay then
+            -- From the middle of the worm's body (always open air) down past its feet.
+            local ok, t, nx, ny, nz = pcall(wum.game.landRay, s.px, s.py + CENTRE_Y, s.pz, s.px, s.py - 30, s.pz)
+            if ok and type(t) == "number" and type(ny) == "number" and t > 0.02 then
+                return s.py + CENTRE_Y - t * (CENTRE_Y + 30), nx, ny, nz
+            end
+        end
+        return s.py + FEET_Y, 0, 1, 0
+    end
+
+    -- ------------------------------------------------------------ jobs: emitters that run for a while
+    -- type 1 jet (pulsing), 2 dribble, 3 steam and smoke. They follow the worm they were started on and end with it.
+    local JET, DRIB, STEAMJ = 1, 2, 3
+    local J = {}
+    for i = 1, MEL.JOB_MAX do J[i] = { on = false } end
+    local jobNext = 1
+
+    -- rate is in droplets (or puffs) per second, already scaled by the caller; (ox, oy, oz) is a world point on the worm.
+    local function addJob(jtype, s, delay, dur, rate, ox, oy, oz, dx, dy, dz, p, tag)
+        if tag then
+            for i = 1, MEL.JOB_MAX do
+                if J[i].on and J[i].s == s and J[i].tag == tag then J[i].on = false end
+            end
+        end
+        local job
+        for i = 1, MEL.JOB_MAX do
+            if not J[i].on then
+                job = J[i]
+                break
+            end
+        end
+        if not job then
+            job = J[jobNext]
+            jobNext = jobNext % MEL.JOB_MAX + 1
+        end
+        job.on, job.type, job.s, job.tag, job.p = true, jtype, s, tag, p
+        job.t0, job.t1, job.rate, job.acc = now + delay, now + delay + dur, rate, 0.99
+        job.ox, job.oy, job.oz = ox - s.px, oy - s.py, oz - s.pz
+        job.dx, job.dy, job.dz = dx, dy, dz
+    end
+
+    function MEL.tick(dt)
+        if not preset then return end
+        for i = 1, MEL.JOB_MAX do
+            local j = J[i]
+            if j.on then
+                local s = j.s
+                if now >= j.t1 or s.seen ~= frameId or not s.alive then
+                    j.on = false
+                elseif now >= j.t0 then
+                    local x, y, z = s.px + j.ox, s.py + j.oy, s.pz + j.oz
+                    local rate = j.rate
+                    local jt = j.type
+                    if jt == JET then
+                        rate = rate * (0.35 + 0.65 * (0.5 + 0.5 * sin((now - j.t0) * (j.p.hz or 14) * 2 * pi)))
+                    end
+                    j.acc = j.acc + rate * dt
+                    local n = 0
+                    while j.acc >= 1 and n < 6 do
+                        j.acc = j.acc - 1
+                        n = n + 1
+                        local p = j.p
+                        if jt == JET then
+                            basis(j.dx, j.dy, j.dz)
+                            local ex, ey, ez = coneDir(j.dx, j.dy, j.dz, p.cone)
+                            drop(p.kind or DROPLET, p.mode or 1, x, y, z, ex, ey, ez, rnd(p.s0, p.s1), rnd(p.z0, p.z1),
+                                 rnd(p.l0, p.l1))
+                        elseif jt == DRIB then
+                            dropv(DROPLET, p.mode or 1, x + rnd(-1.5, 1.5), y + rnd(-1.5, 1.5), z + rnd(-1.5, 1.5),
+                                  j.dx * rnd(6, 28) + rnd(-8, 8), rnd(-12, 8), j.dz * rnd(6, 28) + rnd(-8, 8),
+                                  rnd(0.9, 1.7), rnd(0.6, 1.2))
+                        else
+                            local smoke = random() < 0.3
+                            puff(STEAM, smoke and 6 or 5, x + rnd(-5, 5), y + rnd(-6, 8), z + rnd(-4, 4),
+                                 rnd(-10, 10), rnd(30, 70), rnd(-10, 10), rnd(9, 16), rnd(0.9, 1.7), smoke and 0.5 or 0.4)
+                            if random() < 0.25 then
+                                drop(CHAR, 2, x + rnd(-4, 4), y + rnd(-4, 4), z + rnd(-3, 3), rnd(-0.5, 0.5), 1, rnd(-0.5, 0.5),
+                                     rnd(40, 100), rnd(1.1, 2.0), rnd(0.5, 1.0))
+                            end
+                        end
+                    end
+                    if j.acc > 2 then j.acc = 0 end
+                end
+            end
+        end
+    end
+
+    function MEL.clear()
+        for i = 1, MEL.JOB_MAX do J[i].on = false end
+        MEL.firedLeft, MEL.firedAt, MEL.explUsedAt, MEL.snapWeapon = 0, -100, nil, nil
+    end
+
+    -- ------------------------------------------------------------ the signatures
+    -- Each takes (s, damage, count, dx, dy, dz, cx, cy, cz): the victim's state, the damage estimate, the droplets the
+    -- burst has to spend, the unit direction the blood goes (from the attacker to the victim) and the victim's centre.
+    -- It returns how many droplets it used; the ordinary spray gets what is left of `count` times the signature's
+    -- `generic` share.
+    PR.BAT_ARC = { half = 1.05, s0 = 170, s1 = 440, z0 = 1.1, z1 = 2.4, l0 = 0.8, l1 = 1.5, vlo = -0.1, vhi = 0.45, swing = 90 }
+    PR.BAT_FINE = { half = 1.5, s0 = 100, s1 = 320, z0 = 0.7, z1 = 1.1, l0 = 0.5, l1 = 1.0, vlo = -0.2, vhi = 0.6, swing = 40 }
+    PR.BAT_STREAK = { cone = 0.2, s0 = 300, s1 = 520, z0 = 1.2, z1 = 2.0, l0 = 0.7, l1 = 1.3 }
+    PR.CLOT = { cone = 0.9, s0 = 60, s1 = 170, z0 = 3.6, z1 = 5.6, l0 = 1.0, l1 = 2.0, kind = CLOT }
+
+    function F.sprayBat(s, damage, n, dx, dy, dz, cx, cy, cz)
+        local ox, oz = cx - dx * 5, cz - dz * 5          -- the contact point, on the attacker's side
+        local sign = random() < 0.5 and -1 or 1
+        local nArc, nFine, nStreak = floor(n * 0.5), floor(n * 0.2), floor(n * 0.1)
+        arc(PR.BAT_ARC, ox, cy, oz, dx, dy, dz, nArc, sign)
+        arc(PR.BAT_FINE, ox, cy, oz, dx, dy, dz, nFine, sign)
+        jet(PR.BAT_STREAK, cx, cy, cz, dx, dy, dz, nStreak)
+        local clots = min(8, 3 + floor(n / 30))
+        jet(PR.CLOT, ox, cy, oz, dx, dy, dz, clots)
+        mist(cx, cy, cz, dx, dy, dz, preset.mist + 3, 0.7, 90, 1.25)
+        MEL.lens(s, damage, 160)
+        return nArc + nFine + nStreak + clots
+    end
+
+    PR.PROD_JET = { cone = 0.07, s0 = 230, s1 = 340, z0 = 1.0, z1 = 1.7, l0 = 0.5, l1 = 0.9, gap = 5, hz = 9 }
+
+    function F.sprayProd(s, damage, n, dx, dy, dz, cx, cy, cz)
+        local ox, oy, oz = cx - dx * 7, cy + 1, cz - dz * 7
+        local ex, ey, ez = tilt(dx, dy, dz, 0.15)
+        local first = floor(n * 0.22)
+        jet(PR.PROD_JET, ox, oy, oz, ex, ey, ez, first)
+        local rest = floor(n * 0.45)
+        addJob(JET, s, 0.03, 0.22, rest / 0.22, ox, oy, oz, ex, ey, ez, PR.PROD_JET)
+        addJob(DRIB, s, 0.3, 1.4, 7 * preset.bleed, ox, oy - 2, oz, dx * 0.3, 0, dz * 0.3, PR.PROD_JET)
+        mist(ox, oy, oz, ex, ey, ez, 1, 0.4, 60, 0.6)
+        return first + rest + 8
+    end
+
+    PR.FP_CHAR = { cone = 0.5, s0 = 150, s1 = 360, z0 = 1.1, z1 = 2.6, l0 = 0.8, l1 = 1.5, mode = 2, kind = CHAR }
+    PR.FP_BLOOD = { cone = 0.5, s0 = 130, s1 = 300, z0 = 1.1, z1 = 2.2, l0 = 0.8, l1 = 1.4 }
+    PR.FP_EMBER = { cone = 0.9, s0 = 60, s1 = 200, z0 = 1.2, z1 = 2.0, l0 = 0.4, l1 = 0.9, mode = 4, kind = CHAR }
+
+    function F.sprayFire(s, damage, n, dx, dy, dz, cx, cy, cz)
+        -- An uppercut: everything goes up, a little away from the attacker.
+        local ux, uy, uz = tilt(dx * 0.4, 0, dz * 0.4, 1)
+        local nChar, nBlood = floor(n * 0.6), floor(n * 0.2)
+        jet(PR.FP_CHAR, cx, cy - 2, cz, ux, uy, uz, nChar)
+        jet(PR.FP_BLOOD, cx, cy - 2, cz, ux, uy, uz, nBlood)
+        local embers = 4 + floor(n / 14)
+        jet(PR.FP_EMBER, cx, cy, cz, ux, uy, uz, embers)
+        for _ = 1, 3 do
+            puff(STEAM, 6, cx + rnd(-4, 4), cy + rnd(-4, 6), cz + rnd(-3, 3), rnd(-12, 12), rnd(40, 80), rnd(-12, 12),
+                 rnd(12, 18), rnd(1.0, 1.6), 0.5)
+        end
+        addJob(STEAMJ, s, 0.05, 1.9, 11 * preset.bleed, cx, cy, cz, 0, 1, 0, nil)
+        MEL.scorch(MEL.vslot, 1)
+        return nChar + nBlood + embers
+    end
+
+    PR.NAIL = { cone = 0.15, s0 = 110, s1 = 250, z0 = 0.9, z1 = 1.7, l0 = 0.5, l1 = 1.1, hz = 30 }
+
+    function F.sprayNails(s, damage, n, dx, dy, dz, cx, cy, cz)
+        local holes = 5
+        local per = max(2, floor(n / holes))
+        basis(dx, dy, dz)
+        local sx, sz = SX, SZ
+        for h = 1, holes do
+            local ox, oy, oz = cx - dx * 6 + sx * rnd(-6, 6), cy + rnd(-8, 8), cz - dz * 6 + sz * rnd(-6, 6)
+            local ex, ey, ez = coneDir(dx, dy, dz, 0.5)
+            addJob(JET, s, (h - 1) * 0.035 + rnd(0, 0.02), 0.07, per / 0.07, ox, oy, oz, ex, ey, ez, PR.NAIL)
+        end
+        mist(cx, cy, cz, dx, dy, dz, 2, 0.8, 70, 0.7)
+        return per * holes
+    end
+
+    PR.PAN = { s0 = 110, s1 = 290, z0 = 1.2, z1 = 3.2, l0 = 0.5, l1 = 1.0, vlo = 10, vhi = 55 }
+    PR.PAN_CLOT = { s0 = 70, s1 = 160, z0 = 4.0, z1 = 6.0, l0 = 0.8, l1 = 1.4, vlo = 20, vhi = 60, kind = CLOT }
+
+    function F.sprayCrush(s, damage, n, dx, dy, dz, cx, cy, cz)
+        local gy, nx, ny, nz = MEL.ground(s)
+        local ring = floor(n * 0.7)
+        pancake(cx, gy, cz, ring, PR.PAN)
+        local clots = 4 + floor(n / 25)
+        pancake(cx, gy, cz, clots, PR.PAN_CLOT)
+        for _ = 1, preset.mist + 4 do
+            local a = random() * 2 * pi
+            local sp = rnd(30, 70)
+            puff(MIST, 7, cx + cos(a) * 4, gy + 3, cz + sin(a) * 4, cos(a) * sp, rnd(0, 15), sin(a) * sp,
+                 rnd(MIST_SIZE[1], MIST_SIZE[2]) * 1.4, rnd(MIST_LIFE[1], MIST_LIFE[2]), MIST_ALPHA)
+        end
+        MEL.pool(cx, gy, cz, 34, nx, ny, nz)
+        return ring + clots
+    end
+
+    function F.sprayShred(s, damage, n, dx, dy, dz, cx, cy, cz)
+        local fine = floor(n * 0.9)
+        shred(cx, cy, cz, fine, 180, 460)
+        mist(cx, cy, cz, 0, 0, 0, 3, 1, 120, 0.6)
+        return fine
+    end
+
+    function F.sprayKnock(s, damage, n, dx, dy, dz, cx, cy, cz)
+        local ex, ey, ez = tilt(dx, 0, dz, 0.1)
+        local count = floor(n * 0.8)
+        smear(cx, cy, cz, ex, ey, ez, count, 26, 80, 230)
+        mist(cx, cy, cz, ex, ey, ez, 2, 0.4, 60, 0.8)
+        return count
+    end
+
+    PR.FALL_PAN = { s0 = 70, s1 = 200, z0 = 1.2, z1 = 3.0, l0 = 0.5, l1 = 1.0, vlo = 20, vhi = 80 }
+    PR.FALL_UP = { cone = 0.6, s0 = 70, s1 = 170, z0 = 1.2, z1 = 2.4, l0 = 0.5, l1 = 1.0 }
+
+    function F.sprayFall(s, damage, n, dx, dy, dz, cx, cy, cz)
+        local gy, nx, ny, nz = MEL.ground(s)
+        local ring, up = floor(n * 0.6), floor(n * 0.2)
+        pancake(cx, gy, cz, ring, PR.FALL_PAN)
+        jet(PR.FALL_UP, cx, gy + 4, cz, 0, 1, 0, up)
+        MEL.pool(cx, gy, cz, 12 + min(26, damage * 0.7), nx, ny, nz)
+        return ring + up
+    end
+
+    -- Bullets: an entry puff on the attacker's side and a narrow fast cone leaving behind the victim.
+    PR.ENTRY = { cone = 0.55, s0 = 60, s1 = 150, z0 = 0.9, z1 = 1.6, l0 = 0.4, l1 = 0.8 }
+    PR.SHOT_EXIT = { cone = 0.2, s0 = 260, s1 = 520, z0 = 1.0, z1 = 2.0, l0 = 0.5, l1 = 1.0, gap = 5 }
+    PR.SNIPE_EXIT = { cone = 0.12, s0 = 380, s1 = 720, z0 = 1.3, z1 = 2.6, l0 = 0.6, l1 = 1.2, gap = 6 }
+    PR.SNIPE_LINE = { cone = 0.05, s0 = 600, s1 = 900, z0 = 1.0, z1 = 1.6, l0 = 0.4, l1 = 0.8 }
+
+    function F.sprayBullet(s, damage, n, dx, dy, dz, cx, cy, cz, exit, share, strong)
+        local ex, ey, ez = cx - dx * 7, cy - dy * 7, cz - dz * 7
+        local entry = 5 + floor(n * 0.12)
+        jet(PR.ENTRY, ex, ey, ez, -dx, -dy, -dz, entry)
+        mist(ex, ey, ez, -dx, -dy, -dz, 1 + (strong and 1 or 0), 0.5, 50, 0.5)
+        local xx, xy, xz = cx + dx * 8, cy + dy * 8, cz + dz * 8
+        local out = floor(n * share)
+        jet(exit, xx, xy, xz, dx, dy, dz, out)
+        local extra = 0
+        if strong then
+            extra = floor(n * 0.1)
+            jet(PR.SNIPE_LINE, xx, xy, xz, dx, dy, dz, extra)
+            jet(PR.CLOT, xx, xy, xz, dx, dy, dz, 3)
+            extra = extra + 3
+            MEL.lens(s, damage, 120)
+        end
+        mist(xx, xy, xz, dx, dy, dz, 2 + (strong and 2 or 0), 0.25, 120, 0.8)
+        return entry + out + extra
+    end
+
+    function F.sprayShotgun(s, damage, n, dx, dy, dz, cx, cy, cz)
+        return F.sprayBullet(s, damage, n, dx, dy, dz, cx, cy, cz, PR.SHOT_EXIT, 0.45, false)
+    end
+
+    function F.spraySniper(s, damage, n, dx, dy, dz, cx, cy, cz)
+        return F.sprayBullet(s, damage, n, dx, dy, dz, cx, cy, cz, PR.SNIPE_EXIT, 0.55, true)
+    end
+
+    PR.POISON = { cone = 0.5, s0 = 60, s1 = 150, z0 = 1.0, z1 = 1.8, l0 = 0.5, l1 = 1.0, mode = 3 }
+
+    function F.sprayPoison(s, damage, n, dx, dy, dz, cx, cy, cz)
+        local ex, ey, ez = cx - dx * 7, cy - dy * 7, cz - dz * 7
+        local entry = 4 + floor(n * 0.3)
+        jet(PR.POISON, ex, ey, ez, -dx, -dy + 0.2, -dz, entry)
+        -- The dribble goes on for a long while, and a second arrow replaces it.
+        addJob(DRIB, s, 0.2, 14, 4 * preset.bleed, ex, ey, ez, -dx * 0.4, 0, -dz * 0.4, PR.POISON, "poison")
+        return entry
+    end
+
+    -- melee: counts for a hit with the weapon held (and so needs the victim within `reach`); ray: a bullet along the
+    -- attacker's facing; proj: no attacker position, the victim is whoever was knocked (donkey, old woman); expl: also
+    -- shapes an explosion that follows the weapon's firing within `window` seconds; shots: how many hits one firing explains.
+    local SIG = MEL.SIG
+    SIG[10] = { name = "Baseball bat", fn = F.sprayBat, dmg = 32, melee = true, reach = 52, shots = 1, generic = 0.25 }
+    SIG[11] = { name = "Prod", fn = F.sprayProd, dmg = 15, melee = true, reach = 42, shots = 1, generic = 0 }
+    SIG[12] = { name = "Fire punch", fn = F.sprayFire, dmg = 30, melee = true, reach = 48, shots = 1, generic = 0.15 }
+    SIG[25] = { name = "No more nails", fn = F.sprayNails, dmg = 20, melee = true, reach = 44, shots = 1, generic = 0.1 }
+    SIG[18] = { name = "Concrete donkey", fn = F.sprayCrush, dmg = 55, proj = true, expl = true, window = 20, shots = 1, generic = 0.3 }
+    SIG[23] = { name = "Fatkins", fn = F.sprayCrush, dmg = 45, proj = true, expl = true, window = 20, shots = 1, generic = 0.3 }
+    SIG[17] = { name = "Old woman", fn = F.sprayShred, dmg = 40, proj = true, expl = true, window = 20, shots = 1, generic = 1 }
+    SIG[24] = { name = "Scouser", fn = F.sprayShred, dmg = 40, proj = true, expl = true, window = 20, shots = 1, generic = 1 }
+    SIG[35] = { name = "Ninja rope knock", fn = F.sprayKnock, dmg = 14, melee = true, reach = 46, needImpulse = true, shots = 3, generic = 0.3 }
+    SIG[9] = { name = "Shotgun", fn = F.sprayShotgun, dmg = 22, ray = true, window = 2.0, shots = 3, generic = 0.1 }
+    SIG[28] = { name = "Sniper rifle", fn = F.spraySniper, dmg = 48, ray = true, window = 3.0, shots = 1, generic = 0.2 }
+    SIG[26] = { name = "Poison arrow", fn = F.sprayPoison, dmg = 14, ray = true, window = 4.0, shots = 1, generic = 0.25 }
+    MEL.FALL = { name = "Fall", fn = F.sprayFall, dmg = 14, generic = 0.2 }
+end
+
+-- Sprays a signature for burst(): returns the droplets it used.
+function MEL.spray(sig, s, damage, count, dx, dy, dz, cx, cy, cz)
+    return sig.fn(s, damage, count, dx, dy, dz, cx, cy, cz) or 0
+end
+
+-- One more lens splat for a hit close to the camera (the burst's own lens test has already run or will run).
+function MEL.lens(s, damage, near)
+    if not (cfg.lens and CAM.ok and preset and #lensTex > 0) then return end
+    local dx, dy, dz = s.px - CAM.px, s.py + CENTRE_Y - CAM.py, s.pz - CAM.pz
+    if dx * dx + dy * dy + dz * dz < near * near then addSplat() end
+end
+
+-- A burst of blood at a worm's body. (dx, dy, dz) is the direction the blood goes, in any length. A weapon signature
+-- (see Melee sprays) sprays first and takes its share of the droplets; the ordinary spray gets sig.generic of its usual
+-- amount.
+local function burst(s, damage, dx, dy, dz, death, sig)
     if not preset then return end
     local len = sqrt(dx * dx + dy * dy + dz * dz)
     if len < 1e-4 then
@@ -594,6 +1072,12 @@ local function burst(s, damage, dx, dy, dz, death)
     local strength = min(damage, DEATH_DAMAGE) / DEATH_DAMAGE
     local spread = death and 1.1 or 0.55
     local count = min(BURST_MAX, floor((damage + BURST_BASE) * preset.perDamage + 0.5))
+    local gen = 1
+    if sig then
+        gen = sig.generic or 0
+        local used = MEL.spray(sig, s, damage, count, dx, dy, dz, cx, cy, cz)
+        count = max(0, min(floor(count * gen + 0.5), BURST_MAX - used))
+    end
     local c = palette.droplet
     for _ = 1, count do
         local ex, ey, ez = dx + rnd(-1, 1) * spread, dy + rnd(-1, 1) * spread, dz + rnd(-1, 1) * spread
@@ -606,7 +1090,7 @@ local function burst(s, damage, dx, dy, dz, death)
               min(1, c[1] * shade), min(1, c[2] * shade), min(1, c[3] * shade), DROPLET_ALPHA)
     end
     local m = palette.mist
-    for _ = 1, death and preset.mist * 2 or preset.mist do
+    for _ = 1, floor((death and preset.mist * 2 or preset.mist) * gen + 0.5) do
         local shade = rnd(0.8, 1.2)
         local speed = rnd(DROPLET_SPEED[1], DROPLET_SPEED[2]) * 0.25
         spawn(MIST, cx + rnd(-4, 4), cy + rnd(-4, 4), cz + rnd(-2, 2),
@@ -730,6 +1214,247 @@ local function settleHealth(s, drop)
     else
         local dx, dy, dz = hitDirection(s)
         burst(s, uncredited, dx, dy, dz)
+    end
+end
+
+-- == Melee classification =======================================================================================
+-- Which weapon hurt whom. The game says a worm was damaged without saying by what or which worm, and a weapon id may be
+-- gone from wum.game.worms() by then, so the active worm's weapon is remembered every frame (MEL.curWeapon, and
+-- MEL.heldWeapon with the time it was last seen) and again at Weapon.Fired, and the weapon is snapshotted when the damage
+-- message arrives. A hit then finds its victim among the other worms: a held melee weapon needs a worm within reach, a
+-- bullet one in front of the attacker, and a worm that was just knocked hardest wins over a nearer one.
+MEL.active = nil                -- the slot whose turn it is, this frame
+MEL.curWeapon = nil             -- its weapon id this frame
+MEL.heldWeapon, MEL.heldSlot, MEL.heldAt = nil, nil, -100
+MEL.firedWeapon, MEL.firedSlot, MEL.firedAt, MEL.firedLeft, MEL.explUsedAt = nil, nil, -100, 0, nil
+MEL.snapWeapon, MEL.snapSlot, MEL.snapFired = nil, nil, false
+MEL.vSum, MEL.vN, MEL.velOk = 0, 0, true
+MEL.dbgAt, MEL.dbgN = -100, 0
+MEL.pv = 0
+
+do
+    local HOLD_KEEP = 2.5       -- seconds a weapon id is remembered after it was last seen on the active worm
+    local FALL_MIN = 230        -- a worm stopped from faster than this (downward, units per second) has fallen
+    local FALL_KEEP = 0.5       -- ...within this many seconds of its fastest downward speed
+    local FALL_DAMAGE = { 8, 40 }
+
+    -- A rate-limited debug line (only with DEBUG): at most a dozen a second.
+    local function dbg(...)
+        if not DEBUG then return end
+        if now - MEL.dbgAt > 1 then MEL.dbgAt, MEL.dbgN = now, 0 end
+        if MEL.dbgN >= 12 then return end
+        MEL.dbgN = MEL.dbgN + 1
+        wum.log.debug("bloodsand", ...)
+    end
+    MEL.dbg = dbg
+
+    function MEL.beginFrame()
+        MEL.curWeapon = nil
+        local a = wum.game.activeWorm and wum.game.activeWorm()
+        MEL.active = tonumber(a)
+    end
+
+    -- Once per frame per known worm, after its motion was updated: its slot number, the active worm's weapon, the engine
+    -- velocity (when the game gives one) as a sharper impulse, and the fastest recent fall.
+    function MEL.track(s, slot, w)
+        s.id = slot
+        if slot == MEL.active then
+            local wid = tonumber(w.weapon)
+            if wid then MEL.curWeapon, MEL.heldWeapon, MEL.heldSlot, MEL.heldAt = wid, wid, slot, now end
+        end
+        local vy = s.vy
+        local evx, evy, evz = vec(w.vel)
+        if evx then
+            local k = MEL.VEL_SCALE
+            evx, evy, evz = evx * k, evy * k, evz * k
+            -- Whether the velocity is in the units assumed: compared with the speed worked out from positions while a
+            -- worm moves at a plain pace. A ratio far from 1 means VEL_SCALE is wrong, and the velocity is then ignored.
+            local sp = sqrt(s.vx * s.vx + s.vy * s.vy + s.vz * s.vz)
+            if sp > 40 and sp < 600 then
+                local ev = sqrt(evx * evx + evy * evy + evz * evz)
+                MEL.vSum, MEL.vN = MEL.vSum + min(100, sp / (ev + 1e-3)), MEL.vN + 1
+                if MEL.vN >= 200 then MEL.vSum, MEL.vN = MEL.vSum * 0.5, MEL.vN * 0.5 end
+                if DEBUG and MEL.vN % 50 == 0 then dbg("vel ratio (position speed / vel)", MEL.vSum / MEL.vN) end
+            end
+            MEL.velOk = MEL.vN < 30 or (MEL.vSum / MEL.vN >= 0.5 and MEL.vSum / MEL.vN <= 2)
+            if MEL.velOk then
+                if s.evOk then
+                    local cx, cy, cz = evx - s.evx, evy - s.evy, evz - s.evz
+                    if cx * cx + cy * cy + cz * cz > IMPULSE_MIN * IMPULSE_MIN then
+                        s.ix, s.iy, s.iz, s.iat = cx, cy, cz, now
+                    end
+                end
+                s.evx, s.evy, s.evz, s.evOk = evx, evy, evz, true
+                vy = evy
+            else
+                s.evOk = false
+            end
+        else
+            s.evOk = false
+        end
+        if vy < -40 and vy <= (s.fallV or 0) then
+            s.fallV, s.fallAt = vy, now
+        elseif now - (s.fallAt or -100) > FALL_KEEP then
+            s.fallV = 0
+        end
+    end
+
+    function MEL.onFired(t)
+        local wid, slot = MEL.curWeapon, MEL.active
+        if not wid and t - MEL.heldAt <= HOLD_KEEP then wid, slot = MEL.heldWeapon, MEL.heldSlot end
+        local sig = wid and MEL.SIG[wid]
+        MEL.firedWeapon, MEL.firedSlot, MEL.firedAt = wid, slot, t
+        MEL.firedLeft = sig and sig.shots or 0
+        MEL.explUsedAt = nil
+        dbg("fired", wid, slot)
+    end
+
+    -- The damage message: keep what the attacker held or fired, before it clears.
+    function MEL.onDamaged(t)
+        local wid, slot, fired
+        local fw = MEL.firedWeapon
+        local fsig = fw and MEL.SIG[fw]
+        if fsig and MEL.firedLeft > 0 and t - MEL.firedAt <= (fsig.window or 2.5) then
+            wid, slot, fired = fw, MEL.firedSlot, true
+        else
+            wid, slot = MEL.curWeapon, MEL.active
+            if not wid and t - MEL.heldAt <= HOLD_KEEP then wid, slot = MEL.heldWeapon, MEL.heldSlot end
+        end
+        MEL.snapWeapon, MEL.snapSlot, MEL.snapFired = wid, slot, fired or false
+        -- Where everyone stood before the knock: the hit is resolved a few frames later, when the victim has flown.
+        for _, s in pairs(slots) do s.sx, s.sy, s.sz = s.px, s.py, s.pz end
+    end
+
+    -- The signature for an explosion that follows the firing of a donkey, an old woman and the like, or nil. All the
+    -- worms of one blast get it; a later, unrelated explosion does not.
+    function MEL.explSig()
+        local fw = MEL.firedWeapon
+        local sig = fw and MEL.SIG[fw]
+        if not (sig and sig.expl) or now - MEL.firedAt > sig.window then return nil end
+        if MEL.explUsedAt and now - MEL.explUsedAt > 0.3 then return nil end
+        MEL.explUsedAt = MEL.explUsedAt or now
+        return sig
+    end
+
+    -- Sets the hit's context and sprays: the burst with its bleeding, gore, stain and lens.
+    function MEL.hit(sig, s, vslot, damage, dx, dy, dz, hasA, ax, ay, az, expl)
+        MEL.vslot, MEL.hasA, MEL.ax, MEL.ay, MEL.az, MEL.expl = vslot, hasA, ax or 0, ay or 0, az or 0, expl or false
+        burst(s, damage, dx, dy, dz, false, sig)
+    end
+
+    -- The explosion path: sets the context for the worms of one blast.
+    function MEL.explContext(s)
+        MEL.vslot, MEL.hasA, MEL.expl = s.id, false, true
+    end
+
+    -- A hit that no explosion came with. Returns true when it was handled here; false leaves it to the older code, which
+    -- gives the worm knocked hardest an ordinary burst.
+    function MEL.resolveHit()
+        local wid = MEL.snapWeapon
+        local sig = wid and MEL.SIG[wid]
+        if sig and not MEL.snapFired and not sig.melee then sig = nil end    -- a rifle in hand explains nothing
+        local a = sig and MEL.snapSlot and slots[MEL.snapSlot]
+        if a and a.seen ~= frameId then a = nil end
+        local victim, vslot, vscore, vimp
+        if sig then
+            local fx, fz
+            if a then fx, fz = sin(a.heading), cos(a.heading) end
+            for slot, s in pairs(slots) do
+                if s.seen == frameId and s.alive and s ~= a then
+                    local imp = 0
+                    if now - s.iat <= IMPULSE_WINDOW then imp = s.ix * s.ix + s.iy * s.iy + s.iz * s.iz end
+                    local score
+                    if sig.proj then
+                        if imp > 0 then score = imp end
+                    elseif a then
+                        local rx, ry, rz = (s.sx or s.px) - (a.sx or a.px), (s.sy or s.py) - (a.sy or a.py), (s.sz or s.pz) - (a.sz or a.pz)
+                        local d = sqrt(rx * rx + rz * rz)
+                        local ok
+                        if sig.reach then
+                            ok = d <= sig.reach and abs(ry) <= 30
+                            -- With the weapon only held, a worm that just landed from a fall is a fall.
+                            if ok and not MEL.snapFired and (s.fallV or 0) < -FALL_MIN then ok = false end
+                            if ok and sig.needImpulse and imp <= 0 then ok = false end
+                        else
+                            local along = rx * fx + rz * fz
+                            ok = along > 0 and abs(rx * fz - rz * fx) < along * 0.25 + 12
+                        end
+                        if ok then score = imp > 0 and 1e6 + imp or 1000 / (d + 1) end
+                    end
+                    if score and (not vscore or score > vscore) then victim, vslot, vscore, vimp = s, slot, score, imp end
+                end
+            end
+        end
+        local damage, dx, dy, dz
+        if victim then
+            damage = sig.dmg
+            if a then
+                local rx, ry, rz = (victim.sx or victim.px) - (a.sx or a.px), (victim.sy or victim.py) - (a.sy or a.py),
+                    (victim.sz or victim.pz) - (a.sz or a.pz)
+                local h = sqrt(rx * rx + rz * rz)
+                if h < 1e-3 then rx, rz, h = sin(a.heading), cos(a.heading), 1 end
+                local lim = (sig.ray and 0.6 or 0.35) * h
+                ry = max(-lim, min(lim, ry))
+                dx, dy, dz = rx / h, ry / h, rz / h
+                if vimp > 0 then
+                    -- Part of the way toward where the worm was actually knocked.
+                    local il = sqrt(vimp)
+                    dx, dy, dz = dx + victim.ix / il * 0.5, dy + victim.iy / il * 0.25, dz + victim.iz / il * 0.5
+                end
+            else
+                dx, dy, dz = hitDirection(victim)
+            end
+        else
+            -- No signature fits. Without a weapon, a worm that stopped from a fall gets the splat; anything else is the
+            -- older code's blunt hit.
+            sig, a = nil, nil
+            local best, bestSize, bestSlot
+            for slot, s in pairs(slots) do
+                if s.seen == frameId and s.alive and now - s.iat <= IMPULSE_WINDOW then
+                    local size = s.ix * s.ix + s.iy * s.iy + s.iz * s.iz
+                    if not best or size > bestSize then best, bestSize, bestSlot = s, size, slot end
+                end
+            end
+            if not best or (best.fallV or 0) > -FALL_MIN or now - (best.fallAt or -100) > FALL_KEEP + 0.1 then
+                dbg("blunt", wid, best and bestSlot)
+                return false
+            end
+            sig, victim, vslot = MEL.FALL, best, bestSlot
+            damage = min(FALL_DAMAGE[2], max(FALL_DAMAGE[1], FALL_DAMAGE[1] + (-best.fallV - FALL_MIN) * 0.08))
+            dx, dy, dz = 0, 1, 0
+        end
+        if MEL.snapFired and sig ~= MEL.FALL then MEL.firedLeft = MEL.firedLeft - 1 end
+        dbg(sig.name, "victim", vslot, "damage", damage, "dir", dx, dy, dz)
+        credit(victim, damage)
+        if a then
+            MEL.hit(sig, victim, vslot, damage, dx, dy, dz, true, a.px, a.py + CENTRE_Y, a.pz, false)
+        else
+            MEL.hit(sig, victim, vslot, damage, dx, dy, dz, false, 0, 0, 0, false)
+        end
+        return true
+    end
+
+    -- The signatures in the order the Preview menu item shows them; "explosion" is the ordinary burst.
+    local ORDER = { 10, 11, 12, 25, 18, 17, 35, "fall", 9, 28, 26, "explosion" }
+
+    -- Preview: the next signature on the active worm, sprayed sideways across the screen. Returns false for the ordinary
+    -- burst, which the caller then throws itself.
+    function MEL.preview(s, slot)
+        MEL.pv = MEL.pv % #ORDER + 1
+        local key = ORDER[MEL.pv]
+        local sig = key == "fall" and MEL.FALL or MEL.SIG[key]
+        local name = sig and sig.name or "Explosion"
+        if wum.log and wum.log.info then wum.log.info("Bloodsand preview: " .. name) end
+        if not sig then return false end
+        local dx, dz
+        if CAM.ok then dx, dz = CAM.rx, CAM.rz else dx, dz = sin(s.heading), cos(s.heading) end
+        local l = sqrt(dx * dx + dz * dz)
+        if l < 1e-3 then dx, dz, l = 1, 0, 1 end
+        dx, dz = dx / l, dz / l
+        local dy = sig.ray and 0.05 or 0.1
+        if sig == MEL.FALL then dx, dy, dz = 0, 1, 0 end
+        MEL.hit(sig, s, slot, sig.dmg, dx, dy, dz, true, s.px - dx * 30, s.py + CENTRE_Y, s.pz - dz * 30, false)
+        return true
     end
 end
 
@@ -1556,6 +2281,7 @@ local function trackWorms(worms, dt)
                 s.seen = frameId
                 VIS.noteEngineVel(s, w.vel)
                 updateMotion(s, x, y, z)
+                MEL.track(s, slot, w)
                 if s.alive and not alive then
                     local dx, dy, dz = hitDirection(s)
                     s.credited = 0
@@ -1603,7 +2329,9 @@ local function trackWorms(worms, dt)
                         if d < 1e-3 then dx, dy, dz, d = 0, 1, 0, 1 end
                         if DEBUG then wum.log.debug("explosion hit", est, d) end
                         credit(s, est)
-                        burst(s, est, dx / d, dy / d + 0.35, dz / d)
+                        local esig = MEL.explSig()
+                        if esig then MEL.explContext(s) end
+                        burst(s, est, dx / d, dy / d + 0.35, dz / d, false, esig)
                         hurtOpen = false
                     end
                 end
@@ -1621,8 +2349,9 @@ local function trackWorms(worms, dt)
     if hurtOpen and now - hurtAt > DAMAGED_WINDOW then
         hurtOpen = false
         local best, bestSize
+        local handled = MEL.resolveHit()    -- a weapon's signature or a fall; otherwise the blunt hit below
         for _, s in pairs(slots) do
-            if s.seen == frameId and s.alive and now - s.iat <= IMPULSE_WINDOW then
+            if not handled and s.seen == frameId and s.alive and now - s.iat <= IMPULSE_WINDOW then
                 local size = s.ix * s.ix + s.iy * s.iy + s.iz * s.iz
                 if not best or size > bestSize then best, bestSize = s, size end
             end
@@ -1715,6 +2444,7 @@ end
 local function clearParticles()
     nP, nL, nExp = 0, 0, 0
     hurtOpen = false
+    MEL.clear()
 end
 
 -- Everything back to nothing: the match ended or started, or the amount was turned off.
@@ -1746,6 +2476,7 @@ local function onWorld()
     live = true
     frameId = frameId + 1
     readCamera()
+    MEL.beginFrame()
     local worms = wum.game.worms()
     if type(worms) == "table" then
         trackWorms(worms, dt)
@@ -1754,6 +2485,7 @@ local function onWorld()
     end
     updateSkin()
     VIS.updateGuts()
+    MEL.tick(dt)
     simulate(dt)
     drawGuts()
     ageSplats(dt)
@@ -1824,6 +2556,11 @@ if wum.events and wum.events.on then
     wum.events.on("Worm.Damaged", function()
         if not preset then return end
         hurtAt, hurtOpen = os.clock(), true
+        MEL.onDamaged(hurtAt)
+    end)
+    wum.events.on("Weapon.Fired", function()
+        if not preset then return end
+        MEL.onFired(os.clock())
     end)
     wum.events.on("melange.match.start", resetAll)
     wum.events.on("melange.match.end", resetAll)
@@ -1850,8 +2587,11 @@ local function preview()
         s = newSlot(x, y, z, tonumber(pick.health) or 0, true)
         slots[pick.slot] = s
     end
-    local dx, dy, dz = rnd(-0.6, 0.6), 1, rnd(-0.3, 0.3)
-    burst(s, 40, dx, dy, dz)
+    -- Each press shows the next weapon's signature (MEL.preview); the last of the cycle is the ordinary burst.
+    if not MEL.preview(s, pick.slot) then
+        local dx, dy, dz = rnd(-0.6, 0.6), 1, rnd(-0.3, 0.3)
+        burst(s, 40, dx, dy, dz)
+    end
     -- Wounds too, so they can be seen: a level that decays back to what the worm's health gives.
     s.previewWound = PREVIEW_WOUND
     s.wound = max(s.wound, PREVIEW_WOUND)
@@ -1909,6 +2649,26 @@ local function zeroAll()
     end
     VIS.zero()
     VIS.zeroScorch()
+end
+
+-- == Melee hooks ================================================================================================
+-- Kept at the end of the file, below every local the other sections define, so that these names find them.
+--
+-- requestPool(x, y, z, size, nx, ny, nz): asks for a big pool of blood on the ground at (x, y, z), `size` being the
+-- radius in world units like a stain's, with the unit surface normal (nx, ny, nz) when the game's landRay gave one. Today
+-- it is a plain stain; a better version defined above this section under the same name replaces it.
+local requestPool = requestPool or function(x, y, z, size)
+    placeStain(x, y, z, min(size, STAIN_DEATH))
+end
+MEL.pool = requestPool
+
+-- setScorch(slot, amount): the skin side's hook for a burnt mark on a worm (0..1, raised to at least amount). It is
+-- used when a setScorch defined above this section exists; the amount is also left in the worm's state as s.scorch.
+function MEL.scorch(slot, amount)
+    if slot == nil then return end
+    local s = slots[slot]
+    if s then s.scorch = max(s.scorch or 0, amount) end
+    if setScorch then setScorch(slot, amount) end
 end
 
 loadLens()

@@ -16,6 +16,9 @@ Viscera that look real.
   pass for the melee code to set with `setScorch(slot, amount)`; `woundSites(slot)` gives where each wound is, in the world,
   for blood that spurts from it.
 
+- Melee and weapon-specific blood sprays: PLACEHOLDER
+
+
 ## 1.1.3
 
 Runs on Melange 0.5. No other change.

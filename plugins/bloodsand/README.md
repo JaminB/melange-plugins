@@ -11,6 +11,16 @@ shipped — no game file, or anything derived from one.
   The number and speed of the droplets scale with the damage, and even a light hit throws a visible spray.
 - **Bleeding**: a wounded worm keeps dripping for a while after the hit.
 - **Death**: a worm that dies throws a larger burst.
+- **Weapon sprays**: each melee and special weapon has its own signature, scaled by the Blood setting. The **baseball
+  bat** flings a wide horizontal arc of long streaks with a few heavy clots and a fine mist. The **prod** squirts a thin
+  pulsing jet from the contact point, then dribbles. The **fire punch** throws a gush of blackened, cauterised drops
+  straight up with embers, rising steam and smoke, and asks the skin pass for a scorch mark. **No more nails** fires
+  several small jets in a ragged cone. The **concrete donkey** and **Fatkins** crush: a flat ring of blood hugging the
+  ground and a big pool. The **old woman** and **Scouser** shred: many fine fast drops in every direction on top of the
+  blast. A **ninja rope** knock smears blood along the knock. A **fall** splats downward into a pool. The **shotgun**
+  and **sniper rifle** puff at the entry and shoot a narrow fast cone out behind the victim (the sniper's is longer,
+  faster and heavier). The **poison arrow** leaves an entry wound and a sickly dark dribble that goes on for a while.
+  Explosions keep spraying away from the blast.
 - **Blood on the worms**: a worm that was hit wears blood on its skin, and the blood stays on it as it moves. Each hit
   adds to it, healing does not wash it off and a death clears it. It is a Post-FX pass, `bloodsand/skin` (PostWorld,
   order 51), that paints the blood from the depth buffer onto the surfaces inside each worm's body. The pattern is
@@ -58,16 +68,21 @@ On the Mods page:
 | Blood colour | Red / Green | Red | the colour of droplets, stains, blood on worms, wounds and lens splatter |
 
 The **Mods > Bloodsand > Preview** menu item throws a test burst at the active worm so you can see the current
-settings without hurting anyone. It also gives that worm wounds, black eyes, intestines and a burn that fade away over
-about twelve seconds (the burn over four), and makes it throw up once. Press it again to see more of the intestine
-slide out.
+settings without hurting anyone. Each press shows the next weapon's signature (bat, prod, fire punch, nails, donkey,
+old woman, rope knock, fall, shotgun, sniper, poison arrow, then an ordinary explosion burst, and round again), sprayed
+sideways across the screen, and writes its name to the log. It also gives that worm wounds, black eyes, intestines and a
+burn that fade away over about twelve seconds (the burn over four), and makes it throw up once. Press it again to see
+more of the intestine slide out.
 
 ## How it detects hits
 
 The game posts a message the moment a worm is damaged, and another for every explosion with its position, damage and
 radius. Bloodsand listens for both and reads every worm's health and position each frame. A hit with an explosion
-bleeds away from the blast; a hit without one (a fall, a punch) is given to the worm that was just knocked or stopped
-hardest. The game only takes the health off at the end of the turn, seconds later; by then the hit has been shown, so
+bleeds away from the blast; a hit without one is given to the worm that was just knocked or stopped hardest
+(from its engine velocity when Melange reports one, otherwise from how its position changes). Which weapon did it comes
+from the active worm: its weapon id is remembered every frame and when the weapon is fired, because the game may clear it
+before the damage message arrives. A held melee weapon needs a worm within reach, a bullet needs one in front of the
+shooter, and a worm that stopped hard from a fall with no such weapon gets the fall splat. The game only takes the health off at the end of the turn, seconds later; by then the hit has been shown, so
 the difference between the estimate and the real damage only changes how long the worm bleeds. Wounds, black eyes,
 vomiting and intestines follow the worm's health, counting damage already shown. Where the face and the belly are
 comes from the worm's position and its facing angle (`yaw` in `wum.game.worms()`). Nothing is sent back to the game.
@@ -99,6 +114,8 @@ with the *Mirage/Post-FX* panel on your own machine.
 - Needs game build 1077 for game state. On any other build it does nothing.
 - Needs Melange 0.3.5 or later, for `wum.postfx.setTransient` and the worms' facing angle.
 - Droplets are flat-colour shapes with no collision with the ground.
+- A weapon's signature depends on seeing its weapon id on the active worm. If a build of the game clears it before the
+  hit and no firing message came, the hit gets the ordinary blunt burst instead.
 - Everything on a worm's skin is painted from the depth buffer inside the worm's volume. It travels and turns with the
   worm, but it does not follow the mesh's animation: the game gives a worm's position and facing, not its bones.
 - Black eyes are placed where the eyes are on a worm standing upright. A worm's head bobs, slumps and looks around, so
