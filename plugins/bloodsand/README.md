@@ -27,6 +27,24 @@ shipped — no game file, or anything derived from one.
   tiny faint glint near its head), mist as several translucent fans, each smaller and denser than the last, with an
   irregular outline. There is no setting for it; it is chosen at load.
 - **Bleeding**: a wounded worm keeps dripping for a while after the hit.
+- **Arterial spurts**: a worm below about a third of its health (stronger the lower it goes, with no setting of its own:
+  it follows Blood) spurts blood from its deepest open wounds in time with its heartbeat, 1.1 beats a second at the
+  threshold and 1.6 at the lowest, each interval a little different and about half the beats followed by a weaker second
+  one. A beat is a pulse of about a fifth of a second: a pressurised arc (a narrow stream of fast, long-lived droplets that
+  carries furthest, and a wider spray of slow ones that is dense at the wound, so the arc thins along its length), a puff
+  of fine mist at the wound, and a weak dribble from the deepest wound between the pulses. The jet leaves each wound along
+  its outward normal, lifted a little and tilted a little differently at every pulse, and is worked out again every frame
+  from where the worm's wounds are, so it follows the worm as it walks and turns. Light spurts from one wound, Heavy
+  from up to two and Absurd from up to three (the second only once the worm is well below the threshold, the third lower
+  still), with more and faster droplets as Blood goes up. The droplets are ordinary particles, so they land through the
+  terrain collision and leave splats and streaks. Nothing spurts while the worm is thrown or falling (faster than 90
+  units a second sideways or 80 vertically), since its facing no longer says where its wounds are, and it resumes a
+  third of a second after it lands with a stronger first pulse. A new hit brings an extra pulse at once and stronger,
+  longer, quicker ones for one to three and a half seconds, more for a bigger hit. A dying worm (health 0, waiting for the
+  game to blow it up) goes on for six seconds with weakening, slowing pulses and then stops; the death burst takes over.
+  Spurts draw on the frame's spawn budget after the bursts (at most 14, 30 or 52 particles a frame between all the worms),
+  never fill more than 60% of the pool and send nothing to the post-FX passes. The Preview button makes the previewed
+  worm spurt for six seconds.
 - **Death**: a worm that dies throws a larger burst, with more mist and a ring of heavy clots that carry past the smoke
   and splat round the crater, and leaves a big pool in the crater. It is shown when the worm blows up. A worm whose
   health reaches zero is only dying (the game counts the damage down and blows it up seconds later), and the burst waits
@@ -191,7 +209,7 @@ real knock when one was seen.
 The number of droplets scales with the damage counted and the Blood setting, and Blood caps what one hit can throw. The
 damage counted is only an estimate for the size of the spray: the game only takes the health off at the end of the turn,
 seconds later; by then the hit has been shown, so the difference between the estimate and the real damage only changes
-how long the worm bleeds. Wounds, black eyes, vomiting and intestines follow the worm's health, counting damage already
+how long the worm bleeds. Wounds, black eyes, vomiting, spurting and intestines follow the worm's health, counting damage already
 shown. Where the face and the belly are comes from the worm's position and its facing angle (`yaw` in
 `wum.game.worms()`). Nothing is sent back to the game.
 
@@ -262,6 +280,15 @@ four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0
   the worst case of 3100 draw calls) puts at roughly 0.03 to 0.14 ms of CPU and a small GPU cost for a few hundred small
   sprites. That is an estimate from Melange's published figures, not measured with this plugin in the game. The textures
   are few on purpose (14, with the spark; a mod may hold 256).
+- **Arterial spurts**: the spurt code itself (heartbeats, wound sites, spawning) is about 7000 VM instructions a frame
+  with four badly hurt worms on Heavy and about 29000 with sixteen on Absurd in the mock host; the rest of what they cost
+  is the particles they make, like any other (a few hundred instructions each a frame, one sprite call each, a terrain ray
+  every few frames): four dying worms on Heavy keep about 140 particles alive (of 300) and add about 65000 instructions a
+  frame to the 42000 of the same scene without them, and sixteen on Absurd about 280 of 480 (the pool share they may fill
+  is 60%), raising the sixteen-gutted-worm stress test from an average of 155000 to 183000 instructions and its peak from
+  228000 to 234000 (307000 at 20 frames a second), the sixteen-worm Absurd blast (six blasts at 30 frames a second) to a
+  peak of 291000, all far under the 500000 limit, with no faults. They add no post-FX parameters and at most 64 terrain rays a
+  frame stays true (they take the droplets' share).
 - **Terrain rays**: at most 64 calls of `wum.game.landRay` a frame, all counted together (48 for droplets, at most 24
   between the guts' 8 probes, the pools and the melee sprays' ground rays). Melange 0.6 logs their average and worst cost
   at the end of each match; a few microseconds each is expected, and if it is more, the droplets' share is what to lower.

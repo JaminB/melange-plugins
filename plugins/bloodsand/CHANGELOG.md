@@ -1,3 +1,16 @@
+## 1.3.0
+
+Arterial spurts. A worm below about a third of its health spurts blood from its deepest open wounds in time with a
+heartbeat (1.1 to 1.6 beats a second, faster the lower it is, slightly irregular, often with a weaker second beat): each
+beat is a short pressurised arc of sprite droplets, dense at the wound and thinning along the arc, a fine mist puff and a
+weak dribble between the beats. The jets follow the worm as it moves and turns, land through the existing droplet
+collision and leave splats and streaks, pause while the worm is thrown or falling and come back stronger after it lands,
+start stronger after a new hit and weaken and stop on a dying worm. One wound spurts on Light, two on Heavy and three on
+Absurd. The previewed worm spurts for a few seconds. They follow the Blood setting and have no setting of their own.
+The wound sites that the code computes (`woundSites`) are now where `skin.frag` draws the gashes: it used to put them
+up to 0.14 of a unit direction off (a unit or two at the upper wounds) and the belly opening about a unit and a half too
+high, because the shader finds a gash along the ray from the body's middle in the ellipsoid's own space.
+
 ## 1.2.0
 
 Much gorier, and it looks like flesh. A worm's intestines are now ray-marched, simulated tubes: a sixteen-point chain
