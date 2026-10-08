@@ -43,20 +43,24 @@ shipped — no game file, or anything derived from one.
 - **Blood on the worms**: a worm that was hit wears blood on its skin, and the blood stays on it as it moves. Each hit
   adds to it, healing does not wash it off and a death clears it. It is a Post-FX pass, `bloodsand/skin` (PostWorld,
   order 51), that paints the blood from the depth buffer onto the surfaces inside each worm's body. The pattern is
-  held in the worm's own frame, so it travels with the worm and turns with the way it faces. Above the brow only
-  skin-coloured pixels take blood, wounds or burns, so a hat, a helmet or a pair of ears stays clean, and on the front of
-  the face the eyes (whatever around them is not skin-coloured: the whites and the pupils) are kept clear, so a bloodied
-  worm still has its eyes. The light on the blood and in the wounds comes from a smooth normal (the depth buffer's
-  blended with the body's), so the facets of the worm's mesh do not show as angular shards, and edges inside the worm
-  (the eyes over the face, the chin over the body) are painted in full instead of leaving a bright line of bare skin.
+  held in the worm's own frame, so it travels with the worm and turns with the way it faces. Only skin takes anything,
+  on the whole body: every pixel is first classified by the colour the scene has there (skin is a peach to orange whose
+  green-over-red and blue-over-red ratios stay in a narrow window whatever the light, which hats, helmets, glasses,
+  headbands, ears, a moustache and the whites and pupils of the eyes fall outside), softly, so the edge against a hat is
+  anti-aliased. The blood is not a coat: it is soaked round each open wound and the place the worm was last hit, runs
+  down the body from there in streaks that thin to a bead, is smeared and spattered in drops on the side that faces the
+  hits, and is thin or absent elsewhere, so the skin shows between. The light on it comes from the body's smooth normal,
+  so the facets of the worm's mesh do not show as angular shards, and edges inside the worm (the eyes over the face, the
+  chin over the body) are painted in full instead of leaving a bright line of bare skin.
 - **Wounds**: once a worm is below about two thirds of its health, gashes open on its body, more and larger the lower
   it gets (up to five). Each is built in layers: a rolled lip of torn skin that catches the light, pink-red raw
   dermis, broken patches of pale fat on parts of the torn edge only, dark wet muscle with glints and a cavity that gets
   darker the deeper it goes and shifts as the camera moves, all under a film of blood. Blood runs down from it in beads. They close again if the worm is healed; the blood on its skin stays. The same
   `bloodsand/skin` pass paints them. Blood on the skin is wet: it has a sheen, and is darker and glossier where it pools.
-- **Black eyes**: below four fifths of its health a worm gets a black eye, a purple-black bruise around the eye that
-  is darkest in a ring under it. One eye goes first and the other follows; both are fully black at about a third of
-  its health. The skin pass paints them on the face, and they fade while a worm is thrown through the air. Blood and
+- **Black eyes**: below four fifths of its health a worm gets a black eye, a ring of purple-black bruise on the skin
+  that hugs the white of the eye (found on the screen, so it follows the head wherever it bobs), darkest under the eye,
+  with a swollen, faintly lit lip above. One eye goes first and the other follows; both are fully black at about a third
+  of its health. The skin pass paints them on the face, and they fade while a worm is thrown through the air. Blood and
   wounds stay thin over a bruise, so a black eye shows on a bloodied face.
 - **Throwing up**: a worm at a quarter of its health or less heaves now and then while it stands still: a stream of
   blood from its mouth for about a second, every 12 to 30 seconds, leaving a small stain in front of it.
@@ -250,8 +254,9 @@ Re-measure with the *Mirage/Post-FX* panel on your own machine.
   front (the facing is `(sin yaw, 0, cos yaw)`, the same one the blood and the belly use), and only on surfaces that
   face that way, so never on the back of the head. A worm's head bobs, slumps and looks around, so
   a bruise can sit a little off the eye, and it is not drawn while a worm is thrown. Only skin-coloured pixels are
-  darkened, which keeps most hats clean but also makes the bruise faint on a poisoned (green) worm or under strongly
-  coloured light.
+  darkened, so the whites of the eyes, glasses and hats stay clean; under strongly coloured light or on a worm whose skin
+  is not a warm peach (a strongly green tint passes up to green equal to 1.1 times red) the bruise, like the blood,
+  fades out.
 - The intestines come out of the belly opening that the skin pass paints, so they need Blood on worms (and are off with it).
   They are ray-marched in a screen-space pass. They stay out of the worm's body (a guessed capsule) and on the
   ground below them, but they do not collide with other worms or with walls, and at most four gutted worms (the closest
@@ -268,10 +273,12 @@ Re-measure with the *Mirage/Post-FX* panel on your own machine.
   tested against the terrain only, not against worms, crates or water.
 - Wounds are placed from a per-match seed, not where the hit landed, and which worms have intestines to show is
   chosen at random each match.
-- Above the brow only skin-coloured pixels take blood, which keeps most hats clean; a hat the colour of skin (straw,
-  light brown) is painted like the head, and under strongly coloured light the top of the head can go without. Held
-  weapons inside a worm's volume take blood too. The eyes are kept clear by colour on the front of the face, so a
-  monocle or a pair of glasses there may be kept clear as well.
+- Only skin-coloured pixels take blood, wounds, bruises or burns, wherever on the body: a hat the colour of skin
+  (straw, light brown) is painted like the head, a moustache or tufts of a skin-like brown can take a little blood in
+  their lit parts, a gold monocle's rim can, and under strongly coloured light skin can go without. Held weapons inside a
+  worm's volume take blood too. The side a worm was hit from (for the soaked patch, streaks, smears and drops) is the
+  side the last hit's blood went away from; a fall, or a hit that only moved the health, leaves the side from before (or
+  one from the match seed).
 - A pixel takes the blood of one worm only, the one whose body it is deepest inside, so where two worms overlap on
   screen the pattern of one stops at the other.
 - Up to 16 worms can wear blood and wounds at once.
