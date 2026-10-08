@@ -39,10 +39,13 @@
 // Where it must not draw: blood lands on the surface the decal lies in, so a pixel is dropped when it is off the decal's
 // plane by more than a tolerance that grows with the distance from the middle (so a splat wraps round a pillar or a
 // curved rock, facet by facet, and its own outline is what ends it), when its normal turns more than about 60 degrees from
-// the decal's, when a neighbour lies well behind its tangent plane (the edge of a silhouette, smoke or anything else thin
-// that writes depth; a convex crease between two facets is far less than that), and when it is inside a worm's volume (a
-// worm standing or lying in a pool, hats, arms) and either faces another way than the decal or stands well off its plane:
-// the curved ground a worm lies on still takes blood. A decal fades out as the camera comes within a few tens of units.
+// the decal's (about 50 for a pool, which lies on ground, and not on a camera-facing puff of smoke), when a neighbour lies well behind its tangent plane (the
+// edge of a silhouette, smoke or anything else thin that writes depth; a convex crease between two facets is far less than
+// that), when it is a grey that floats over the plane (smoke that hangs low and flat enough to pass the tests above), and
+// when it is inside a worm's volume (a worm standing or lying in a pool, hats, arms) and either faces another way than the
+// decal or stands high above its plane: the curved ground a worm lies on still takes blood, and what is not ground does not,
+// even where it crosses the decal's plane (a worm on a slope is cut through by the plane of a pool). A decal fades out as the
+// camera comes within a few tens of units.
 uniform sampler2D mg_scene;
 uniform sampler2D mg_depth;
 uniform mat4 mg_invProj;
@@ -65,12 +68,13 @@ varying vec2 mg_uv;
 
 const float PI = 3.14159265;
 // A worm is kept clear of blood inside an ellipsoid about its middle raised by WORM_UP: this wide (it covers a worm lying
-// down as well as one standing) and this high (a hat, a helmet or ears stand well above the head), and its pixels fade out
-// between WORM_E0 and 1.
-const float WORM_RH2 = 19.0 * 19.0;
-const float WORM_RV2 = 27.0 * 27.0;
+// down as well as one standing, with its tail, which is at the far end of the longest reach) and this high (a hat, a helmet
+// or ears stand well above the head), and its pixels fade out between WORM_E0 and 1 (a tail that was only half kept clear
+// at the edge of a wider fade showed as a pale smear on the worm).
+const float WORM_RH2 = 21.0 * 21.0;
+const float WORM_RV2 = 28.0 * 28.0;
 const float WORM_UP = 5.0;
-const float WORM_E0 = 0.72;
+const float WORM_E0 = 0.9;
 // The camera fades the blood out nearer than NEAR_FULL world units, entirely at NEAR_NONE (the aim camera sits about 20
 // units from a rock in front of the worm; a close-up of a worm is 70 or more).
 const float NEAR_NONE = 18.0;
@@ -201,19 +205,13 @@ float WormE(vec3 Pw) {
 // One decal at the pixel: Pw is the pixel in world space, nW the surface normal there (world), pxw the size of a pixel in
 // world units. Adds what the decal contributes (its body, and the satellite, speck or drip nearest the pixel) to acc.
 // wE is the worm test (WormE) at the pixel.
-void Shape(vec3 Pw, vec3 nW, float pxw, vec4 A, vec4 B, float wE, inout Fl acc) {
+void Shape(vec3 Pw, vec3 nW, float pxw, float grey, vec4 A, vec4 B, float wE, inout Fl acc) {
     float nu = floor(B.x / 4096.0);
     float nq = B.x - nu * 4096.0;
     float az = nu / 4095.0 * 2.0 * PI - PI;
     float el = nq / 4095.0 * PI;
     float se = sin(el);
     vec3 N = vec3(se * cos(az), cos(el), se * sin(az));
-
-    // The surface must be the decal's: its normal must not turn more than about 60 degrees from it (a facet of a pillar or a
-    // rock next to the one the blood hit takes it too; a wall standing on the floor does not)...
-    float nd = dot(nW, N);
-    float ng = smoothstep(0.2, 0.45, nd);
-    if (ng <= 0.0) return;
 
     float rq = floor(B.w / 16384.0);
     float rest = B.w - rq * 16384.0;
@@ -224,6 +222,13 @@ void Shape(vec3 Pw, vec3 nW, float pxw, vec4 A, vec4 B, float wE, inout Fl acc) 
     float R = max(rq * 0.1, 0.1);
     float isPool = step(1.5, type);
 
+    // The surface must be the decal's: its normal must not turn more than about 60 degrees from it (a facet of a pillar or a
+    // rock next to the one the blood hit takes it too; a wall standing on the floor does not; a pool lies on ground, which
+    // is not as steep as a pillar, so it takes about 50)...
+    float nd = dot(nW, N);
+    float ng = mix(smoothstep(0.2, 0.45, nd), smoothstep(0.6, 0.85, nd), isPool);
+    if (ng <= 0.0) return;
+
     // ...and it must be on the decal's plane, within a tolerance that grows with the distance from the middle, as far as a
     // pillar or a rock curves away from it under a splat (a surface of radius 25 is 2 units off at 10 from the middle).
     vec3 d = Pw - A.xyz;
@@ -231,6 +236,10 @@ void Shape(vec3 Pw, vec3 nW, float pxw, vec4 A, vec4 B, float wE, inout Fl acc) 
     float dist = length(d - N * h);
     float tolH = 1.2 + 0.2 * dist + 0.02 * R;
     float hg = 1.0 - smoothstep(0.5 * tolH, tolH, abs(h));
+    // Smoke is grey, and hangs a few units over the plane, which that tolerance lets through (a wide pool on a dune needs it,
+    // and a tighter one cut the pool short): a grey pixel that is off the plane at all is not ground. (Pixels on the plane
+    // keep whatever their colour: the ground of a grey level is on it.)
+    hg *= 1.0 - 0.9 * grey * smoothstep(0.7, 1.6, abs(h));
     if (hg <= 0.0) return;
 
     vec3 ref = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
@@ -395,9 +404,8 @@ void Shape(vec3 Pw, vec3 nW, float pxw, vec4 A, vec4 B, float wE, inout Fl acc) 
     // ---- where blood may not land: a worm's volume. The floor under it is still the floor, and so is curved ground that
     // faces the way the decal does; the worm's body (facing another way) or anything high above the plane (a head, a hat)
     // is not. ----
-    float wOff = smoothstep(1.5 + 0.06 * dist, 3.5 + 0.06 * dist, abs(h));
     float wAway = max(1.0 - smoothstep(0.75, 0.92, nd), smoothstep(5.0, 8.0, abs(h)));
-    float wm = 1.0 - (1.0 - smoothstep(WORM_E0, 1.0, wE)) * wOff * wAway;
+    float wm = 1.0 - (1.0 - smoothstep(WORM_E0, 1.0, wE)) * wAway;
     float gate = ng * hg * wm;
     if (gate <= 0.0) return;
 
@@ -475,6 +483,9 @@ void Shade(vec3 Pv, float pxw, Fl a, float vis, inout vec3 col) {
         crack *= smoothstep(0.1, 0.5, th);
     }
     th = min(th + clot * 0.4, 1.2);
+    // A pool is not one depth all over: broad, slow swells and shallows of the thickness, so its colour moves from a brighter
+    // ruby where it is thin to near black where it is deep (a pool was one flat dark red).
+    th = clamp(th + (VN(uv * (1.5 / Rn) + 3.3) - 0.5) * 0.45 * isPool * (1.0 - fr), 0.0, 1.2);
     // Slight undulation of a wet surface, so a highlight is not a perfect mirror; the broader second one also picks out
     // the places where the blood has begun to clot (only on blood in a blot big enough to show them).
     float bump = 0.0;
@@ -491,8 +502,12 @@ void Shade(vec3 Pv, float pxw, Fl a, float vis, inout vec3 col) {
     // ---- colour ----
     vec3 tint = p_blood / max(max(p_blood.r, p_blood.g), max(p_blood.b, 1e-3));
     float lum = a.lum;
-    vec3 thin = col * tint * 0.5 + p_blood * (0.3 + 0.12 * lum);
-    vec3 deep = p_blood * (0.26 + 0.07 * lum) + col * tint * 0.04;
+    // The light there: blood in the sun is brighter than blood in the shade of a wall (it was the same dark red in both, which
+    // read as a flat shadow), and it has a red glow of its own where it is thin, as light through a film of it has.
+    float sceneL = dot(col, vec3(0.299, 0.587, 0.114));
+    float lightK = mix(0.62, 1.3, smoothstep(0.25, 0.8, sceneL));
+    vec3 thin = col * tint * 0.55 + p_blood * (0.34 + 0.12 * lum) * lightK;
+    vec3 deep = p_blood * (0.34 + 0.09 * lum) * lightK + col * tint * 0.04 + p_blood * 0.1 * (1.0 - th) * lightK;
     vec3 wetCol = mix(thin, deep, smoothstep(0.1, 0.95, th * 0.72));
     vec3 dryBase = p_blood * 0.5 + vec3(0.04, 0.025, 0.016);
     vec3 dryCol = mix(dryBase * 0.85 + col * tint * 0.2, dryBase * (0.9 + 0.3 * lum) + col * 0.03, smoothstep(0.1, 0.8, th));
@@ -544,12 +559,23 @@ void Shade(vec3 Pv, float pxw, Fl a, float vis, inout vec3 col) {
         fv *= fv;
         specAmt += fv * fv * 0.3 * wet * (0.35 + 0.65 * (1.0 - rimT));
     }
-    if (dry > 0.0 && nh > 0.8) specAmt += pow(nh, 30.0) * 0.05 * dry * (1.0 - clot);
+    if (dry > 0.0 && nh > 0.7) specAmt += pow(nh, 24.0) * 0.1 * dry * (1.0 - clot);
+    // A broad, soft lobe on the wet blood besides the tight ones: the whole film catches the light a little.
+    if (wet > 0.0 && nh > 0.55) specAmt += pow(nh, 10.0) * 0.07 * wet * (0.4 + 0.6 * th);
     specAmt = min(specAmt, 1.0);
     specAmt *= smoothstep(0.1, 0.4, th) * (1.0 - 0.7 * crack) * (1.0 - 0.5 * coag) * mix(1.0, 0.75, isPool);
 
+    // The sky in the blood: a wet surface mirrors the sky, warm at the horizon and blue overhead, most where it is seen at a
+    // low angle (Fresnel), so a pool seen along the ground has a bright sheen instead of being a dark flat. Dry blood keeps a
+    // little of it (a dull shine on the clotted surface).
+    vec3 Rr = reflect(-V, Nv);
+    float sy = clamp(dot(Rr, Rv * vec3(0.0, 1.0, 0.0)), -0.2, 1.0);
+    vec3 skyC = mix(vec3(0.98, 0.84, 0.7), vec3(0.5, 0.64, 0.98), smoothstep(0.05, 0.75, sy));
+    float fres = 0.03 + 0.97 * pow(1.0 - max(dot(Nv, V), 0.0), 5.0);
+    float skyAmt = fres * (wet + 0.3 * dry) * smoothstep(0.1, 0.5, th) * (1.0 - 0.6 * crack) * (1.0 - 0.4 * coag) * (0.6 + 0.4 * lightK);
+
     float alpha = alpha0 * clamp(0.6 + 0.8 * th + 0.6 * dry, 0.0, 1.0);
-    col = mix(col, base, alpha) + vec3(1.0, 0.8, 0.78) * specAmt * alpha;
+    col = mix(col, base, alpha) + vec3(1.0, 0.8, 0.78) * specAmt * alpha + skyC * skyAmt * 0.38 * alpha;
 }
 
 // A slot whose sphere holds the pixel offers itself (A, B) to the three places; the one with the highest rank (the shallowest
@@ -646,12 +672,15 @@ void main() {
     // The kept ones, in no particular order: their blood is one fluid.
     Fl acc = FlNone();
     float wE = p_wn > 0.5 ? WormE(Pw) : 9.0;
+    // How grey the scene is here (smoke and steam over the ground are; sand, grass and blood are not).
+    float gmx = max(scene.r, max(scene.g, scene.b));
+    float grey = 1.0 - smoothstep(0.07, 0.17, (gmx - min(scene.r, min(scene.g, scene.b))) / max(gmx, 1e-3));
     cnt = min(cnt, 3.0);
     for (int k = 0; k < 3; k++) {
         if (float(k) >= cnt) break;
         vec4 A = k == 0 ? cA0 : (k == 1 ? cA1 : cA2);
         vec4 B = k == 0 ? cB0 : (k == 1 ? cB1 : cB2);
-        Shape(Pw, nW, pxw, A, B, wE, acc);
+        Shape(Pw, nW, pxw, grey, A, B, wE, acc);
     }
     if (acc.F < -0.5 * max(0.8 * pxw, 0.003 * acc.R)) {
         gl_FragColor = scene;

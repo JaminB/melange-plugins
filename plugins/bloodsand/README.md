@@ -66,11 +66,12 @@ shipped — no game file, or anything derived from one.
   dermis, broken patches of pale fat on parts of the torn edge only, dark wet muscle with glints and a cavity that gets
   darker the deeper it goes and shifts as the camera moves, all under a film of blood. Blood runs down from it in beads. They close again if the worm is healed; the blood on its skin stays. The same
   `bloodsand/skin` pass paints them. Blood on the skin is wet: it has a sheen, and is darker and glossier where it pools.
-- **Black eyes**: below four fifths of its health a worm gets a black eye, a wide ring of purple-black bruise on the skin
-  that hugs the white of the eye (found on the screen, so it follows the head wherever it bobs, and never narrower than a
-  few pixels, so it shows from across the level), darkest in a swollen lower lid under the eye, with a faintly lit lip
-  above; the ring is wider and darker the lower the health. One eye goes first and the other follows; both are fully black at about a third
-  of its health. The skin pass paints them on the face, and they fade while a worm is thrown through the air. Blood and
+- **Black eyes**: below nine tenths of its health a worm gets a black eye, a wide ring of purple-black bruise on the skin
+  that hugs the white of the eye (found on the screen with fixed rings of taps, so it follows the head wherever it bobs and
+  has no grain, and never narrower than a few pixels, so it shows from across the level), darkest in a swollen lower lid
+  under the eye, with a faintly lit lip above, and it keeps a pixel or two of clean skin off a moustache; the ring is wider
+  and darker the lower the health. One eye goes first and the other follows: at 70 of 100 health one is black and the other
+  nearly, and both are fully black from about 55 down. The skin pass paints them on the face, and they fade while a worm is thrown through the air. Blood and
   wounds stay thin over a bruise, so a black eye shows on a bloodied face.
 - **Throwing up**: a worm at a quarter of its health or less heaves now and then while it stands still: a stream of
   blood from its mouth for about a second, every 12 to 30 seconds, leaving a small stain in front of it.
@@ -216,8 +217,10 @@ four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0
   only while a worm wears blood, a wound, a bruise or a burn. It has a fixed full-screen cost of about 0.09 ms; the skin
   classifier, the new blood pattern and the black-eye ring add 7% (blood only) to 13% (blood, wounds and both eyes at once
   with the camera close) over the previous build in the harness at 1920x1080, which is 0.01 to 0.015 ms; at the usual
-  distance of play with every effect on it is 9.5% (0.111 to 0.122 ms). Most of a black eye's cost is ten screen taps that
-  find the whites of the eyes, about 0.018 ms at the harness's mid-range camera. A burn on a worm that fills the
+  distance of play with every effect on it is 9.5% (0.111 to 0.122 ms). Most of a black eye's cost is sixteen screen taps that
+  find the whites of the eyes and four that find a moustache, about 4% of the pass at the harness's mid-range camera (the
+  shell test and the silhouette test that keep ground and rock from taking skin's paint cost two depth taps for each pixel
+  that is skin by colour, and save more than that on a worm that fills the screen). A burn on a worm that fills the
   screen is about 9% more. This is at the limit of what was aimed for and has not been measured in a live match.
 - **Guts pass**: only on while a gutted worm is in view. About 0.16 to 0.18 ms at the usual zoom, and up to 0.4 ms with
   the camera right on top of the guts. A pass that only copies the screen takes about 0.05 ms of that.
