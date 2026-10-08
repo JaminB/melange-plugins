@@ -7,11 +7,15 @@
 // slot, by arithmetic that bloodsand's Lua repeats in woundSites), which open one after another as the wound
 // level rises. The eye level darkens the skin around the two eyes into purple-black bruises, one after the other. The gut
 // level tears a wide opening in the belly (at the azimuth from the facing direction). The scorch level burns cracked, charred
-// patches into the skin, fading out as it falls. The order on the skin is bruise, scorch, blood, then the openings. Sky is left alone and with every amount and level at 0 the output is the scene
-// unchanged.
+// patches into the skin, fading out as it falls. The order on the skin is bruise, scorch, blood, then the openings; the
+// blood and the openings stay thin over a bruise so a black eye shows through them. The eyes themselves (whatever on the
+// front of the face around them is not skin-coloured: the whites and the pupils) are kept clear of all of it, and above
+// the brow only skin-coloured pixels take anything, so a hat, a helmet or a pair of ears stays clean. Sky is left alone and
+// with every amount and level at 0 the output is the scene unchanged.
 //
-// An opening (a gash or the belly) is built in layers from the outside in: a rolled lip of torn skin that is lit from the
-// depth buffer's own normal and tilted by a profile, pink-red raw dermis, thin broken patches of pale fat on only part of
+// An opening (a gash or the belly) is built in layers from the outside in: a rolled lip of torn skin that is lit from a
+// smooth normal (the depth buffer's, blended with the body ellipsoid's so the mesh's facets do not show) and tilted by a
+// profile, pink-red raw dermis, thin broken patches of pale fat on only part of
 // the torn edge (no continuous band), dark wet muscle with fibres running across it, and a cavity that gets darker with
 // depth, with a film of blood over all of it. The layer boundaries wander on their own noise. The cavity is seen with parallax: the view direction, taken into the
 // opening's frame, shifts where the floor is seen, so the walls show on the near side and the floor slides as the camera
@@ -55,6 +59,10 @@ const float GUT_HH = 2.2;
 const float WOUND_HW = 0.60;
 const float WOUND_HH = 0.20;
 const float BODY_R = 5.6;
+// From HAT_Y0 to HAT_Y1 above the middle of the body (the brow) a pixel is as likely a hat, a helmet or a pair of ears as
+// the head, and above that only what has the colour of skin takes blood, wounds or burns.
+const float HAT_Y0 = 5.0;
+const float HAT_Y1 = 8.0;
 
 float Hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -265,7 +273,8 @@ float Opening(vec2 o, vec2 osz, vec3 Vf, vec3 Kf, vec3 Ff, vec3 Nf, vec3 qu, flo
         fatM = smoothstep(0.0, 0.05, fatHw - abs(qf));
         if (fatM > 0.0) {
             fatM *= smoothstep(0.3, 0.55, Noise2(vec2(phi * 2.6 + seed, qd * 11.0)) + 0.25 * (pc - 0.5)) * (0.4 + 0.6 * smoothstep(0.3, 0.6, pc));
-            vec3 fatCol = mix(vec3(0.88, 0.72, 0.42), vec3(0.95, 0.86, 0.64), pc) * (0.34 + 0.7 * lum);
+            // (Dimmer than the lit skin around it even in strong sun: a bright yellow line here read as a seam.)
+            vec3 fatCol = mix(vec3(0.84, 0.68, 0.46), vec3(0.9, 0.8, 0.64), pc) * (0.28 + 0.5 * lum);
             fatCol *= mix(vec3(1.0), tint * 0.9, 0.25);
             fatCol += vec3(1.0, 0.95, 0.8) * pow(max(dot(normalize(vec3((pb - 0.5) * 2.2, (pc - 0.5) * 2.2, 1.0)), Hk), 0.0), 40.0) * 0.3 * lum;
             c = mix(c, fatCol, fatM * 0.8);
@@ -357,6 +366,29 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
     float lum = dot(col, lumW);
     vec3 base = col;
 
+    // What the pixel shows. A worm's skin is red over green over blue: (r - g) / r is about 0.1 to 0.3 whatever the light
+    // (the desert sun turns it yellow, which raises (g - b) / g to 0.5, not (r - g)). An eye white, a pupil, a helmet or a
+    // grey cap has next to no red over green.
+    float mx = max(col.r, max(col.g, col.b));
+    float rg = (col.r - col.g) / max(mx, 1e-3);
+    float gb = (col.g - col.b) / max(mx, 1e-3);
+    float skinTone = smoothstep(0.05, 0.11, rg) * (1.0 - smoothstep(0.42, 0.55, rg))
+                   * smoothstep(-0.02, 0.05, gb) * (1.0 - smoothstep(0.62, 0.75, gb));
+    // Above the brow only skin takes anything.
+    mask *= mix(1.0, mix(0.06, 1.0, skinTone), smoothstep(HAT_Y0, HAT_Y1, qu.y));
+    if (mask <= 0.0) return;
+    // The eyes: on the front of the face, around the eyes, whatever is not skin-coloured (the whites, the pupils) is kept
+    // clear of blood and wounds, so the eyes still read as eyes on a bloodied face.
+    vec3 nWorld = n * mat3(mg_view);
+    float nf = nWorld.x * sh + nWorld.z * ch;
+    float eyeKeep = smoothstep(0.5, 2.5, qu.z) * smoothstep(0.0, 0.3, nf) * (1.0 - smoothstep(5.0, 7.5, abs(qu.y - EYE_Y)))
+                  * (1.0 - smoothstep(6.0, 8.5, abs(qu.x))) * (1.0 - smoothstep(0.07, 0.13, rg));
+    // The light falls on a smooth body: the depth buffer's normal is flat across each facet of the worm's mesh and jumps at
+    // its edges, so a highlight or a lit lip on it alone comes out as angular shards. Shading uses it blended with the
+    // body ellipsoid's own normal.
+    vec3 nE = mat3(mg_view) * normalize(vec3(L.x / (9.5 * 9.5), L.y / (16.0 * 16.0), L.z / (9.5 * 9.5)) + vec3(0.0, 1e-6, 0.0));
+    vec3 ns = normalize(mix(n, nE, 0.6));
+
     float cov = 0.0, core = 0.0, bruise = 0.0, socket = 0.0;
     vec2 oW = vec2(9.0);
     vec2 oG = vec2(9.0);
@@ -396,8 +428,6 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
             float first = clamp(eyeLevel / 0.5, 0.0, 1.0);
             float second = clamp((eyeLevel - 0.3) / 0.7, 0.0, 1.0);
             float lead = Hash(vec2(seed, 91.0)) < 0.5 ? 1.0 : -1.0;
-            vec3 nWorld = n * mat3(mg_view);
-            float nf = nWorld.x * sh + nWorld.z * ch;
             Eye(qu, nf, lead, first, mask, bruise, socket);
             Eye(qu, nf, -lead, second, mask, bruise, socket);
         }
@@ -426,22 +456,16 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
         }
     }
 
-    // Black eyes go on the skin first, so everything else sits on top of them. The bruise multiplies the scene toward
-    // purple-black, darker toward the socket, so the worm's shading and the eye's shape survive. Two kinds of pixel are
-    // mostly left alone. One is near-white (bright and unsaturated): the eye white, which keeps the eye reading as an eye.
-    // The other is anything not the colour of a worm's skin (red over green over blue, moderately saturated): the oval is
-    // laid on whatever is in front of the face, and a helmet or a cap should not look bruised.
+    // Black eyes go on the skin first. The bruise multiplies the scene toward purple-black, darker toward the socket, so the
+    // worm's shading and the eye's shape survive. The eye itself (eyeKeep) is mostly left alone, and so is anything not the
+    // colour of a worm's skin: the oval is laid on whatever is in front of the face, and a helmet or a cap should not look
+    // bruised. The blood and the openings painted after it stay thin over the bruise, so a black eye still shows on a
+    // bloodied face.
     if (bruise > 0.0) {
-        float mx = max(col.r, max(col.g, col.b));
-        float mn = min(col.r, min(col.g, col.b));
-        float white = smoothstep(0.6, 0.85, mn) * (1.0 - smoothstep(0.1, 0.3, mx - mn));
-        float rg = (col.r - col.g) / max(mx, 1e-3);
-        float gb = (col.g - col.b) / max(mx, 1e-3);
-        float skinTone = smoothstep(0.03, 0.1, rg) * (1.0 - smoothstep(0.38, 0.5, rg))
-                       * smoothstep(0.0, 0.06, gb) * (1.0 - smoothstep(0.38, 0.55, gb));
         vec3 skin = col * mix(vec3(0.62, 0.46, 0.66), vec3(0.16, 0.10, 0.20), socket);
-        col = mix(col, skin, bruise * (1.0 - 0.7 * white) * mix(0.2, 1.0, skinTone));
+        col = mix(col, skin, bruise * (1.0 - 0.8 * eyeKeep) * mix(0.2, 1.0, skinTone));
     }
+    float keep = max(0.92 * eyeKeep, 0.7 * bruise);
 
     // Scorching: burnt, charred flesh. Patches of blackened crust with a ragged edge, cracked into plates by fissures that
     // show dull dark red underneath, a browned, cooked rim round each patch, blistered here and there and with a slight dry
@@ -451,7 +475,7 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
         vec3 qs = qu + vec3(Hash(vec2(seed, 5.1)), Hash(vec2(seed, 9.7)), Hash(vec2(seed, 13.3))) * 40.0;
         float grain = Noise3(qs * 2.3);
         float f = 0.6 * Noise3(qs / 3.6) + 0.4 * Noise3(qs / 1.6 + 3.0) + 0.1 * clamp(L.y / 16.0, -1.0, 1.0) + 0.14 * (grain - 0.5);
-        float fade = smoothstep(0.0, 0.4, scorch);
+        float fade = smoothstep(0.0, 0.4, scorch) * (1.0 - 0.9 * eyeKeep);
         float thr = 0.46 + 0.14 * (1.0 - scorch);
         float charAmt = smoothstep(thr, thr + 0.05, f) * mask * fade;
         float rim = smoothstep(thr - 0.08, thr - 0.01, f) * (1.0 - smoothstep(thr, thr + 0.03, f)) * mask * fade;
@@ -476,7 +500,7 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
             fissure += vec3(0.7, 0.16, 0.03) * heat * flick * 0.22;
             // A dry sheen: a broad, weak highlight on a normal roughened by noise, so it breaks up across the plates.
             vec3 Ks = normalize(mat3(mg_view) * vec3(0.35, 0.85, 0.25));
-            vec3 Nb = normalize(n + 0.5 * vec3(grain - 0.5, fleck - 0.5, 0.5 - c3));
+            vec3 Nb = normalize(ns + 0.5 * vec3(grain - 0.5, fleck - 0.5, 0.5 - c3));
             float sheen = pow(max(dot(Nb, normalize(Ks - normalize(P))), 0.0), 22.0);
             vec3 burnt = mix(crust, fissure, crack * 0.92);
             burnt += vec3(0.8, 0.72, 0.68) * sheen * 0.14 * (1.0 - crack) * (0.4 + lum);
@@ -498,13 +522,15 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
         cov = max(cov, smoothstep(thr, thr + 0.08, field) * mask);
         core = max(core, smoothstep(thr + 0.15, thr + 0.3, field) * mask);
     }
+    cov *= 1.0 - keep;
+    core *= 1.0 - keep;
     if (cov > 0.0) {
         // Multiplying keeps the worm's shading and face: the blood stains the skin instead of covering it, and the core
         // goes darker and thicker than the rest.
         vec3 soaked = col * tint * mix(0.75, 0.38, core) + p_blood * 0.08 * (0.5 + core);
         vec3 Kv = normalize(vec3(0.35, 0.85, 0.25) * mat3(mg_view));
         vec3 Vv = normalize(-P);
-        float spec = pow(max(dot(n, normalize(Kv + Vv)), 0.0), 70.0);
+        float spec = pow(max(dot(ns, normalize(Kv + Vv)), 0.0), 50.0);
         float edge = cov * (1.0 - cov) * 4.0;
         float wet = (0.25 + 0.75 * core) * cov;
         soaked += vec3(1.0, 0.92, 0.9) * (spec * 0.7 * wet + edge * 0.06 * spec) * (0.4 + lum);
@@ -531,10 +557,10 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
         vec3 Vf = vec3(dot(Vl, a1), dot(Vl, a2), dot(Vl, sn));
         vec3 Kf = vec3(dot(Kl, a1), dot(Kl, a2), dot(Kl, sn));
         vec3 Ff = vec3(dot(Fl, a1), dot(Fl, a2), dot(Fl, sn));
-        vec3 Nw = n * mat3(mg_view);
+        vec3 Nw = ns * mat3(mg_view);
         vec3 Nloc = vec3(Nw.x * ch - Nw.z * sh, Nw.y, Nw.x * sh + Nw.z * ch);
         vec3 Nf = vec3(dot(Nloc, a1), dot(Nloc, a2), dot(Nloc, sn));
-        Opening(o, osz, Vf, Kf, Ff, Nf, qu, seed, useGut, lum, tint, mask, col);
+        Opening(o, osz, Vf, Kf, Ff, Nf, qu, seed, useGut, lum, tint, mask * (1.0 - max(0.95 * eyeKeep, 0.85 * bruise)), col);
     }
 }
 
@@ -548,19 +574,29 @@ vec3 ViewPos(vec2 uv) {
 // derivatives dFdx and dFdy would do for this, but a GPU takes them over blocks of 2 by 2 pixels: one normal for the whole
 // block, and a garbage one wherever the block straddles a silhouette. Here every pixel looks at its own neighbours and in
 // each direction takes the difference on the side where the depth changes less, so an edge of the worm is never differenced
-// across to the background. cover is 1 inside a surface and falls toward the silhouette, where a neighbour is much farther
-// away (the sky counts), by 0.45 for each such neighbour: about a pixel of anti-aliasing for what is painted on top.
-vec3 SurfaceNormal(vec3 P, out float cover) {
+// across to the background. cover is 1 inside a surface and falls toward the outer silhouette, where a neighbour is much
+// farther away and not part of the worm (the sky counts), by 0.45 for each such neighbour: about a pixel of anti-aliasing
+// for what is painted on top. An edge inside the worm (the eyes standing out of the face, the chin over the body, a fold)
+// has the worm behind it as well, so it is painted in full: lowering the cover there let the bare, lit skin show through
+// as a bright line along every such edge. Cv is the worm's centre in view space.
+float BodyE(vec3 Pv, vec3 Cv) {
+    vec3 L = (Pv - Cv) * mat3(mg_view);
+    return (L.x * L.x + L.z * L.z) / (9.5 * 9.5) + L.y * L.y / (16.0 * 16.0);
+}
+
+vec3 SurfaceNormal(vec3 P, vec3 Cv, out float cover) {
     vec2 t = mg_resolution.zw;
     vec3 Pr = ViewPos(mg_uv + vec2(t.x, 0.0));
     vec3 Pl = ViewPos(mg_uv - vec2(t.x, 0.0));
     vec3 Pu = ViewPos(mg_uv + vec2(0.0, t.y));
     vec3 Pd = ViewPos(mg_uv - vec2(0.0, t.y));
     // View space looks down -Z, so a farther neighbour has the smaller z. A jump of more than 2% of the distance (and a
-    // little) between neighbouring pixels is more than any surface at a grazing angle makes: it is an edge.
+    // little) between neighbouring pixels is more than any surface at a grazing angle makes: it is an edge. It is the
+    // outer silhouette when the farther neighbour is outside the body, or so far behind that it cannot be the body.
     float jump = 0.02 * -P.z + 0.3;
     vec4 dz = vec4(Pr.z, Pl.z, Pu.z, Pd.z) - P.z;
-    cover = clamp(1.0 - 0.45 * dot(vec4(1.0), step(jump, -dz)), 0.0, 1.0);
+    vec4 outside = max(step(0.95, vec4(BodyE(Pr, Cv), BodyE(Pl, Cv), BodyE(Pu, Cv), BodyE(Pd, Cv))), step(8.0, -dz));
+    cover = clamp(1.0 - 0.45 * dot(outside, step(jump, -dz)), 0.0, 1.0);
     vec3 dx = abs(dz.x) < abs(dz.y) ? Pr - P : P - Pl;
     vec3 dy = abs(dz.z) < abs(dz.w) ? Pu - P : P - Pd;
     vec3 n = cross(dx, dy);
@@ -626,7 +662,7 @@ void main() {
     }
 
     float cover;
-    vec3 n = SurfaceNormal(P, cover);
+    vec3 n = SurfaceNormal(P, (mg_view * vec4(wc, 1.0)).xyz, cover);
 
     vec3 col = scene.rgb;
     Worm(P, n, wc, wb, wex, wslot, wsc, col);
