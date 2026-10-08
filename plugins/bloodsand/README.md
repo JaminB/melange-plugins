@@ -92,7 +92,7 @@ shipped — no game file, or anything derived from one.
   three seconds. The fire punch sets it, and so does the preview.
 - **No stutter when an effect first runs**: Melange compiles a Post-FX effect the first time it is switched on, and the
   driver finishes the job on its first draw, which cost several milliseconds in the middle of the action. At the start of
-  the first match of a session Bloodsand switches each of its four effects on for two frames, one after the other, with
+  the first match of a session Bloodsand switches each of its four effects on for five frames, one after the other, with
   nothing to paint, so that this is over before anything is on the screen.
 - **Ground decals**: blood that reaches the terrain stays there. A droplet that hits the ground or a wall leaves a
   splat shaped by the way it came in (a round splat with satellite specks when it came down steeply, a teardrop
