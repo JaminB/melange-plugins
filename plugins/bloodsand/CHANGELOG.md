@@ -1,3 +1,10 @@
+## Unreleased
+
+Melee and weapon-specific blood sprays. The baseball bat, prod, fire punch, No more nails, concrete donkey,
+Fatkins, old woman, Scouser, ninja rope, shotgun, sniper rifle and poison arrow each get a recognisable spray of their
+own, falls splat into a pool, and the Preview menu item cycles through them. Uses the engine velocity of a worm when
+Melange reports one. New soft steam and smoke puffs and charred droplets.
+
 ## 1.1.3
 
 Runs on Melange 0.5. No other change.
