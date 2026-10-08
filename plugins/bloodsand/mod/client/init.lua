@@ -11,6 +11,8 @@
 -- bloodsand/guts (up to four worms), a chain simulated here and ray-marched there; all three are fed with
 -- wum.postfx.setTransient, which writes nothing to Melange.ini. The lens splatter is the bloodsand/lens post-FX effect, which
 -- runs before the HUD (only if it cannot run are the splat textures drawn at the "hud" stage instead).
+-- Gibs (meat, bone and organs thrown by deaths and very big hits) are the bloodsand/gibs post-FX effect, ray-marched, and are simulated in
+-- the == Gibs == section near the end of this file.
 
 if not (wum.draw and wum.draw.on and wum.game and wum.game.worms) then return end
 
@@ -71,6 +73,7 @@ local STREAK_MIN, STREAK_MAX = 3.5, 26  -- ...within these limits
 -- are cut at PUFF_CULL, fade in to PUFF_FADE and are held to PUFF_PX_MAX pixels in radius. Char and ash flakes (CHAR_STREAK of a
 -- droplet's stretch) never get more than the six-point shape.
 local DROP = { AGE_GAIN = 0.8, BODY = 0.72, FRINGE_PX = 1.1, FRINGE_ALPHA = 0.45, LOD2 = 3.5, LOD3 = 8,
+               JET_LEN = 0.021, JET_PX = 150,       -- a spurt's piece: its half length per unit of speed, and at most this many pixels
                GLINT_PX = 14, GLINT_SIZE = 2.0, BIG_MAX = 32, PX_MIN = 2, BOOST = 3, PX_MAX = 16, LEN_MAX = 70,
                NEAR_CULL = 12, NEAR_FADE = 34, PUFF_CULL = 20, PUFF_FADE = 60, PUFF_PX_MAX = 260, CHAR_STREAK = 0.45,
                -- with sprites (see Particle sprites): colour factors on the neutral textures, the puff alpha gain and the glint's
@@ -251,13 +254,15 @@ local LENS_ALPHA = 0.85
 
 local COLOURS = {
     red   = { droplet = { 0.62, 0.03, 0.03 }, mist = { 0.52, 0.02, 0.02 }, stain = { 0.42, 0.02, 0.02 },
-              lens = { 0.55, 0.02, 0.02 }, gut = { 0.86, 0.52, 0.54 }, gutDark = { 0.52, 0.20, 0.24 } },
+              lens = { 0.55, 0.02, 0.02 }, gut = { 0.86, 0.52, 0.54 }, gutDark = { 0.52, 0.20, 0.24 }, jet = { 0.50, 0.025, 0.03 } },
     green = { droplet = { 0.40, 0.80, 0.12 }, mist = { 0.24, 0.52, 0.06 }, stain = { 0.22, 0.48, 0.05 },
-              lens = { 0.32, 0.68, 0.08 }, gut = { 0.66, 0.72, 0.42 }, gutDark = { 0.30, 0.38, 0.14 } },
+              lens = { 0.32, 0.68, 0.08 }, gut = { 0.66, 0.72, 0.42 }, gutDark = { 0.30, 0.38, 0.14 }, jet = { 0.32, 0.64, 0.10 } },
 }
 
 local DROPLET, MIST = 1, 2
 local MEL = {}                -- the weapon sprays and the hit classification, in one table to spare locals
+local GIBS = {}               -- meat, bone and organs thrown by deaths and big hits (see == Gibs ==, near the end)
+local SP = {}                 -- the arterial spurts (see == Arterial spurts ==): tick, hit and preview
 
 local sqrt, random, floor, min, max, abs = math.sqrt, math.random, math.floor, math.min, math.max, math.abs
 local sin, cos, pi = math.sin, math.cos, math.pi
@@ -334,7 +339,7 @@ for i = 1, SKIN_SLOTS do
 end
 
 -- ---------------------------------------------------------------- ground decals
--- == Decals == 32 slots of splats (kind 1) and pools (kind 2), each on a surface of any orientation. A slot is two vec4
+-- == Decals == 32 slots of splats (kind 1), pools (kind 2) and trail pieces (kinds 3 and 4, see "Pools & trails" below), each on a surface of any orientation. A slot is two vec4
 -- params, "dNa" = (x, y, z, bound) and "dNb" = (normal, flow, birth, size-and-kind), packed as stains.frag documents.
 -- The Lua keeps the data and owns recycling: the one blood last landed in longest ago goes first (size counts for a little,
 -- so that the slots keep the latest splats of every size and not the biggest few), and a speck does not push out a pool.
@@ -353,6 +358,8 @@ local DECALS = { rayUsed = 0, rayOK = false, frame = 0, prevHeavy = 0, prevLight
 do
 local DS = { live = {}, x = {}, y = {}, z = {}, nx = {}, ny = {}, nz = {}, np = {}, r = {}, rt = {}, e = {}, phi = {},
              birth = {}, seed = {}, kind = {}, thick = {}, dirtyA = {}, dirtyB = {}, sentRq = {}, r0 = {}, t0 = {},
+             -- trail pieces (kinds 3 and 4): the allocation counter that tells a piece from the one that took its slot, the two ends, the length last sent
+             gen = {}, sx = {}, sy = {}, sz = {}, ex = {}, ey = {}, ez = {}, slen = {}, hold = {},
              -- the worms the shader keeps blood off (params "w0".."w15"): where each was last sent, and the frame it was last seen
              wx = {}, wy = {}, wz = {}, wlive = {}, wseen = {}, wtop = 0,
              -- the pools waiting to go down (placeStain): where, how big and when
@@ -365,7 +372,8 @@ end
 for i = 1, STAIN_SLOTS do
     DEC_A[i], DEC_B[i] = "d" .. (i - 1) .. "a", "d" .. (i - 1) .. "b"
     DS.live[i], DS.dirtyA[i], DS.dirtyB[i], DS.sentRq[i] = false, false, false, -1
-    for _, k in ipairs({ "x", "y", "z", "nx", "ny", "nz", "np", "r", "rt", "e", "phi", "birth", "seed", "kind", "thick", "r0", "t0" }) do
+    for _, k in ipairs({ "x", "y", "z", "nx", "ny", "nz", "np", "r", "rt", "e", "phi", "birth", "seed", "kind", "thick", "r0", "t0",
+                         "gen", "sx", "sy", "sz", "ex", "ey", "ez", "slen", "hold" }) do
         DS[k][i] = 0
     end
 end
@@ -457,6 +465,14 @@ local function decalSend(i)
         local bound
         if kind == 2 then
             bound = DEC.POOL_BOUND * rt
+        elseif kind >= 3 then
+            -- a trail piece: rt is its half-width and e its length, (half length - 2) / 20 (stains.frag, Streak). Its sphere is
+            -- made 35% wider than the piece needs: the shader keeps the three decals that hold a pixel deepest (the pixel's
+            -- distance to the middle over the sphere's radius), and a long piece, whose middle is far from most of its pixels,
+            -- would be the one left out wherever splats and pools crowd.
+            local lh = 2 + 20 * e
+            local hw = kind == 3 and 3.0 * rt + 2 or 1.4 * rt + 1.5
+            bound = (sqrt(lh * lh + hw * hw) + 1.5) * 1.35
         else
             bound = DEC.BOUND * rt * (1 + e)
             if isWall(DS.ny[i]) then bound = bound + DEC.RUN * rt end
@@ -467,7 +483,9 @@ local function decalSend(i)
     if DS.dirtyB[i] then
         local rq = min(1023, floor(DS.r[i] * 10 + 0.5))
         local flow = q12(DS.phi[i] / (2 * pi)) * 4096 + q12(e / 4)
-        local ts = rq * 16384 + (kind * 16 + DS.thick[i]) * 256 + DS.seed[i]
+        -- (the type takes two bits: a trail piece is type 3, its kind 3 or 4 the bit above its 3-bit thickness)
+        local tk = kind < 3 and kind * 16 + DS.thick[i] or 48 + (kind - 3) * 8 + min(7, DS.thick[i])
+        local ts = rq * 16384 + tk * 256 + DS.seed[i]
         sendVec4(STAINS, DEC_B[i], DS.np[i], flow, DS.birth[i], ts)
         DS.sentRq[i] = rq
         DS.dirtyB[i] = false
@@ -479,7 +497,10 @@ end
 -- ones kept are meant to be the latest ones, with all the sizes there were. A new decal is not put in the place of one
 -- that is under DEC.MIN_LIFE seconds old (a pool is).
 local function decalWeight(i)
-    return (0.3 + 2 * math.exp(-(fxClock - DS.birth[i]) / 25)) * (1 + 0.04 * min(DS.rt[i], 40)) * (DS.kind[i] == 2 and 1.6 or 1)
+    local w = (0.3 + 2 * math.exp(-(fxClock - DS.birth[i]) / 25)) * (1 + 0.04 * min(DS.rt[i], 40)) * (DS.kind[i] >= 2 and 1.6 or 1)
+    -- (a trail piece told to be held, a grave's smears, is worth three times as much until then)
+    if DS.kind[i] >= 3 and fxClock < DS.hold[i] then w = w * 3 end
+    return w
 end
 
 -- Puts a decal (kind 1 splat, 2 pool) with the blood landing at (hx, hy, hz) and its shape centred at (cx, cy, cz). A decal
@@ -490,7 +511,7 @@ local function decalAdd(kind, hx, hy, hz, cx, cy, cz, nx, ny, nz, r, e, phi, thi
     local best, bestD, bestReach
     for i = 1, STAIN_SLOTS do
         -- A pool only joins a pool; a splat joins either.
-        if DS.live[i] and (kind == 1 or DS.kind[i] == 2) and DS.nx[i] * qx + DS.ny[i] * qy + DS.nz[i] * qz > 0.85 then
+        if DS.live[i] and DS.kind[i] <= 2 and (kind == 1 or DS.kind[i] == 2) and DS.nx[i] * qx + DS.ny[i] * qy + DS.nz[i] * qz > 0.85 then
             local mx, my, mz = DS.nx[i], DS.ny[i], DS.nz[i]
             local dx, dy, dz = hx - DS.x[i], hy - DS.y[i], hz - DS.z[i]
             local h = dx * mx + dy * my + dz * mz
@@ -533,10 +554,23 @@ local function decalAdd(kind, hx, hy, hz, cx, cy, cz, nx, ny, nz, r, e, phi, thi
     end
     if not slot then
         local lowest
+        -- (A new splat does not push out a pool or a trail piece that is still worth DEC.KEEP or more: the spray of a worm that
+        -- spurts blood would otherwise wipe, within seconds, the pools and trails that same worm leaves. Only while there are not
+        -- more than DEC.KEEP_SLOTS of them, so that the spray always has room.)
+        local keep = DEC.KEEP
+        if kind == 1 then
+            local n = 0
+            for i = 1, STAIN_SLOTS do
+                if DS.kind[i] >= 2 then n = n + 1 end
+            end
+            if n > DEC.KEEP_SLOTS then keep = 1e9 end
+        else
+            keep = 1e9
+        end
         for i = 1, STAIN_SLOTS do
             if kind == 2 or fxClock - DS.t0[i] >= DEC.MIN_LIFE then
                 local w = decalWeight(i)
-                if not lowest or w < lowest then slot, lowest = i, w end
+                if (DS.kind[i] == 1 or w < keep) and (not lowest or w < lowest) then slot, lowest = i, w end
             end
         end
         -- Everything is too new, or a speck does not push out anything that is worth more than it.
@@ -550,6 +584,7 @@ local function decalAdd(kind, hx, hy, hz, cx, cy, cz, nx, ny, nz, r, e, phi, thi
     DS.nx[slot], DS.ny[slot], DS.nz[slot], DS.np[slot] = qx, qy, qz, np
     DS.rt[slot], DS.e[slot], DS.phi[slot], DS.kind[slot], DS.thick[slot], DS.r0[slot] = r, e, phi, kind, thick, r
     DS.t0[slot] = fxClock
+    DS.gen[slot] = DS.gen[slot] + 1
     DS.r[slot] = r * (kind == 2 and 0.15 or 0.6)
     DS.birth[slot] = fxClock
     DS.seed[slot] = random(0, 255)
@@ -596,6 +631,121 @@ local function decalSplat(x, y, z, nx, ny, nz, vx, vy, vz, size)
     return decalAdd(1, x, y, z, x + fx, y + fy, z + fz, nx, ny, nz, min(r, DEC.SPLAT_MAX), e, phi, thick)
 end
 
+-- == Pools & trails: decal support == trail pieces (kind 3: a dotted line of drips, kind 4: a smear) and growing pools.
+-- A piece is a straight strip on the surface from a start point along a unit direction, length len; the shader (stains.frag,
+-- Streak) draws it centred between the ends, its half-width being rt. Pieces never merge with anything, they count against
+-- a cap (the trail cap of the amount) and the oldest goes first, they are the first thing a splat can push out of a full set
+-- of slots, and a piece is told from the one that took its slot by its generation (gen).
+DEC.KEEP_SLOTS = 18             -- ... as long as pools and pieces take no more than this many of the slots
+DEC.KEEP = 1.0                  -- a splat cannot take the slot of a pool or a piece worth this much or more (see decalAdd)
+DEC.TRAIL_PUSH = 1.6            -- a piece pushes out a splat whose worth (decalWeight) is under this, when the slots are full
+DEC.TRAIL_SEND = 1.2            -- a piece's length is sent again when it grew this much
+
+-- Starts a piece at (sx, sy, sz) on a surface of unit normal (nx, ny, nz). kind 3 or 4; hw the half-width (the size of the
+-- drips for 3); thick 0..7 (the density of the drips for 3); cap the most pieces there may be. Returns the slot and its
+-- generation, or nil. Send it its direction and length with DECALS.trailSet at once. When every slot is in use it takes the
+-- place of the least valuable splat (the mirror of the rule in decalAdd: any splat older than DEC.MIN_LIFE while there are fewer
+-- pieces than cap and pools and pieces take no more than DEC.KEEP_SLOTS slots, so that a worm that spurts cannot keep its own
+-- trail from starting; else one worth under push, DEC.TRAIL_PUSH when not given), and it never takes the place of a piece unless
+-- the cap is reached, when it is the oldest piece. A piece that is held (hold seconds, when given) is neither counted against the cap
+-- nor taken, and other decals take its place less easily (decalWeight): a grave's smears are not a walker's trail to recycle.
+function DECALS.trailNew(kind, sx, sy, sz, nx, ny, nz, hw, thick, cap, push, hold)
+    local qx, qy, qz, np = quantNormal(nx, ny, nz)
+    local nTrail, nHeld, nPool, oldestU, oldestUT, free = 0, 0, 0, nil, nil, nil
+    for i = 1, STAIN_SLOTS do
+        if DS.live[i] then
+            local k = DS.kind[i]
+            if k >= 3 then
+                -- (a piece that is held, a grave's smear, is not counted against the cap: it is no walker's)
+                if fxClock >= DS.hold[i] then
+                    nTrail = nTrail + 1
+                    if not oldestU or DS.t0[i] < oldestUT then oldestU, oldestUT = i, DS.t0[i] end
+                else
+                    nHeld = nHeld + 1
+                end
+            elseif k == 2 then
+                nPool = nPool + 1
+            end
+        elseif not free then
+            free = i
+        end
+    end
+    local slot
+    if nTrail >= cap and oldestU then
+        slot = oldestU
+    elseif free then
+        slot = free
+        decCount = decCount + 1
+    else
+        local limit = push or DEC.TRAIL_PUSH
+        if nTrail < cap and nPool + nTrail + nHeld <= DEC.KEEP_SLOTS then limit = 1e9 end
+        local lowest
+        for i = 1, STAIN_SLOTS do
+            if DS.kind[i] == 1 and (push or fxClock - DS.t0[i] >= DEC.MIN_LIFE) then
+                local w = decalWeight(i)
+                if w < limit and (not lowest or w < lowest) then slot, lowest = i, w end
+            end
+        end
+        if not slot then return nil end
+    end
+    DS.live[slot] = true
+    DS.x[slot], DS.y[slot], DS.z[slot] = sx, sy, sz
+    DS.nx[slot], DS.ny[slot], DS.nz[slot], DS.np[slot] = qx, qy, qz, np
+    DS.rt[slot], DS.r[slot], DS.r0[slot], DS.e[slot], DS.phi[slot] = hw, hw, hw, 0, 0
+    DS.kind[slot], DS.thick[slot] = kind, max(0, min(7, thick))
+    DS.t0[slot], DS.birth[slot] = fxClock, fxClock
+    DS.gen[slot] = DS.gen[slot] + 1
+    DS.hold[slot] = fxClock + (hold or 0)
+    DS.seed[slot] = random(0, 255)
+    DS.sx[slot], DS.sy[slot], DS.sz[slot], DS.ex[slot], DS.ey[slot], DS.ez[slot], DS.slen[slot] = sx, sy, sz, sx, sy, sz, -100
+    DS.dirtyA[slot], DS.dirtyB[slot] = true, true
+    return slot, DS.gen[slot]
+end
+
+-- Is this still the piece it was (not recycled, not taken away by a crater)?
+function DECALS.trailAlive(slot, gen)
+    return DS.live[slot] and DS.gen[slot] == gen and DS.kind[slot] >= 3 or false
+end
+
+-- Sets the piece's start, unit direction and length (its length changes as a worm crawls on). Sent to the shader when the
+-- length changed by DEC.TRAIL_SEND, or when force is set (the piece is finished). The head end is fresh blood: the
+-- piece is wet again from now. Returns false when the piece is gone.
+function DECALS.trailSet(slot, gen, sx, sy, sz, dx, dy, dz, len, force)
+    if not (DS.live[slot] and DS.gen[slot] == gen and DS.kind[slot] >= 3) then return false end
+    if not force and abs(len - DS.slen[slot]) < DEC.TRAIL_SEND then return true end
+    local lh = max(2, len * 0.5)
+    local tx, ty, tz, bx, by, bz = tangentFrame(DS.nx[slot], DS.ny[slot], DS.nz[slot])
+    DS.phi[slot] = math.atan(dx * bx + dy * by + dz * bz, dx * tx + dy * ty + dz * tz) % (2 * pi)
+    DS.e[slot] = min(4, (lh - 2) / 20)
+    DS.x[slot], DS.y[slot], DS.z[slot] = sx + dx * lh, sy + dy * lh, sz + dz * lh
+    DS.sx[slot], DS.sy[slot], DS.sz[slot] = sx, sy, sz
+    DS.ex[slot], DS.ey[slot], DS.ez[slot] = sx + dx * len, sy + dy * len, sz + dz * len
+    DS.slen[slot] = len
+    DS.birth[slot] = fxClock
+    DS.dirtyA[slot], DS.dirtyB[slot] = true, true
+    return true
+end
+
+-- The generation of a pool in this slot, to give back to poolGrow (nil when the slot is not a pool).
+function DECALS.poolKey(slot)
+    if slot and DS.live[slot] and DS.kind[slot] == 2 then return DS.gen[slot] end
+end
+
+-- Makes a pool at least radius r (it spreads there as pools do), and with fresh keeps it wet. False when it is gone.
+function DECALS.poolGrow(slot, key, r, fresh)
+    if not (DS.live[slot] and DS.kind[slot] == 2 and DS.gen[slot] == key) then return false end
+    r = min(DEC.POOL_MAX, r)
+    if r > DS.rt[slot] then
+        DS.rt[slot] = r
+        DS.dirtyA[slot] = true
+    end
+    if fresh and fxClock - DS.birth[slot] > 1 then
+        DS.birth[slot] = fxClock
+        DS.dirtyB[slot] = true
+    end
+    return true
+end
+
 -- Frame step of the decals: advances the clock the shader dries them by, spreads the new ones out, sends what changed.
 -- The shader skips the slots above this one without looking at them.
 local function sendCount()
@@ -607,14 +757,15 @@ local function sendCount()
 end
 
 -- Tells the stains pass where the living worms are, so that blood does not land on them (see stains.frag): the middle of
--- each body, sent again when it moved WORM_SEND, and zeros for the slots that are gone. `slots` is the plugin's table of
+-- each body, sent again when it moved WORM_SEND, and zeros for the slots that are gone. A dead worm the game still lists is
+-- its grave, which stands where it died, in its pool: it keeps the volume, so the stone is not painted. `slots` is the plugin's table of
 -- tracked worms and `frameId` the frame they were seen in.
 local function sendWorms(slots, frameId)
     local top = 0
     local mv = DEC.WORM_SEND
     for slot, s in pairs(slots) do
         local i = slot + 1
-        if s.seen == frameId and s.alive and not s.dead and i >= 1 and i <= SKIN_SLOTS then
+        if s.seen == frameId and (s.alive or s.dead) and i >= 1 and i <= SKIN_SLOTS then
             local x, y, z = s.px, s.py + CENTRE_Y, s.pz
             DS.wseen[i] = frameId
             if i > top then top = i end
@@ -787,19 +938,42 @@ function placeStain(x, y, z, radius)
     DS.ln = n
 end
 
--- An explosion at (x, y, z) that digs a crater of radius landR: the decals whose middle is in it go.
+-- An explosion at (x, y, z) that digs a crater of radius landR: the decals whose middle is in it go, and so does a pool that
+-- reaches well into it (its middle within half its radius of the crater's edge). A pool that stayed was cut by its own plane
+-- into a ring round the new hole (a worm's death left its pool as a ring round its crater); its blood runs down into the
+-- crater instead: one pool of the same area goes down at the middle a moment later (placeStain), on the crater's floor.
 function DECALS.blast(x, y, z, landR)
     if not landR or landR <= 0 then return end
     local r = landR * DEC.BLAST_K
+    local spilt = 0
     for i = 1, STAIN_SLOTS do
         if DS.live[i] then
             local dx, dy, dz = DS.x[i] - x, DS.y[i] - y, DS.z[i] - z
-            if dx * dx + dy * dy + dz * dz < r * r then
+            local d2 = dx * dx + dy * dy + dz * dz
+            local hit = d2 < r * r
+            if DS.kind[i] == 2 then
+                local pr = max(DS.r[i], DS.rt[i])
+                local reach = r + 0.5 * pr
+                if hit or d2 < reach * reach then
+                    hit = true
+                    spilt = spilt + pr * pr
+                end
+            elseif not hit and DS.kind[i] >= 3 then
+                -- a trail piece goes when either end is in the crater
+                dx, dy, dz = DS.sx[i] - x, DS.sy[i] - y, DS.sz[i] - z
+                hit = dx * dx + dy * dy + dz * dz < r * r
+                if not hit then
+                    dx, dy, dz = DS.ex[i] - x, DS.ey[i] - y, DS.ez[i] - z
+                    hit = dx * dx + dy * dy + dz * dz < r * r
+                end
+            end
+            if hit then
                 DS.live[i], DS.dirtyA[i] = false, true
                 decCount = decCount - 1
             end
         end
     end
+    if spilt > 0 then placeStain(x, y, z, min(DEC.POOL_MAX, sqrt(spilt))) end
 end
 
 DECALS.cast, DECALS.splat = castRay, decalSplat
@@ -1030,7 +1204,7 @@ end
 -- "worldLate" callback raises (simulate runs inside onWorld only); a zero axis is a round billboard of 2*halfW that ignores halfL;
 -- a non-zero axis with halfL 0 draws nothing (halfL here is always above zero); v = 0, the PNG's top row, is the tail at
 -- centre - axis*halfL; sprites of all mods are sorted by depth, so textures that alternate in depth cost a draw call each (the
--- sets are kept small: 2 droplet, 4 clot, 3 mist, 2 steam, 2 char, 1 spark); a mod may draw 4096 a frame and past that the call
+-- sets are kept small: 2 droplet, 4 clot, 3 mist, 2 steam, 2 char, 1 jet, 1 spark); a mod may draw 4096 a frame and past that the call
 -- returns false (about 500 are drawn).
 function DROP.load()
     DROP.TK, DROP.RC, DROP.RS = nil, nil, nil
@@ -1046,6 +1220,8 @@ function DROP.load()
     end
     local TK = {}
     TK[DROPLET], TK[MIST], TK[MEL.STEAM], TK[MEL.CHAR], TK[MEL.CLOT] = set("drop", 2), set("mist", 3), set("steam", 2), set("char", 2), set("clot", 4)
+    local jet = set("jet", 1)
+    TK[MEL.SPURT], TK[MEL.BEAD] = jet, jet
     local glint = set("glint", 1)
     TK.glint = glint and glint[1] or false
     if not (TK[DROPLET] or TK[MIST] or TK[MEL.STEAM] or TK[MEL.CHAR] or TK[MEL.CLOT]) then return end
@@ -1078,6 +1254,7 @@ local function simulate(dt)
     local draw = CAM.ok
     local KP, KD, KG, KGROW, KFADE = MEL.KP, MEL.KD, MEL.KG, MEL.KGROW, MEL.KFADE
     local CLOTK, CHARK = MEL.CLOT, MEL.CHAR       -- heavy clots from the melee sprays collide like droplets; steam and char do not
+    local SPURTK, BEADK = MEL.SPURT, MEL.BEAD     -- the pieces and the beads of an arterial spurt: they collide too
     local PD, focal = P.shape, CAM.focal
     local TK, SPR, RC, RS, col = DROP.TK, wum.draw.sprite, DROP.RC, DROP.RS, quadColour
     local SPR_BODY, CLOT_TINT, CHAR_TINT, PUFF_GAIN = DROP.SPR_BODY, DROP.CLOT_TINT, DROP.CHAR_TINT, DROP.PUFF_GAIN
@@ -1121,7 +1298,7 @@ local function simulate(dt)
             local x, y, z = ox + vx * dt, oy + vy * dt, oz + vz * dt
             px[i], py[i], pz[i] = x, y, z
             local hit = false
-            if collide and (kd == DROPLET or kd == CLOTK) then
+            if collide and (kd == DROPLET or kd == CLOTK or kd == SPURTK or kd == BEADK) then
                 if first then
                     plx[i], ply[i], plz[i], pph[i], plt[i] = ox, oy, oz, random(0, 255), tnow
                 end
@@ -1236,6 +1413,28 @@ local function simulate(dt)
                                 local hw = size * 0.64
                                 col.r, col.g, col.b, col.a = min(1, pr[i] * CLOT_TINT), min(1, pg[i] * CLOT_TINT), min(1, pb[i] * CLOT_TINT), a
                                 SPR(tl[sd % 4 + 1], x, y, z, hw, hw * (1 + min(0.7, sp * 0.0025)), ex, ey, ez, col, "alpha")
+                            elseif kd == SPURTK or kd == BEADK then
+                                -- A piece of a pressurised stream: a thin tube along the velocity, as long as the distance it covers in a
+                                -- 25th of a second, closer together than its length so that the pieces make one stream. It thins as it
+                                -- ages and shortens, the older ones sooner (by a share the particle's seed picks), so that the far end of
+                                -- the stream breaks up into beads. A bead (a drop of a spurt) is a short one from the start.
+                                local sdn = (pph[i] % 8) * 0.125
+                                -- (It keeps most of its width and length for the first third of a second, so that neighbours overlap end
+                                -- to end and read as one rope of blood; only the far end beads.)
+                                local th = min(1, max(0, (age - 0.12) * 2.4))
+                                th = th * th * (3 - 2 * th)
+                                local hw = size * 0.5 * (1 - 0.35 * th)
+                                local hl
+                                if kd == BEADK then
+                                    hl = max(hw * 1.5, sp * 0.007)
+                                else
+                                    local sh = min(1, max(0, (age - 0.22 - 0.22 * sdn) * 3.2))
+                                    sh = sh * sh * (3 - 2 * sh)
+                                    hl = min(sp * DROP.JET_LEN, DROP.JET_PX / ppu) * (1 - 0.6 * sh)
+                                    if hl < hw * 1.5 then hl = hw * 1.5 end
+                                end
+                                col.r, col.g, col.b, col.a = pr[i], pg[i], pb[i], a
+                                SPR(tl[1], x, y, z, hw, hl, ex, ey, ez, col, "alpha")
                             elseif kd == CHARK then
                                 -- a dry fleck that tumbles: hardly stretched
                                 local hw = size * 0.62
@@ -1536,7 +1735,7 @@ end
 for k, v in pairs({
     VEL_SCALE = 1,              -- engine velocity (the vel of wum.game.worms(), units per second in Melange 0.6) times this
     VEL_SAMPLE = 60, VEL_SAMPLE_EV = 15,   -- the scale is checked only for a worm moving faster than the first by its position and the second by its velocity
-    STEAM = 3, CHAR = 4, CLOT = 5,                  -- particle kinds after DROPLET and MIST
+    STEAM = 3, CHAR = 4, CLOT = 5, SPURT = 6, BEAD = 7,   -- particle kinds after DROPLET and MIST
     KG = {}, KD = {}, KP = {}, KGROW = {}, KFADE = {},  -- per kind: gravity multiple, drag per second, puff, growth, fade-in
     SIG = {},                   -- weapon id -> signature
     far = 0, sizeMul = 1,       -- how far from the camera the burst being sprayed is (0..1) and the droplet size factor that goes with it
@@ -1557,6 +1756,8 @@ do
         [STEAM] = { g = -0.4, drag = 1.3, puff = true, grow = 2.8, fade = 5 },
         [CHAR] = { g = 0.5, drag = 2.2, puff = false },     -- light flakes: they slow down and flutter down, not fly like drops
         [CLOT] = { g = 1.5, drag = 0.25, puff = false },
+        [MEL.SPURT] = { g = 1, drag = 0.35, puff = false },     -- a spurt's pieces fly farther than droplets do
+        [MEL.BEAD] = { g = 1, drag = 0.5, puff = false },
     }
     for k, d in pairs(KIND) do
         MEL.KG[k], MEL.KD[k], MEL.KP[k], MEL.KGROW[k], MEL.KFADE[k] = d.g, d.drag, d.puff, d.grow or 1, d.fade or 0
@@ -2181,6 +2382,8 @@ local function burst(s, damage, dx, dy, dz, death, sig)
         requestStain(s, death and STAIN_DEATH or min(STAIN_MAX, STAIN_BASE + damage * STAIN_PER_DAMAGE))
     end
     VIS.spillGut(s, damage)
+    GIBS.onBurst(s, damage, dx, dy, dz, death)
+    if not death then SP.hit(s, damage) end
     addLens(s, damage, death)
 end
 
@@ -2663,17 +2866,37 @@ local function siteDir(seed, k)
     local a0, b0 = fract(seed * 0.7548777), fract(seed * 0.5698403)
     local sa = 0.55 + 0.2 * fract(seed * 0.1234567 + 0.3)
     local sb = 0.30 + 0.2 * fract(seed * 0.2718282 + 0.6)
-    return 6.2831853 * fract(a0 + k * sa), -0.35 + 1.1 * fract(b0 + k * sb)
+    return 6.2831853 * fract(a0 + k * sa), -0.6 + 0.7 * fract(b0 + k * sb)
 end
 
 local BODY_RX, BODY_RY = 5.6, 12.5  -- the body's radius and half-height, for a point on its surface from a direction
+local SH_RX, SH_RY = 9.5, 16        -- skin.frag's ellipsoid for the direction of a point (en = qu / (9.5, 16, 9.5))
+local GUT_R, GUT_Y = 5.5, -6.5      -- skin.frag's belly cylinder: its radius and its height above the body's middle
 
 -- woundSites(slot[, out]): fills out (a table the caller keeps and reuses; one is made when nil) with the open wound sites
 -- of the worm in this slot, in world units: out[i] = { x, y, z, nx, ny, nz, open, gut }, where (x, y, z) is on the body,
 -- (nx, ny, nz) is the outward unit normal, open is how open the wound is (0..1) and gut is true for the belly opening.
 -- Returns n, out: the count (entries past n are stale) and the table. Returns 0, out for a slot that is not tracked or dead.
--- Cheap, and nothing calls it yet.
-local function sitesOf(slot, out)
+-- The point is where skin.frag draws the gash: the shader puts gash k on the ray from the body's middle in direction s (SiteDir)
+-- of its ellipsoid-normalised space qu / (SH_RX, SH_RY, SH_RX), so the point is that ray meeting the body (BODY_RX, BODY_RY),
+-- not the body's point of the same unit direction (which is up to 0.14 of a unit direction off at the upper sites). The belly
+-- opening is on the shader's cylinder: radius GUT_R, GUT_Y above the middle (sites_check.lua in the tooling compares both).
+local sitesOf
+do
+-- (Hoisted out of sitesOf so that no closure is made per call: this runs every frame for every spurting worm.)
+local function sitePut(out, n, px, py, pz, ch, sh, qx, qy, qz, mx, my, mz, open, gut)
+    n = n + 1
+    local e = out[n]
+    if not e then
+        e = {}
+        out[n] = e
+    end
+    e.x, e.y, e.z = px + qx * ch + qz * sh, py + qy, pz - qx * sh + qz * ch
+    e.nx, e.ny, e.nz = mx * ch + mz * sh, my, -mx * sh + mz * ch
+    e.open, e.gut = open, gut
+    return n
+end
+function sitesOf(slot, out)
     out = out or {}
     local s = slots[slot]
     if not s or not s.alive then return 0, out end
@@ -2682,37 +2905,30 @@ local function sitesOf(slot, out)
     local H = s.heading
     local ch, sh = cos(H), sin(H)
     local px, py, pz = s.px, s.py + CENTRE_Y, s.pz
-    local function put(lx, ly, lz, open, gut)
-        -- A local direction (the worm faces +Z) to the world: the inverse of the shader's rotation about Y.
-        n = n + 1
-        local e = out[n]
-        if not e then
-            e = {}
-            out[n] = e
-        end
-        local wx, wz = lx * ch + lz * sh, -lx * sh + lz * ch
-        local nx, ny, nz = lx / BODY_RX, ly / BODY_RY, lz / BODY_RX
-        local nl = sqrt(nx * nx + ny * ny + nz * nz)
-        if nl < 1e-6 then nl = 1 end
-        local nwx, nwz = (nx * ch + nz * sh) / nl, (-nx * sh + nz * ch) / nl
-        e.x, e.y, e.z = px + wx * BODY_RX, py + ly * BODY_RY, pz + wz * BODY_RX
-        e.nx, e.ny, e.nz = nwx, ny / nl, nwz
-        e.open, e.gut = open, gut
-    end
+    -- (sitePut puts a point (qx, qy, qz) and unit normal (mx, my, mz) in the worm's frame, which faces +Z, into the world: the
+    -- inverse of the shader's rotation about Y.)
     for k = 0, 4 do
         local o = (s.wound - k / 5) * 5
         if o > 0 then
             if o > 1 then o = 1 end
             local az, elev = siteDir(seed, k)
             local ce = cos(elev)
-            put(cos(az) * ce, sin(elev), sin(az) * ce, o, false)
+            local lx, ly, lz = cos(az) * ce, sin(elev), sin(az) * ce
+            -- the ray in the direction (SH_RX lx, SH_RY ly, SH_RX lz) meets the body ellipsoid at t times that
+            local ax, ay = SH_RX / BODY_RX, SH_RY / BODY_RY
+            local t = 1 / sqrt(ax * ax * (lx * lx + lz * lz) + ay * ay * ly * ly)
+            local qx, qy, qz = lx * SH_RX * t, ly * SH_RY * t, lz * SH_RX * t
+            local mx, my, mz = qx / (BODY_RX * BODY_RX), qy / (BODY_RY * BODY_RY), qz / (BODY_RX * BODY_RX)
+            local ml = sqrt(mx * mx + my * my + mz * mz)
+            n = sitePut(out, n, px, py, pz, ch, sh, qx, qy, qz, mx / ml, my / ml, mz / ml, o, false)
         end
     end
     if s.gut > 0 then
         local a = s.gutAz
-        put(sin(a) * 0.917, -0.4, cos(a) * 0.917, min(1, 0.4 + s.gut * 0.6), true)
+        n = sitePut(out, n, px, py, pz, ch, sh, sin(a) * GUT_R, GUT_Y, cos(a) * GUT_R, sin(a), 0, cos(a), min(1, 0.4 + s.gut * 0.6), true)
     end
     return n, out
+end
 end
 
 -- Per-slot gut state. The arrays are made once and reused.
@@ -3413,6 +3629,406 @@ local function updateVomit(s, dt)
     if s.vomitAcc > 2 then s.vomitAcc = 0 end
 end
 
+-- == Pools & trails ============================================================================================
+-- A worm below two thirds of its health leaves a trail of blood drips as it walks, and below a quarter a smear where it drags
+-- itself; a worm that is dying, or hurt and lying still, grows a pool under it over several seconds; and the gravestone
+-- ends up in a pool with smears and spatter around it. All of it is decals (see "== Decals ==": trail pieces of kinds 3
+-- and 4, which a worm extends step by step so that a trail costs a slot per 30 to 50 units and not one per step, and
+-- DECALS.poolGrow). It follows the setting "Pools & trails" (cfg.pools) and needs "Blood on the ground". Without landRay the
+-- ground is a plane at the worm's feet. The game's CreateGravestoneMessage has no decoder in Melange (its payload is empty and
+-- it says nowhere the stone lands), so the grave is where the worm was last seen, after the death explosion.
+local PT = {}
+do
+local PTC = {
+    DRIP_FRAC = 2 / 3,          -- a worm below this share of its health drips as it walks...
+    SMEAR_FRAC = 0.25,          -- ...and below this one drags a smear
+    POOL_FRAC = 0.3,            -- a worm this hurt that lies still grows a pool
+    STEP = 2.5,                 -- the trail is extended each time the worm has moved this far
+    MOVE_MIN = 10, MOVE_MAX = 170, RISE_MAX = 80,   -- a worm walking or crawling: horizontal speed in this window, hardly any vertical speed
+    LAT_TOL = 1.4,              -- a trail piece is straight: a point further than this off its line starts a new piece
+    FIT_LEN = 12,               -- ...once it is this long; until then its line follows the worm
+    MAX_LEN = { 54, 64 },       -- the longest a piece of drips and a piece of smear grow (the shader reaches 82 each way)
+    OVERLAP = 12,               -- a smear piece starts this far back on the one before it (when the worm went straight on), so that the two make one stripe
+    RUN_OUT = 520, RUN_THIN = 0.4,   -- a smear thins by this share over this many units dragged since the last hit (the blood runs out)
+    BREAK_P = 0.07, BREAK_LEN = { 4, 8 },   -- the chance that a new smear piece is laid after a gap, and the gap's length
+    GAP_MAX = 14,               -- a step longer than this was a jump, not a walk
+    STILL_SECS = 1.5, STILL_SPEED = 15, POOL_SAME = 10,
+    GROW_SECS = 8,              -- a pool under a hurt worm spreads to its size in about this long...
+    DYING_SECS = 6,             -- ...a dying worm's in this
+    DYING_POOL = { 15, 20 },    -- radii, at Heavy
+    GRAVE_DELAY = 1.1, GRAVE_POOL = 16, GRAVE_SECS = 5, GRAVE_HOLD = 8,
+    GROW_MAX = 12, GRAVE_MAX = 4,
+    CALM_VY = 30, CALM_SECS = 0.4,   -- without landRay: a vertical speed over this is a worm off the ground; calm this long puts it back
+}
+-- Per amount: the most trail pieces there may be (of the 32 slots), the pool size, trail width and drip density factors, the smears
+-- around a grave and the specks of spatter.
+local LEVEL = {
+    light  = { cap = 5,  pool = 0.7, width = 0.85, dens = 0.8,  smears = 2, splats = 3 },
+    heavy  = { cap = 8,  pool = 1.0, width = 1.0,  dens = 1.0,  smears = 3, splats = 6 },
+    absurd = { cap = 12, pool = 1.5, width = 1.25, dens = 1.25, smears = 5, splats = 11 },
+}
+local grow, graves = {}, {}      -- the pools that are spreading, and the graves waiting for their pool
+
+local function level() return LEVEL[cfg.amount] or LEVEL.heavy end
+
+local function active()
+    return cfg.pools and cfg.stains and hasPostfx and preset and not STAINS.failed
+end
+
+-- The tangent frame of stains.frag (the Lua twin of tangentFrame in the decals section): T along the surface, B across.
+local function tframe(nx, ny, nz)
+    local rx, ry, rz = 0, 1, 0
+    if abs(ny) > 0.9 then rx, ry, rz = 1, 0, 0 end
+    local tx, ty, tz = ry * nz - rz * ny, rz * nx - rx * nz, rx * ny - ry * nx
+    local l = sqrt(tx * tx + ty * ty + tz * tz)
+    if l < 1e-6 then return 1, 0, 0, 0, 0, 1 end
+    tx, ty, tz = tx / l, ty / l, tz / l
+    return tx, ty, tz, ny * tz - nz * ty, nz * tx - nx * tz, nx * ty - ny * tx
+end
+
+-- The ground under (x, y, z): its height and unit normal, found from up units above to down units below with a ray; nil for none
+-- (or a wall), false when the frame's rays are spent (ask again next frame). Without landRay it is the plane at y.
+local function groundAt(x, y, z, up, down)
+    if not DECALS.rayOK then return y, 0, 1, 0 end
+    local t, nx, ny, nz = DECALS.cast(x, y + up, z, x, y - down, z, true)
+    if t then
+        if ny < 0.5 then return nil end
+        return y + up - (up + down) * t, nx, ny, nz
+    end
+    if nx == "budget" then return false end
+    if nx == "unavailable" then return y, 0, 1, 0 end
+    return nil
+end
+
+-- ------------------------------------------------------------------ pools
+local function addGrower(slot, r0, r1, secs, fresh)
+    local key = DECALS.poolKey(slot)
+    if not key then return nil end
+    if #grow >= PTC.GROW_MAX then
+        grow[1].done = true
+        table.remove(grow, 1)
+    end
+    local g = { slot = slot, key = key, t0 = now, secs = secs, r0 = r0, r1 = r1, cur = r0, fresh = fresh }
+    grow[#grow + 1] = g
+    return g
+end
+
+-- A pool at (x, y, z) that grows from radius r0 to r1 in secs (and stays wet while it does). The worm's state st remembers it, so
+-- that a worm that goes on lying there (or starts dying there) makes the same pool bigger and does not start another.
+local function startPool(st, x, y, z, r0, r1, secs, fresh)
+    local g = st.grow
+    if g and (g.x - x) * (g.x - x) + (g.z - z) * (g.z - z) < PTC.POOL_SAME * PTC.POOL_SAME and DECALS.poolKey(g.slot) == g.key then
+        g.r0, g.t0, g.secs, g.r1, g.fresh = g.cur, now, secs, max(g.r1, r1), fresh
+        if g.done then
+            g.done = nil
+            if #grow >= PTC.GROW_MAX then
+                grow[1].done = true
+                table.remove(grow, 1)
+            end
+            grow[#grow + 1] = g
+        end
+        return
+    end
+    local slot = requestPool(x, y, z, r0 / 0.9)
+    if not slot then return end
+    g = addGrower(slot, r0, r1, secs, fresh)
+    if g then
+        g.x, g.z = x, z
+        st.grow = g
+    end
+end
+
+-- ------------------------------------------------------------------ trails
+-- Sends the worm's piece with its true length now (growing pieces are throttled); closePiece also lets go of it, so that the
+-- worm starts another next time, where flush leaves it to go on with the same one.
+local function flush(st)
+    if st.slot then DECALS.trailSet(st.slot, st.gen, st.sx, st.sy, st.sz, st.dx, st.dy, st.dz, st.len, true) end
+    st.flushed = true
+end
+
+local function closePiece(st)
+    flush(st)
+    if st.slot then
+        -- (what the next piece needs to join on to this one)
+        st.pmode, st.pdx, st.pdy, st.pdz = st.mode, st.dx, st.dy, st.dz
+        st.phx, st.phy, st.phz, st.plen = st.sx + st.dx * st.len, st.sy + st.dy * st.len, st.sz + st.dz * st.len, st.len
+    end
+    st.slot = nil
+end
+
+-- A step of the worm's trail: it is now at (gx, gy, gz) on a surface of unit normal (nx, ny, nz), and was at (st.lx, st.ly, st.lz)
+-- the step before. The piece it is on (mode 3 drips, 4 smear) is lengthened along its line, or a new one started from the last point
+-- when the worm turned, went back, outgrew the piece, changed from drips to a smear, or the piece was recycled.
+local function extend(st, mode, gx, gy, gz, nx, ny, nz, frac, L)
+    local maxLen = PTC.MAX_LEN[mode - 2]
+    for _ = 1, 2 do
+        if st.slot and (st.mode ~= mode or not DECALS.trailAlive(st.slot, st.gen)) then st.slot = nil end
+        if not st.slot then
+            local sx, sy, sz = st.lx, st.ly, st.lz
+            if not sx then return end
+            local vx, vy, vz = gx - sx, gy - sy, gz - sz
+            local vl = sqrt(vx * vx + vy * vy + vz * vz)
+            if vl < 1 or vl > PTC.GAP_MAX then return end
+            if st.skip then
+                -- a gap in the smear (the worm's body came off the ground for a moment): nothing is laid until it is crossed
+                st.skip = st.skip - vl
+                if st.skip > 0 then return end
+                st.skip = nil
+            end
+            local hw, thick
+            if mode == 3 then
+                local sev = min(1, (PTC.DRIP_FRAC - frac) / (PTC.DRIP_FRAC - PTC.SMEAR_FRAC))
+                hw = rnd(2.8, 3.8) * L.width
+                thick = max(0, min(7, floor((2 + 5 * sev) * L.dens + 0.5)))
+            else
+                local sev = min(1, 1 - frac / PTC.SMEAR_FRAC)
+                -- the blood runs out along a drag, and a hit gives fresh (st.run is back to 0): the stripe thins and dries
+                local u = min(1, (st.run or 0) / PTC.RUN_OUT)
+                local sup = 1 - PTC.RUN_THIN * u * u * (3 - 2 * u)
+                hw = (4.0 + 1.5 * sev) * L.width * rnd(0.92, 1.08) * sup
+                thick = max(1, min(7, 3 + floor(4 * sev * sup + 0.5)))
+                if st.pmode == 4 and (st.run or 0) > 30 and random() < PTC.BREAK_P then
+                    -- now and then the stripe is broken: a gap of the worm's own length
+                    st.skip = rnd(PTC.BREAK_LEN[1], PTC.BREAK_LEN[2])
+                    st.pmode = nil
+                    return
+                end
+            end
+            -- A smear piece starts a little way back on the one before it when the worm went on in about the same direction, so that
+            -- the two overlap and the stripe has no narrow neck between them.
+            if st.pmode == mode and mode == 4 and (vx * st.pdx + vy * st.pdy + vz * st.pdz) / vl > 0.9 then
+                -- (from the end of the piece it follows, so that a wait for a free slot does not shorten the overlap)
+                local ov = min(PTC.OVERLAP, st.plen * 0.8)
+                local hx, hy, hz = st.phx - st.pdx * ov, st.phy - st.pdy * ov, st.phz - st.pdz * ov
+                local ex, ey, ez = gx - hx, gy - hy, gz - hz
+                local el = sqrt(ex * ex + ey * ey + ez * ez)
+                if el < PTC.OVERLAP + 3 * PTC.GAP_MAX then
+                    sx, sy, sz, vx, vy, vz, vl = hx, hy, hz, ex, ey, ez, el
+                end
+            end
+            -- (a trail that goes on takes the place of a splat of any age, whatever else is crowding the slots)
+            local slot, gen = DECALS.trailNew(mode, sx, sy, sz, nx, ny, nz, hw, thick, L.cap, DEC.TRAIL_PUSH)
+            if not slot then return end
+            st.pmode = nil
+            st.slot, st.gen, st.mode, st.len = slot, gen, mode, 0
+            st.sx, st.sy, st.sz = sx, sy, sz
+            st.dx, st.dy, st.dz = vx / vl, vy / vl, vz / vl
+        end
+        local vx, vy, vz = gx - st.sx, gy - st.sy, gz - st.sz
+        local vl2 = vx * vx + vy * vy + vz * vz
+        local t = vx * st.dx + vy * st.dy + vz * st.dz
+        if st.len < PTC.FIT_LEN and vl2 > 1 then
+            -- A young piece is still being aimed: its line is the chord to the worm while that stays within about 25 degrees
+            -- of it, so that a little jitter in the first steps does not tilt a piece of 50 units off the path.
+            local vl = sqrt(vl2)
+            local nx, ny, nz = vx / vl, vy / vl, vz / vl
+            if nx * st.dx + ny * st.dy + nz * st.dz > 0.9 then
+                st.dx, st.dy, st.dz = nx, ny, nz
+                t = vl
+            end
+        end
+        local lat2 = vl2 - t * t
+        if t >= st.len - 0.5 and lat2 <= PTC.LAT_TOL * PTC.LAT_TOL and t <= maxLen then
+            if t > st.len then st.len = t end
+            DECALS.trailSet(st.slot, st.gen, st.sx, st.sy, st.sz, st.dx, st.dy, st.dz, st.len)
+            st.flushed = false
+            return
+        end
+        closePiece(st)
+    end
+end
+
+-- Runs for every worm the file tracks (trackWorms), after its state was updated.
+function PT.track(s, dt)
+    if not active() then return end
+    local st = s.trl
+    if not st then
+        st = {}
+        s.trl = st
+    end
+    if s.dead or not s.alive then
+        closePiece(st)
+        st.lx, st.pmode = nil, nil
+        return
+    end
+    local L = level()
+    local vx, vy, vz = s.vx, s.vy, s.vz
+    local hs2 = vx * vx + vz * vz
+    if s.dying then
+        -- Its health is gone and the game is about to blow it up: the blood spreads under it while it waits.
+        closePiece(st)
+        st.lx, st.pmode = nil, nil
+        if not st.dying then
+            st.dying = true
+            startPool(st, s.px, s.py + FEET_Y, s.pz, 2.5, rnd(PTC.DYING_POOL[1], PTC.DYING_POOL[2]) * L.pool, PTC.DYING_SECS, true)
+        end
+        return
+    end
+    st.dying = nil
+    local frac = s.frac
+    -- Hurt and lying still: a pool, once per place.
+    if frac < PTC.POOL_FRAC and hs2 + vy * vy < PTC.STILL_SPEED * PTC.STILL_SPEED then
+        st.still = st.still or now
+        if now - st.still >= PTC.STILL_SECS then
+            local g = st.grow
+            if not (g and (g.x - s.px) * (g.x - s.px) + (g.z - s.pz) * (g.z - s.pz) < PTC.POOL_SAME * PTC.POOL_SAME) then
+                startPool(st, s.px, s.py + FEET_Y, s.pz, 2.5, (6 + 8 * (1 - frac / PTC.POOL_FRAC)) * L.pool, PTC.GROW_SECS, true)
+            end
+        end
+    else
+        st.still = nil
+    end
+    -- A trail while it walks or crawls. A new hit (health down) is fresh blood for the smear.
+    if st.hp and s.health < st.hp then st.run = 0 end
+    st.hp = s.health
+    if frac >= PTC.DRIP_FRAC then
+        closePiece(st)
+        st.lx, st.pmode = nil, nil
+        return
+    end
+    if not DECALS.rayOK then
+        -- Without landRay the ground under the worm is taken to be its own height, which is only so while it walks: once it has
+        -- left the ground (a fast rise or fall) nothing is laid until it has been calm for a moment (the apex of a jump is slow too).
+        if abs(vy) > PTC.CALM_VY then
+            st.air, st.calm = true, 0
+        elseif st.air then
+            st.calm = st.calm + dt
+            if st.calm >= PTC.CALM_SECS then st.air = nil end
+        end
+        if st.air then
+            closePiece(st)
+            st.lx, st.pmode = nil, nil
+            return
+        end
+    else
+        st.air = nil
+    end
+    if hs2 > PTC.MOVE_MIN * PTC.MOVE_MIN and hs2 < PTC.MOVE_MAX * PTC.MOVE_MAX and abs(vy) < PTC.RISE_MAX then
+        local cx, cz = st.cx, st.cz
+        if not cx or (s.px - cx) * (s.px - cx) + (s.pz - cz) * (s.pz - cz) >= PTC.STEP * PTC.STEP then
+            local gy, nx, ny, nz = groundAt(s.px, s.py + FEET_Y, s.pz, 10, 12)
+            if gy == false then return end
+            if cx then st.run = (st.run or 0) + sqrt((s.px - cx) * (s.px - cx) + (s.pz - cz) * (s.pz - cz)) end
+            st.cx, st.cz = s.px, s.pz
+            if gy == nil then
+                closePiece(st)
+                st.lx, st.pmode = nil, nil
+            else
+                extend(st, frac < PTC.SMEAR_FRAC and 4 or 3, s.px, gy, s.pz, nx, ny, nz, frac, L)
+                st.lx, st.ly, st.lz = s.px, gy, s.pz
+            end
+        end
+    elseif st.slot and not st.flushed then
+        flush(st)
+    end
+end
+
+-- A worm's death burst has just gone off: its grave gets a pool, smears and spatter a moment later (see PT.tick).
+function PT.death(s)
+    if not active() then return end
+    local st = s.trl
+    if st then closePiece(st) end
+    if #graves >= PTC.GRAVE_MAX then table.remove(graves, 1) end
+    graves[#graves + 1] = { x = s.px, y = s.py + FEET_Y, z = s.pz, at = now + PTC.GRAVE_DELAY, stage = 0, k = 0 }
+end
+
+-- Once a frame: the pools spread, the graves get their gore.
+function PT.tick(dt)
+    local i = 1
+    while i <= #grow do
+        local g = grow[i]
+        local t = min(1, (now - g.t0) / g.secs)
+        local r = g.r0 + (g.r1 - g.r0) * (1 - (1 - t) * (1 - t))
+        g.cur = r
+        if DECALS.poolGrow(g.slot, g.key, r, g.fresh and t < 1) and t < 1 then
+            i = i + 1
+        else
+            g.done = true
+            table.remove(grow, i)
+        end
+    end
+    i = 1
+    while i <= #graves do
+        local G = graves[i]
+        local drop = false
+        if now >= G.at then
+            local L = level()
+            if G.stage == 0 then
+                -- The pool the stone sits in and the smears that run out of it. The ground is looked for from well above (the
+                -- explosion dug a crater under it) to well below.
+                local gy, nx, ny, nz = groundAt(G.x, G.y, G.z, 40, 120)
+                if gy == nil then
+                    drop = true
+                elseif gy ~= false then
+                    G.stage, G.gy, G.Rp = 1, gy, PTC.GRAVE_POOL * L.pool
+                    local slot = requestPool(G.x, gy, G.z, 4, nx, ny, nz)
+                    if slot then addGrower(slot, 3.6, G.Rp, PTC.GRAVE_SECS, true) end
+                    local tx, ty, tz, bx, by, bz = tframe(nx, ny, nz)
+                    local a0, n = rnd(0, 2 * pi), L.smears
+                    for k = 0, n - 1 do
+                        local a = a0 + k * 2 * pi / n + rnd(-0.35, 0.35)
+                        local ca, sa = cos(a), sin(a)
+                        local dx, dy, dz = tx * ca + bx * sa, ty * ca + by * sa, tz * ca + bz * sa
+                        local d0 = G.Rp * rnd(0.25, 0.5)
+                        local sx, sy, sz = G.x + dx * d0, gy + dy * d0, G.z + dz * d0
+                        local sl, gen = DECALS.trailNew(4, sx, sy, sz, nx, ny, nz, rnd(1.8, 3.2) * L.width, random(5, 7), L.cap + n, 4, PTC.GRAVE_HOLD)
+                        if sl then DECALS.trailSet(sl, gen, sx, sy, sz, dx, dy, dz, min(PTC.MAX_LEN[2], G.Rp * rnd(0.8, 1.4)), true) end
+                    end
+                end
+            else
+                -- Spatter round it, a few specks a frame (a new splat is limited per frame anyway).
+                local n = 0
+                while G.k < L.splats and n < 3 do
+                    G.k, n = G.k + 1, n + 1
+                    local a = rnd(0, 2 * pi)
+                    local d = G.Rp * rnd(0.7, 1.9) + 4
+                    local px, pz = G.x + cos(a) * d, G.z + sin(a) * d
+                    local gy, nx, ny, nz = groundAt(px, G.gy, pz, 25, 45)
+                    if gy then
+                        local sp = rnd(40, 120)
+                        DECALS.splat(px, gy, pz, nx, ny, nz, cos(a) * sp, rnd(-260, -120), sin(a) * sp, rnd(1.0, 2.0) * L.width)
+                    end
+                end
+                if G.k >= L.splats then drop = true end
+            end
+        end
+        if drop then table.remove(graves, i) else i = i + 1 end
+    end
+end
+
+-- The Preview menu: a trail of drips and a smear coming up to the worm, and a pool spreading under it.
+function PT.preview(s)
+    if not active() then return end
+    local L = level()
+    local fx, fz = facing(s)
+    local gy, nx, ny, nz = groundAt(s.px, s.py + FEET_Y, s.pz, 10, 12)
+    if not gy then gy, nx, ny, nz = s.py + FEET_Y, 0, 1, 0 end
+    local d = fx * nx + fz * nz
+    local dx, dy, dz = fx - nx * d, -ny * d, fz - nz * d
+    local dl = sqrt(dx * dx + dy * dy + dz * dz)
+    if dl < 1e-3 then return end
+    dx, dy, dz = dx / dl, dy / dl, dz / dl
+    local function piece(mode, a0, a1, hw, thick)
+        local sx, sy, sz = s.px - dx * a0, gy - dy * a0, s.pz - dz * a0
+        local slot, gen = DECALS.trailNew(mode, sx, sy, sz, nx, ny, nz, hw, thick, L.cap + 2, nil, 12)
+        if slot then DECALS.trailSet(slot, gen, sx, sy, sz, dx, dy, dz, a0 - a1, true) end
+    end
+    piece(3, 96, 56, 1.0 * L.width, 6)
+    piece(4, 56, 6, 2.2 * L.width, 6)
+    local st = s.trl
+    if not st then
+        st = {}
+        s.trl = st
+    end
+    startPool(st, s.px, gy, s.pz, 2.5, 12 * L.pool, 7, true)
+end
+
+-- A new match, or the setting turned off: nothing is waiting any more.
+function PT.reset()
+    grow, graves = {}, {}
+end
+end
+
 -- A worm's death: the big burst, a pool and the lens, once per death (s.dead), when the body blows up. A worm whose health
 -- reaches zero is only dying (s.dying): the game counts the damage down and blows it up seconds later, and a burst at the
 -- moment the health ran out was lost in the smoke of the hit and the bleeding already there, with nothing at the death
@@ -3426,6 +4042,335 @@ local function deathBurst(s)
     s.credited = 0
     local dx, dy, dz = hitDirection(s)
     burst(s, DEATH_DAMAGE, dx, dy, dz, true)
+    PT.death(s)
+end
+
+-- == Arterial spurts ============================================================================================
+-- A worm below K.START of its health (stronger the lower it goes) spurts blood from its deepest open wound (VIS.woundSites, the
+-- places skin.frag draws them) in time with a heartbeat, K.HZ beats a second (faster the lower it is, a little irregular, and
+-- often a weaker second beat after the first). Each beat is a pulse of K.LEN seconds: a pressurised STREAM, not a spray. Every
+-- frame of the pulse the wound sends out pieces of stream (kind SPURT: a thin tube along the velocity, drawn with bs_jet.png) at
+-- one steady rate, each placed where it would be had it left at its own moment inside the frame (the frame's lag), so that
+-- the pieces are evenly spaced along one arc, closer together than their length, and the stream is continuous however long the
+-- frame was. The pressure (the pulse's envelope) sets how fast and how wide the pieces are, so the stream swells and thins; as
+-- a piece ages it thins and shortens, the older ones sooner, so that the far end of the stream breaks up into beads; a few beads
+-- (kind BEAD) fly on ahead of it, and a short sputter of weak, broken pieces follows the pulse, with a weak dribble between
+-- the pulses. The pieces and beads are ordinary particles, so they land through the usual terrain collision and leave splats.
+-- One wound spurts (Light, Heavy) or two (Absurd; the second only when the worm is low enough), the deepest first; the jet leaves
+-- along the wound's outward normal lifted by K.UP and tilted a little differently at each pulse. It is worked out again at
+-- every frame from the worm's wounds, so it follows the worm as it moves and turns. Nothing spurts while the worm is thrown or
+-- falling (its facing no longer says where its wounds are), and a pulse resumes, stronger, K.RESUME seconds after it lands.
+-- A new hit (SP.hit) brings an extra pulse soon and stronger ones for a few seconds. A dying worm (health 0, waiting for the
+-- game to blow it up) goes on for K.DYING_SECS with weakening, slowing pulses. All of it draws on the frame's spawn budget
+-- only after the bursts (it runs after the worms were tracked), up to lv.cap particles a frame shared between the worms, and
+-- never fills the pool past K.POOL_SHARE of the amount's maximum, so a burst or a death always finds room.
+-- Public: SP.tick(dt) once a frame, SP.hit(s, damage) from burst(), SP.preview(s). State is s.sp, made on first use.
+do
+local function build()
+local K = {
+    START = 0.34, STOP = 0.38, FULL = 0.04,        -- health fractions: spurting starts below START, stops above STOP, is at its strongest from FULL down
+    HZ = { 1.1, 1.6 }, IRREG = { 0.88, 1.15 },     -- beats a second at START and at FULL, and the random factor on each interval
+    LEN = { 0.15, 0.24 },                          -- seconds a pulse lasts
+    ATTACK = 0.12, ENV_AREA = 0.46,                -- a pulse's pressure rises over this share of it, then falls; the area under it (of its length)
+    DUB = 0.5, DUB_GAP = 0.2, DUB_STR = 0.55,      -- the chance of a second, weaker beat this long after the first
+    CALM_SPEED = 90, CALM_VY = 80,                 -- a worm faster than this (units per second) is thrown or falling
+    RESUME = 0.35, LAND_GAIN = 1.3,                -- seconds after landing before it spurts again, and how much stronger the first pulse is
+    DYING_SECS = 6, DYING_MIN = 0.08,
+    HIT_SECS = { 1.2, 3.5 }, HIT_PER_DAMAGE = 0.04, HIT_FULL = 50, HIT_GAIN = 0.6,   -- a new hit: strong pulses for this long, up to this much stronger
+    TILT = 0.14, UP = 0.4, MIN_DIR_Y = 0.02,       -- sideways tilt per pulse, the lift added to the wound's normal, the lowest a jet points
+    CONE = 0.012,                                  -- how far the pieces of one stream stray from its line (per component of the direction)
+    WIDTH = { 1.9, 2.5 }, WIDTH_LOW = 0.6,         -- a piece's width in units at full pressure, and the share of it left at none
+    SPEED_LOW = 0.975,                             -- the share of the top speed a piece leaves at with no pressure (the pressure is the rest;
+                                                   -- more spread than this fanned the far end of the stream into a rake of parallel sticks)
+    SPUTTER = 0.16, SPUTTER_P = 0.4,               -- seconds of broken weak pieces after a pulse, and the share of the moments that have one
+    BEAD_SIZE = { 0.9, 1.4 }, BEADS_AHEAD = 1.06,  -- the drops that fly ahead of a stream (size in units; the fastest, as a share of the top speed)
+    JET_SEV = { 0, 0.3, 0.55 }, JET_GAIN = { 1, 0.7, 0.55 },
+    MIN_OPEN = 0.15,                               -- a wound less open than this does not spurt
+    OUT = 1.0, INHERIT = 0.5,                      -- the jet starts this far off the skin and takes this share of the worm's velocity
+    POOL_SHARE = 0.6, RESERVE = 40,                -- the pool share spurts may fill, and the frame's spawns left to the bursts
+    PREVIEW_SECS = 6, PREVIEW_SEV = 0.7,
+}
+-- Per amount: wounds that spurt at once, pieces of stream a second (while a pulse lasts), beads a pulse, mist puffs a pulse, the most
+-- particles a frame, dribble drops a second and the top speed (units per second).
+local LV = {
+    light  = { jets = 1, rate = 95,  beads = 3, mist = 1, cap = 14, drib = 2, speed = 135 },
+    heavy  = { jets = 1, rate = 110, beads = 5, mist = 1, cap = 22, drib = 3, speed = 160 },
+    absurd = { jets = 2, rate = 135, beads = 8, mist = 2, cap = 44, drib = 5, speed = 185 },
+}
+local AS, ASLOT, ASEV = {}, {}, {}      -- the worms spurting this frame
+local SPURT, BEAD = MEL.SPURT, MEL.BEAD
+
+local function state(s)
+    local sp = s.sp
+    if not sp then
+        sp = { nextAt = 0, pStart = 0, pEnd = 0, len = 0.2, str = 1, nj = 0, key = { 0, 0, 0 }, t1 = { 0, 0, 0 }, t2 = { 0, 0, 0 },
+               acc = { 0, 0, 0 }, macc = { 0, 0, 0 }, bacc = { 0, 0, 0 }, dacc = 0, airAt = -100, wasAir = false, on = false,
+               boostUntil = 0, boost = 1, forceUntil = 0, dubNext = false, beatEnd = 0, fade = 1, sites = {} }
+        s.sp = sp
+    end
+    return sp
+end
+
+-- How hard the worm spurts, 0 (not at all) to 1.
+local function assess(s, sp)
+    if not s.alive or s.dead then return 0 end
+    local sev, fade = 0, 1
+    if s.dying then
+        fade = 1 - (now - s.dying) / K.DYING_SECS
+        if fade < K.DYING_MIN then return 0 end
+        sev = 1
+    else
+        local frac = s.frac
+        if frac < (sp.on and K.STOP or K.START) then
+            sp.on = true
+            sev = (K.START - frac) / (K.START - K.FULL)
+            if sev < 0.05 then sev = 0.05 elseif sev > 1 then sev = 1 end
+        else
+            sp.on = false
+        end
+    end
+    if sp.forceUntil > now and sev < K.PREVIEW_SEV then sev = K.PREVIEW_SEV end
+    sp.fade = fade
+    return sev
+end
+
+-- Starts a pulse: its strength and length, when the next beat is, and which wounds spurt (the deepest first) and how each tilts.
+local function startPulse(sp, sev, lv, n, sites)
+    local fade = sp.fade
+    local boosted = now < sp.boostUntil
+    local str = 0.6 + 0.4 * sev
+    if fade < 1 then str = str * fade ^ 0.7 end
+    if boosted then str = str * sp.boost end
+    if sp.wasAir then
+        str = str * K.LAND_GAIN
+        sp.wasAir = false
+    end
+    if sp.dubNext then
+        sp.dubNext = false
+        str = str * K.DUB_STR
+        sp.nextAt = sp.beatEnd
+    else
+        local hz = (K.HZ[1] + (K.HZ[2] - K.HZ[1]) * sev) * (0.5 + 0.5 * fade) * (boosted and 1.12 or 1)
+        local period = rnd(K.IRREG[1], K.IRREG[2]) / hz
+        if random() < K.DUB and period > 0.5 then
+            sp.dubNext, sp.beatEnd, sp.nextAt = true, now + period, now + K.DUB_GAP
+        else
+            sp.nextAt = now + period
+        end
+    end
+    if str > 1.6 then str = 1.6 end
+    local len = rnd(K.LEN[1], K.LEN[2]) * (0.85 + 0.3 * min(1, str)) * (boosted and 1.2 or 1)
+    sp.pStart, sp.pEnd, sp.len, sp.str = now, now + len, len, str
+    local key, nj = sp.key, 0
+    for j = 1, lv.jets do
+        if sev < K.JET_SEV[j] then break end
+        local best, bo, bk = 0, K.MIN_OPEN, 0
+        for i = 1, n do
+            local e = sites[i]
+            local k = e.gut and 99 or i - 1
+            if e.open > bo and (j < 2 or k ~= key[1]) and (j < 3 or k ~= key[2]) then best, bo, bk = i, e.open, k end
+        end
+        if best == 0 then break end
+        nj = j
+        key[j] = bk
+        sp.t1[j], sp.t2[j] = rnd(-1, 1) * K.TILT, rnd(-1, 1) * K.TILT
+    end
+    sp.nj = nj
+end
+
+-- The pressure 0..1 at p (0 to 1) of the way through a pulse.
+local function pressure(p)
+    if p < 0 then return 0 end
+    if p < K.ATTACK then return p / K.ATTACK end
+    if p >= 1 then return 0 end
+    return ((1 - p) / (1 - K.ATTACK)) ^ 1.2
+end
+
+-- One worm's frame: the beat, then the stream, beads, mist and dribble this frame owes. Returns how many particles it spawned (at most budget).
+local function emitWorm(s, slot, sp, sev, lv, dt, budget)
+    local vx, vy, vz = s.vx, s.vy, s.vz
+    if s.evFrame == frameId then vx, vy, vz = s.evx, s.evy, s.evz end
+    if vx * vx + vz * vz > K.CALM_SPEED * K.CALM_SPEED or abs(vy) > K.CALM_VY then sp.airAt = now end
+    if now - sp.airAt <= K.RESUME then
+        sp.wasAir = true
+        sp.pEnd = 0
+        return 0
+    end
+    local n, sites = VIS.woundSites(slot, sp.sites)
+    if n == 0 then return 0 end
+    if now >= sp.nextAt and sp.pEnd <= now then startPulse(sp, sev, lv, n, sites) end
+    local nj = sp.nj
+    if nj == 0 then return 0 end
+    local live = sp.pEnd > now
+    local sputter = not live and sp.pEnd > 0 and now - sp.pEnd < K.SPUTTER + dt
+    local envMid = live and pressure((now - dt * 0.5 - sp.pStart) / sp.len) or 0
+    local far = 0
+    if CAM.ok then
+        local ex, ey, ez = s.px - CAM.px, s.py + CENTRE_Y - CAM.py, s.pz - CAM.pz
+        far = min(1, max(0, (sqrt(ex * ex + ey * ey + ez * ez) - FAR_START) / FAR_SPAN))
+    end
+    local sizeMul = 1 + 0.45 * far
+    local boosted = now < sp.boostUntil
+    local m, jc = palette.mist, palette.jet
+    local used = 0
+    local vtop = lv.speed * (0.7 + 0.3 * min(1, sp.str)) * (boosted and 1.1 or 1)
+    local wvx, wvy, wvz = vx * K.INHERIT, vy * K.INHERIT, vz * K.INHERIT
+    local mbase = lv.mist / (sp.len * K.ENV_AREA) * envMid * sp.str
+    local key = sp.key
+    local pStart, pEnd, plen = sp.pStart, sp.pEnd, sp.len
+    for j = 1, nj do
+        local e
+        for i = 1, n do
+            local ei = sites[i]
+            if (ei.gut and 99 or i - 1) == key[j] then
+                e = ei
+                break
+            end
+        end
+        if e then
+            local nx, ny, nz = e.nx, e.ny, e.nz
+            -- Two tangents of the wound, to tilt the jet off its normal, and a lift so the stream arcs up and out.
+            local tl = sqrt(nx * nx + nz * nz)
+            local t1x, t1z = 1, 0
+            if tl > 1e-3 then t1x, t1z = -nz / tl, nx / tl end
+            local t2x, t2y, t2z = ny * t1z, nz * t1x - nx * t1z, -ny * t1x
+            local a, b = sp.t1[j], sp.t2[j]
+            local dx, dy, dz = nx + t1x * a + t2x * b, ny + K.UP + t2y * b, nz + t1z * a + t2z * b
+            if dy < K.MIN_DIR_Y then dy = K.MIN_DIR_Y end
+            local dl = sqrt(dx * dx + dy * dy + dz * dz)
+            dx, dy, dz = dx / dl, dy / dl, dz / dl
+            local ox, oy, oz = e.x + nx * K.OUT, e.y + ny * K.OUT, e.z + nz * K.OUT
+            local gain = K.JET_GAIN[j]
+            -- The stream: pieces at a steady rate while the pulse lasts (and weak, broken ones just after), each placed for the
+            -- moment inside the frame it left at, so that they are evenly spaced whatever the frame time.
+            if live or sputter then
+                local rate = lv.rate * gain * (0.8 + 0.2 * min(1, sp.str))
+                local before = sp.acc[j]
+                local total = before + rate * dt
+                local cnt = floor(total)
+                sp.acc[j] = total - cnt
+                if cnt > budget - used then
+                    cnt = budget - used
+                    sp.acc[j] = 0
+                end
+                for q = 1, cnt do
+                    local lag = dt - (q - before) / rate          -- how long ago this piece left the wound
+                    if lag < 0 then lag = 0 end
+                    local weak = now - lag > pEnd
+                    local env = weak and 0.12 or pressure((now - lag - pStart) / plen)
+                    if not weak or random() < K.SPUTTER_P then
+                        local v = vtop * (K.SPEED_LOW + (1 - K.SPEED_LOW) * env) * rnd(0.985, 1.0) * (weak and 0.6 or 1)
+                        local cn = K.CONE
+                        local ex, ey, ez = dx + rnd(-cn, cn), dy + rnd(-cn, cn), dz + rnd(-cn, cn)
+                        local k = v / sqrt(ex * ex + ey * ey + ez * ez)
+                        local jvx, jvy, jvz = ex * k + wvx, ey * k + wvy, ez * k + wvz
+                        local width = rnd(K.WIDTH[1], K.WIDTH[2]) * (K.WIDTH_LOW + (1 - K.WIDTH_LOW) * env) * sizeMul * (weak and 0.7 or 1)
+                        local shade = rnd(0.92, 1.08)
+                        spawn(SPURT, ox + jvx * lag, oy + jvy * lag, oz + jvz * lag, jvx, jvy, jvz, width, rnd(0.7, 1.0),
+                              min(1, jc[1] * shade), min(1, jc[2] * shade), min(1, jc[3] * shade), DROPLET_ALPHA)
+                    end
+                end
+                used = used + cnt
+                -- Beads that fly on ahead of the stream and a puff of fine mist at the wound, while the pressure is up.
+                if live then
+                    local bacc = sp.bacc[j] + lv.beads / plen * gain * dt
+                    local bc = floor(bacc)
+                    sp.bacc[j] = bacc - bc
+                    if bc > budget - used then bc = budget - used end
+                    for _ = 1, bc do
+                        local v = vtop * rnd(0.8, K.BEADS_AHEAD)
+                        local ex, ey, ez = dx + rnd(-0.05, 0.05), dy + rnd(-0.05, 0.05), dz + rnd(-0.05, 0.05)
+                        local k = v / sqrt(ex * ex + ey * ey + ez * ez)
+                        local jvx, jvy, jvz = ex * k + wvx, ey * k + wvy, ez * k + wvz
+                        local lag, shade = random() * dt, rnd(0.9, 1.1)
+                        spawn(BEAD, ox + jvx * lag, oy + jvy * lag, oz + jvz * lag, jvx, jvy, jvz, rnd(K.BEAD_SIZE[1], K.BEAD_SIZE[2]) * sizeMul,
+                              rnd(0.6, 1.0), min(1, jc[1] * shade), min(1, jc[2] * shade), min(1, jc[3] * shade), DROPLET_ALPHA)
+                    end
+                    used = used + bc
+                    local macc = sp.macc[j] + mbase * gain * dt
+                    local mc = floor(macc)
+                    macc = macc - mc
+                    if mc > 2 then mc = 2 end
+                    if mc > budget - used then mc = budget - used end
+                    sp.macc[j] = macc
+                    for _ = 1, mc do
+                        local shade, v = rnd(0.8, 1.2), rnd(20, 50)
+                        spawn(MIST, ox + nx * 0.5 + rnd(-0.8, 0.8), oy + ny * 0.5 + rnd(-0.8, 0.8), oz + nz * 0.5 + rnd(-0.8, 0.8),
+                              dx * v + rnd(-8, 8) + wvx, dy * v + rnd(-8, 8) + wvy, dz * v + rnd(-8, 8) + wvz,
+                              rnd(5, 9) * (1 + 0.5 * far), rnd(0.3, 0.5), min(1, m[1] * shade), min(1, m[2] * shade), min(1, m[3] * shade),
+                              MIST_ALPHA * 0.9)
+                    end
+                    used = used + mc
+                end
+            else
+                sp.acc[j] = 0
+            end
+            -- The dribble from the deepest wound, between and under the pulses: small beads that run off it.
+            if j == 1 then
+                local dacc = sp.dacc + lv.drib * (0.35 + 0.65 * sev) * sp.fade * dt
+                local dc = floor(dacc)
+                dacc = dacc - dc
+                if dc > 2 then dc = 2 end
+                if dc > budget - used then dc = budget - used end
+                sp.dacc = dacc
+                for _ = 1, dc do
+                    local shade, v = rnd(0.8, 1.1), rnd(12, 38)
+                    spawn(BEAD, ox + rnd(-0.5, 0.5), oy + rnd(-0.5, 0.5), oz + rnd(-0.5, 0.5),
+                          nx * v + wvx, ny * v + rnd(0, 12) + wvy, nz * v + wvz, rnd(0.8, 1.3) * sizeMul, rnd(0.5, 1.0),
+                          min(1, jc[1] * shade), min(1, jc[2] * shade), min(1, jc[3] * shade), DROPLET_ALPHA)
+                end
+                used = used + dc
+            end
+        end
+    end
+    return used
+end
+
+function SP.tick(dt)
+    if not preset then return end
+    local lv = preset == AMOUNT.absurd and LV.absurd or preset == AMOUNT.light and LV.light or LV.heavy
+    local na = 0
+    for slot, s in pairs(slots) do
+        if s.seen == frameId and s.alive and not s.dead and (s.frac < K.STOP or s.dying or (s.sp and s.sp.forceUntil > now)) then
+            local sp = state(s)
+            local sev = assess(s, sp)
+            if sev > 0 then
+                na = na + 1
+                AS[na], ASLOT[na], ASEV[na] = s, slot, sev
+            end
+        end
+    end
+    if na == 0 then return end
+    local left = min(lv.cap, floor(min(preset.max, POOL_MAX) * K.POOL_SHARE) - nP, BUDGET.SPAWN - K.RESERVE - BUDGET.spawned)
+    for i = 1, na do
+        local s = AS[i]
+        local share = left > 0 and math.ceil(left / (na - i + 1)) or 0
+        local used = emitWorm(s, ASLOT[i], s.sp, ASEV[i], lv, dt, share)
+        left = left - used
+        AS[i] = false
+    end
+end
+
+-- A hit has been shown on the worm: an extra pulse soon, and stronger ones for a while (more for a bigger hit).
+function SP.hit(s, damage)
+    local sp = state(s)
+    sp.boostUntil = now + min(K.HIT_SECS[2], K.HIT_SECS[1] + damage * K.HIT_PER_DAMAGE)
+    sp.boost = 1 + min(1, damage / K.HIT_FULL) * K.HIT_GAIN
+    if sp.nextAt > now + 0.12 then
+        sp.nextAt = now + 0.12
+        sp.dubNext = false
+    end
+end
+
+-- The preview worm spurts for a few seconds whatever its health.
+function SP.preview(s)
+    local sp = state(s)
+    sp.forceUntil = now + K.PREVIEW_SECS
+    sp.airAt = -100
+    sp.nextAt = now + 0.1
+end
+end
+build()
 end
 
 local function trackWorms(worms, dt)
@@ -3486,6 +4431,7 @@ local function trackWorms(worms, dt)
                 updateGut(s, dt)
                 updateVomit(s, dt)
                 emitBleed(s, dt)
+                PT.track(s, dt)
                 settleStain(s)
             end
         end
@@ -3654,6 +4600,8 @@ local function resetAll()
     clearStains()
     clearSkin()
     VIS.reset()
+    GIBS.clear()
+    PT.reset()
     -- A new match seed, so the wounds are not in the same places every match.
     matchSeed = random(0, 1000)
     sendSeed()
@@ -3672,6 +4620,7 @@ function WARM.step()
     WARM.started = true
     local allowed = { ["bloodsand/stains"] = cfg.stains ~= false, ["bloodsand/skin"] = cfg.skin ~= false,
                       ["bloodsand/guts"] = cfg.guts ~= false, ["bloodsand/lens"] = cfg.lens ~= false }
+    allowed["bloodsand/gibs"] = cfg.gibs ~= false
     local last = WARM.GAP * #WARM.ids + WARM.HOLD
     for k = 1, #WARM.ids do
         local id, t0 = WARM.ids[k], WARM.GAP * k
@@ -3717,8 +4666,11 @@ local function onWorld()
     VIS.simGuts(dt)
     updateSkin()
     VIS.updateGuts()
+    GIBS.tick(dt)
     MEL.tick(dt)
+    SP.tick(dt)
     simulate(dt)
+    PT.tick(dt)
     DECALS.update(dt, slots, frameId)
     drawGuts()
     ageSplats(dt)
@@ -3734,6 +4686,7 @@ local function applySettings()
     -- Turning either off takes effect at the next frame: updateGut drops the chains and updateVomit ends the heaves.
     cfg.vomit = wum.config.get("vomit") ~= false
     cfg.guts = wum.config.get("guts") ~= false
+    cfg.gibs = wum.config.get("gibs") ~= false
     local colour = wum.config.get("colour") or "red"
 
     if amount ~= cfg.amount then
@@ -3755,6 +4708,11 @@ local function applySettings()
         cfg.stains = stains
         if not stains then clearStains() end
     end
+    local pools = wum.config.get("pools") ~= false
+    if pools ~= cfg.pools then
+        cfg.pools = pools
+        if not pools then PT.reset() end
+    end
     if lens ~= cfg.lens then
         cfg.lens = lens
         if not lens then nL = 0 end
@@ -3768,6 +4726,7 @@ local function applySettings()
         sendParam(SKIN, "blood", c[1], c[2], c[3])
         VIS.setBlood(c)
         LS.setBlood(palette.lens)
+        GIBS.setBlood(c)
     end
     if not preset then
         clearStains()
@@ -3775,6 +4734,7 @@ local function applySettings()
         VIS.reset()
     end
     updateStainEnable()
+    GIBS.apply(cfg.gibs)
     -- Outside a match nothing drives the skin effect, so settle a persisted enabled=1 here instead of waiting for a frame.
     if skinCount == 0 then sendEnabled(SKIN, false) end
 end
@@ -3787,6 +4747,7 @@ if wum.events and wum.events.on then
         if not x then return end
         -- Whatever it hurt: the crater takes the decals in it, and a dying worm it goes off at is blowing up.
         DECALS.blast(x, y, z, tonumber(p.landDamageRadius))
+        GIBS.blast(x, y, z, tonumber(p.landDamageRadius), tonumber(p.wormDamageRadius))
         local t, reach = os.clock(), BUDGET.DYING_REACH
         for _, s in pairs(slots) do
             if s.dying and not s.dead and t - s.dying >= BUDGET.DYING_MIN then
@@ -3846,6 +4807,9 @@ local function preview()
     -- A scorch patch too, so it can be seen: it fades over a few seconds, so press Preview again to see it again.
     setScorch(pick.slot, 1)
     if cfg.vomit then startHeave(s) end
+    GIBS.preview(s)
+    PT.preview(s)
+    SP.preview(s)
 end
 
 -- ---------------------------------------------------------------- start
@@ -3861,6 +4825,7 @@ local function resendStep()
     if k == 0 then return end
     MEL.rsStep = k < RESEND_STEPS and k + 1 or 0
     if not hasPostfx then return end
+    GIBS.resendStep(k)
     if k <= 8 then
         DECALS.resend((k - 1) * 4 + 1, k * 4)
     elseif k <= 12 then
@@ -3911,7 +4876,897 @@ local function zeroAll()
     end
     VIS.zero()
     VIS.zeroScorch()
+    GIBS.zero()
 end
+
+-- == Gibs ==
+-- Meat chunks, bone shards and a few organs (a kidney, a liver lobe, a heart, an eye) thrown out of a worm that dies and out of
+-- a very big hit. They fly, bounce, roll and come to rest on the terrain, and stay there (up to 16, the oldest recycled) as
+-- ray-marched signed distance fields, drawn by the bloodsand/gibs post-FX effect (see tools/gibs.frag.in), with a splat where
+-- each first lands, a streak where it slides and a pool where it rests. Small bits of meat (sprites) fly out with them.
+--
+-- The simulation is a sphere per gib against wum.game.landRay: a ray from where the gib was to where it is going, stretched by
+-- its radius (along the motion, or down when it is slow), gives the contact point and the surface normal; the gib then bounces
+-- (restitution and friction by kind), rolls (its spin follows its velocity) and, once slow, settles: its radius shrinks to the
+-- height of the face it rests on, it turns that face to the ground, and after a quarter of a second at rest it sleeps (no more
+-- rays, nothing sent to the effect). A sleeping gib is looked at by one ray a frame in turn, so that terrain dug out from
+-- under it lets it fall. An explosion near a gib throws it again (a direct hit pops flesh into bits). Without landRay a gib
+-- lands on the plane at the height of the worm's feet.
+--
+-- The effect's four vec4 per slot: a = (x, y, z, bounding radius), b = orientation quaternion (x, y, z, w), c = half extents and
+-- kind, d = (seed, birth, wetness, bloodiness). A flying gib sends a and b every frame (rounded, so a sleeping one sends nothing);
+-- c and d go out once. The effect dries a gib from its birth against our clock over about a minute.
+-- All of it is in one function called once, so that its locals are its own (the file's main function is nearly full).
+do
+local function build()
+local exp = math.exp
+local N, BMAX = 16, 96
+local FLY, SETTLE, SLEEP = 1, 2, 3
+local MEAT, BONE, KIDNEY, LIVER, HEART, EYE, LUNG, GUT = 0, 1, 2, 3, 4, 5, 6, 7
+local FX = { id = "bloodsand/gibs", cache = {}, enabled = nil, failed = false, missing = false }
+-- Per "Blood" setting: the pool (never more than the effect's 16 slots), gibs thrown by a death and by a very big hit, and the
+-- bits of meat that fly out with them.
+local AMT = {
+    light  = { pool = 8,  death = 3, big = 1, bits = 10, bitsBig = 4 },
+    heavy  = { pool = 14, death = 6, big = 2, bits = 26, bitsBig = 10 },
+    absurd = { pool = 16, death = 9, big = 4, bits = 46, bitsBig = 20 },
+}
+local T = {
+    BIG = 45, BIG_ABSURD = 30,          -- damage that throws gibs besides a death
+    COOLDOWN = 0.6,                     -- a worm throws gibs for hits no closer together than this
+    FRAME_THROWS = 20,                  -- gibs thrown between two frames, all worms together (more only recycle the ones just thrown)
+    SPEED = { 55, 150 }, UP = { 0.35, 1.1 },
+    REST = { [0] = 0.22, 0.38, 0.24, 0.2, 0.26, 0.5, 0.22, 0.16 },      -- restitution by kind (bounce)
+    -- A gib or a bit of meat nearer the camera than NEAR[2] starts to fade and is gone by NEAR[1] (the effect does the same, see
+    -- Fade in tools/gibs.frag.in). In the aim view (the camera within AIM_DETECT of the active worm) the ones near the camera
+    -- (AIM_CAM) and near the worm (AIM_WORM) are hidden too, so that they never block the aim.
+    NEAR = { 25, 60 }, AIM_DETECT = 40, AIM_CAM = { 50, 90 }, AIM_WORM = { 26, 52 },
+    MU = 330,                           -- sliding friction: deceleration on a flat floor, units/s^2
+    SETTLE_SPEED = 28, SLEEP_SPEED = 6, SLEEP_SECS = 0.25,
+    DRAG = 0.12,                        -- fraction of speed lost per second in the air
+    RAYS = 20,                          -- terrain rays a frame
+    STREAK_EVERY = 9, STREAK_SPEED = 40, DECALS = 3,
+    REACH_MIN = 16, POP_FRAC = 0.4, POP_CHANCE = 0.65, GRACE = 0.35,
+    BIT_LIFE = { 0.55, 1.15 }, BIT_SIZE = { 1.5, 3.0 },
+    KILL_BELOW = 700,                   -- a gib this far under where it started has fallen out of the world
+}
+local PA, PB, PC, PD = {}, {}, {}, {}
+for i = 1, N do
+    PA[i], PB[i], PC[i], PD[i] = "g" .. (i - 1) .. "a", "g" .. (i - 1) .. "b", "g" .. (i - 1) .. "c", "g" .. (i - 1) .. "d"
+end
+
+-- One array per field, a slot per gib.
+local F = {}
+for _, k in ipairs({ "st", "x", "y", "z", "vx", "vy", "vz", "qx", "qy", "qz", "qw", "wx", "wy", "wz", "h1", "h2", "h3", "kind", "seed",
+                     "birth", "wet", "blood", "cr", "cre", "hrT", "floor", "born", "lastC", "cnx", "cny", "cnz", "sleepT", "streak",
+                     "decals", "serial", "bound", "splatAt", "lowY", "axis", "stare" }) do
+    F[k] = {}
+    for i = 1, N do F[k][i] = 0 end
+end
+local st, X, Y, Z, VX, VY, VZ = F.st, F.x, F.y, F.z, F.vx, F.vy, F.vz
+local QX, QY, QZ, QW, WX, WY, WZ = F.qx, F.qy, F.qz, F.qw, F.wx, F.wy, F.wz
+local H1, H2, H3, KIND = F.h1, F.h2, F.h3, F.kind
+local G = { hid = {}, clock = 0, serial = 0, n = 0, top = 0, rays = 0, wake = 0, pv = 0, anyVis = false, countSent = -1, clockSent = -1,
+            fwdx = 0, fwdy = 0, fwdz = 1, tex = nil, texChecked = false, spriteOK = false, bitsN = 0, bitsTried = false, thrown = 0 }
+
+local B = {}                            -- the bits of meat: struct of arrays
+for _, k in ipairs({ "x", "y", "z", "vx", "vy", "vz", "age", "life", "size", "tex", "r", "g", "b", "floor" }) do
+    B[k] = {}
+    for i = 1, BMAX do B[k][i] = 0 end
+end
+local col = { r = 1, g = 1, b = 1, a = 1 }
+
+-- ---------------------------------------------------------------- the effect
+local function sendV4(name, a, b, c, d)
+    if not hasPostfx then return end
+    local old = FX.cache[name]
+    if old and old[1] == a and old[2] == b and old[3] == c and old[4] == d then return end
+    local ok, res = pcall(wum.postfx.setTransient, FX.id, name, a, b, c, d)
+    if not ok or res == false then return end
+    if not old then
+        old = {}
+        FX.cache[name] = old
+    end
+    old[1], old[2], old[3], old[4] = a, b, c, d
+end
+
+local function r05(v) return floor(v * 20 + 0.5) / 20 end
+local function r10(v) return floor(v * 1024 + 0.5) / 1024 end
+
+-- What the effect is told of slot i. A free slot is all zeros (a radius of 0 means unused).
+local function sendSlot(i, moved)
+    if st[i] == 0 then
+        sendV4(PA[i], 0, 0, 0, 0)
+        sendV4(PB[i], 0, 0, 0, 0)
+        sendV4(PC[i], 0, 0, 0, 0)
+        sendV4(PD[i], 0, 0, 0, 0)
+        return
+    end
+    -- (a gib right up against the camera, or round the active worm in the aim view, goes out with a radius of 0, which the
+    -- effect skips: see GIBS.tick)
+    sendV4(PA[i], r05(X[i]), r05(Y[i]), r05(Z[i]), G.hid[i] and 0 or F.bound[i])
+    sendV4(PB[i], r10(QX[i]), r10(QY[i]), r10(QZ[i]), r10(QW[i]))
+    sendV4(PC[i], H1[i], H2[i], H3[i], KIND[i])
+    sendV4(PD[i], F.seed[i], floor(F.birth[i] * 100 + 0.5) / 100, F.wet[i], F.blood[i])
+end
+
+local function fxEnable(on)
+    on = on and not FX.missing and not FX.failed
+    if WARM.on[FX.id] then on = true end
+    if not hasPostfx or FX.enabled == on then return end
+    local ok, res = pcall(wum.postfx.enable, FX.id, on)
+    if not ok then return end
+    if res == false then
+        FX.missing = true
+        return
+    end
+    FX.enabled = on
+end
+
+local function recount()
+    local n, top = 0, 0
+    for i = 1, N do
+        if st[i] ~= 0 then
+            n = n + 1
+            top = i
+        end
+    end
+    G.n, G.top = n, top
+end
+
+-- ---------------------------------------------------------------- small maths
+-- Rotates the orientation by the angle `ang` about the world axis (ax, ay, az), a unit vector.
+local function rotate(i, ax, ay, az, ang)
+    local s, c = sin(ang * 0.5), cos(ang * 0.5)
+    local rx, ry, rz, rw = ax * s, ay * s, az * s, c
+    local qx, qy, qz, qw = QX[i], QY[i], QZ[i], QW[i]
+    local nx = rw * qx + rx * qw + ry * qz - rz * qy
+    local ny = rw * qy - rx * qz + ry * qw + rz * qx
+    local nz = rw * qz + rx * qy - ry * qx + rz * qw
+    local nw = rw * qw - rx * qx - ry * qy - rz * qz
+    local l = 1 / sqrt(nx * nx + ny * ny + nz * nz + nw * nw)
+    QX[i], QY[i], QZ[i], QW[i] = nx * l, ny * l, nz * l, nw * l
+end
+
+-- Where the gib's local axis k (1 x, 2 y, 3 z) points in the world.
+local function localAxis(i, k)
+    local x, y, z, w = QX[i], QY[i], QZ[i], QW[i]
+    if k == 1 then return 1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y) end
+    if k == 2 then return 2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x) end
+    return 2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)
+end
+
+-- Turns the gib about the world axis that takes its local axis k (times sign) to the direction (tx, ty, tz) by at most `step`
+-- radians, and returns the angle that was left before the turn.
+local function turnAxis(i, k, sign, tx, ty, tz, step)
+    local ax, ay, az = localAxis(i, k)
+    ax, ay, az = ax * sign, ay * sign, az * sign
+    local cx, cy, cz = ay * tz - az * ty, az * tx - ax * tz, ax * ty - ay * tx
+    local sn = sqrt(cx * cx + cy * cy + cz * cz)
+    local ang = math.atan(sn, ax * tx + ay * ty + az * tz)
+    if sn > 1e-5 and ang > 1e-4 then rotate(i, cx / sn, cy / sn, cz / sn, ang * min(1, step / ang)) end
+    return ang
+end
+
+-- Lays the gib down on the surface with the unit normal n, turning by at most `step` radians: the face it lies on is the local
+-- axis most nearly along the normal, the shorter axes counting for more (a box lies on its big face, a bone on its side). The half
+-- extent along it (the height of the centre when it lies there) is kept in hrT and the angle still to go is returned. An eye is a
+-- ball: it needs no face, and one that stares turns its iris towards the camera and up instead.
+local function settleTurn(i, nx, ny, nz, step)
+    local kind = KIND[i]
+    if kind == EYE then
+        F.hrT[i] = H1[i] * 0.97
+        if F.stare[i] ~= 1 or not CAM.ok then return 0 end
+        local tx, ty, tz = CAM.px - X[i], CAM.py - Y[i], CAM.pz - Z[i]
+        local tl = sqrt(tx * tx + ty * ty + tz * tz)
+        if tl < 1 then return 0 end
+        tx, ty, tz = nx * 0.7 + tx / tl * 0.7, ny * 0.7 + ty / tl * 0.7, nz * 0.7 + tz / tl * 0.7
+        local l = sqrt(tx * tx + ty * ty + tz * tz)
+        if l < 1e-3 then return 0 end
+        return turnAxis(i, 1, 1, tx / l, ty / l, tz / l, step)
+    end
+    local h1, h2, h3 = H1[i], H2[i], H3[i]
+    local hm = min(h1, min(h2, h3))
+    local best, bk, bsign = -1, 1, 1
+    local bh = h1
+    for k = 1, 3 do
+        local hk = k == 1 and h1 or (k == 2 and h2 or h3)
+        local ax, ay, az = localAxis(i, k)
+        local d = ax * nx + ay * ny + az * nz
+        local sc = abs(d) * (hm / hk) ^ 1.6
+        if sc > best then best, bk, bsign, bh = sc, k, d < 0 and -1 or 1, hk end
+    end
+    local hk = bh
+    if kind == BONE then hk = (h2 + h3) * 0.5 end
+    if kind == GUT then hk = h2 * 1.22 end
+    F.axis[i], F.hrT[i] = bk, hk * 0.86
+    return turnAxis(i, bk, bsign, nx, ny, nz, step)
+end
+
+-- ---------------------------------------------------------------- decals
+-- The ground takes a splat where a gib hits it hard, a streak where it slides and a pool where it comes to rest. All through
+-- the decal section (they are not made when the ground stains are off).
+local function stainsOn()
+    return hasPostfx and preset ~= nil and cfg.stains ~= false and not STAINS.failed
+end
+
+local SPLAT_SIZE = { [0] = 3.6, 1.6, 3.0, 3.4, 3.2, 2.0, 3.4, 3.0 }
+local POOL_SIZE = { [0] = 6.5, 2.6, 5.2, 6.0, 5.4, 2.6, 5.6, 5.0 }
+
+local function splatAt(i, px, py, pz, nx, ny, nz, vx, vy, vz, size)
+    if not stainsOn() then return end
+    DECALS.splat(px, py, pz, nx, ny, nz, vx, vy, vz, size)
+end
+
+-- ---------------------------------------------------------------- spawning
+local function freeSlot()
+    local am = AMT[cfg.amount] or AMT.heavy
+    local pool = min(N, am.pool)
+    for i = 1, pool do
+        if st[i] == 0 then return i end
+    end
+    -- the oldest goes, a sleeping one before one in the air
+    local pick, pickKey
+    for i = 1, pool do
+        local key = F.serial[i] + (st[i] == SLEEP and 0 or 1e6)
+        if not pickKey or key < pickKey then pick, pickKey = i, key end
+    end
+    return pick
+end
+
+-- A random unit quaternion.
+local function randQuat(i)
+    local a, b, c, d = rnd(-1, 1), rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)
+    local l = sqrt(a * a + b * b + c * c + d * d)
+    if l < 0.1 then a, b, c, d, l = 0, 0, 0, 1, 1 end
+    QX[i], QY[i], QZ[i], QW[i] = a / l, b / l, c / l, d / l
+end
+
+local function dims(kind, sm)
+    if kind == MEAT then return rnd(3.0, 4.8) * sm, rnd(2.0, 3.1) * sm, rnd(2.0, 3.1) * sm end
+    if kind == BONE then return rnd(4.0, 7.0) * sm, rnd(1.0, 1.4) * sm, rnd(0.7, 1.0) * sm end
+    if kind == KIDNEY then return 2.8 * sm * rnd(0.9, 1.1), 1.8 * sm * rnd(0.9, 1.1), 1.9 * sm * rnd(0.9, 1.1) end
+    if kind == LIVER then return 5.0 * sm * rnd(0.85, 1.1), 1.5 * sm * rnd(0.9, 1.1), 3.3 * sm * rnd(0.85, 1.1) end
+    if kind == HEART then return 2.6 * sm * rnd(0.9, 1.1), 3.0 * sm * rnd(0.9, 1.1), 2.4 * sm * rnd(0.9, 1.1) end
+    if kind == LUNG then return 4.4 * sm * rnd(0.9, 1.1), 3.0 * sm * rnd(0.9, 1.1), 2.2 * sm * rnd(0.9, 1.1) end
+    if kind == GUT then return 3.6 * sm * rnd(0.9, 1.1), 1.35 * sm * rnd(0.9, 1.1), 3.6 * sm * rnd(0.9, 1.1) end
+    local r = 1.8 * sm * rnd(0.92, 1.08)
+    return r, r, r
+end
+
+-- One gib, thrown from (x, y, z) with a velocity; floorY is the plane it lands on without landRay.
+local function throwGib(kind, x, y, z, vx, vy, vz, floorY, sm)
+    local i = freeSlot()
+    if not i then return end
+    G.serial = G.serial + 1
+    local h1, h2, h3 = dims(kind, sm)
+    st[i], KIND[i] = FLY, kind
+    X[i], Y[i], Z[i], VX[i], VY[i], VZ[i] = x, y, z, vx, vy, vz
+    H1[i], H2[i], H3[i] = h1, h2, h3
+    randQuat(i)
+    local sp = rnd(5, 13)
+    local ax, ay, az = rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)
+    local al = sqrt(ax * ax + ay * ay + az * az)
+    if al < 0.05 then ax, ay, az, al = 1, 0, 0, 1 end
+    WX[i], WY[i], WZ[i] = ax / al * sp, ay / al * sp, az / al * sp
+    local cr
+    if kind == BONE then cr = max(h2 * 1.5, h1 * 0.3)
+    elseif kind == LIVER then cr = (h1 + h3) * 0.25
+    elseif kind == EYE then cr = h1 * 0.95
+    else cr = (h1 + h2 + h3) / 3 * 0.8 end
+    F.cr[i], F.cre[i], F.hrT[i] = cr, cr, cr
+    F.seed[i] = floor(random() * 970) / 10
+    F.birth[i] = G.clock
+    F.wet[i] = rnd(0.85, 1)
+    F.blood[i] = kind == EYE and 0.3 or (kind == BONE and 0.45 or 0.55)
+    F.floor[i], F.lowY[i], F.born[i] = floorY, floorY - T.KILL_BELOW, G.clock
+    F.lastC[i], F.cnx[i], F.cny[i], F.cnz[i] = -9, 0, 1, 0
+    F.sleepT[i], F.streak[i], F.decals[i], F.splatAt[i] = 0, 0, T.DECALS, -9
+    F.serial[i], F.axis[i] = G.serial, 0
+    F.stare[i] = (kind == EYE and random() < 0.5) and 1 or 0
+    local R = sqrt(h1 * h1 + h2 * h2 + h3 * h3)
+    F.bound[i] = kind == BONE and floor(((h1 + 1.5 * h2) * 1.15 + 3) * 10) / 10 or floor((R * 1.2 + 3) * 10) / 10
+    recount()
+    sendSlot(i)
+end
+
+-- The colour (a tint for a grey sprite) of one bit: muscle, a pink scrap, fat or a speck of bone; with a blood colour that is not
+-- red (Green) the flesh takes some of it, as the effect's does.
+local function bitColour()
+    local r, g, b
+    local pick = random()
+    if pick < 0.55 then r, g, b = rnd(0.62, 0.85), rnd(0.07, 0.13), rnd(0.07, 0.11)         -- muscle
+    elseif pick < 0.8 then r, g, b = rnd(0.92, 1.0), rnd(0.42, 0.55), rnd(0.4, 0.5)            -- pink scrap
+    elseif pick < 0.93 then r, g, b = 1.0, rnd(0.82, 0.92), rnd(0.55, 0.65)                    -- fat
+    else r, g, b = 1.0, 0.95, 0.82 end                                                          -- bone
+    local sc = palette.stain
+    local m = max(sc[1], sc[2], sc[3], 1e-3)
+    local f = 0.35 * (1 - sc[1] / m)
+    if f > 0.01 and pick < 0.93 then
+        local lum = (0.3 * r + 0.59 * g + 0.11 * b) * 1.8
+        r, g, b = min(1, r + (lum * sc[1] / m - r) * f), min(1, g + (lum * sc[2] / m - g) * f), min(1, b + (lum * sc[3] / m - b) * f)
+    end
+    return r, g, b
+end
+
+local function addBit(x, y, z, vx, vy, vz, size, floorY)
+    local n = G.bitsN
+    if n >= BMAX then return end
+    n = n + 1
+    G.bitsN = n
+    B.x[n], B.y[n], B.z[n], B.vx[n], B.vy[n], B.vz[n] = x, y, z, vx, vy, vz
+    B.age[n], B.life[n], B.size[n] = 0, rnd(T.BIT_LIFE[1], T.BIT_LIFE[2]), size
+    B.tex[n] = random(1, 3)
+    B.r[n], B.g[n], B.b[n] = bitColour()
+    B.floor[n] = floorY
+end
+
+local function pickKind(k, death, n)
+    if death and k == 1 then
+        local r = random()
+        return r < 0.3 and HEART or (r < 0.48 and EYE or (r < 0.63 and LIVER or (r < 0.75 and KIDNEY or (r < 0.88 and LUNG or GUT))))
+    end
+    if k == 2 and n >= 6 then return BONE end
+    local r = random()
+    if r < 0.44 then return MEAT end
+    if r < 0.66 then return BONE end
+    if r < 0.72 then return KIDNEY end
+    if r < 0.79 then return LIVER end
+    if r < 0.85 then return HEART end
+    if r < 0.91 then return LUNG end
+    if r < 0.96 then return GUT end
+    return EYE
+end
+
+-- The gibs and bits of one worm's death or very big hit. (dx, dy, dz) is the unit direction of the blow.
+local function fire(s, dx, dy, dz, n, nbits, strength, death)
+    local cx, cy, cz = s.px, s.py + CENTRE_Y, s.pz
+    local floorY = s.py + FEET_Y
+    local far = 0
+    if CAM.ok then
+        local ex, ey, ez = cx - CAM.px, cy - CAM.py, cz - CAM.pz
+        far = min(1, max(0, (sqrt(ex * ex + ey * ey + ez * ez) - FAR_START) / FAR_SPAN))
+    end
+    local sm = 1.15 * (1 + 0.3 * far)
+    n = max(0, min(n, T.FRAME_THROWS - G.thrown))
+    G.thrown = G.thrown + n
+    nbits = max(0, min(nbits, BMAX - G.bitsN))
+    for k = 1, n do
+        local kind = pickKind(k, death, n)
+        local a, up = random() * 2 * pi, rnd(T.UP[1], T.UP[2])
+        local ex, ey, ez = dx * 0.9 + cos(a) * rnd(0.5, 1), dy * 0.5 + up, dz * 0.9 + sin(a) * rnd(0.5, 1)
+        local el = sqrt(ex * ex + ey * ey + ez * ez)
+        if el < 1e-4 then ex, ey, ez, el = 0, 1, 0, 1 end
+        local sp = rnd(T.SPEED[1], T.SPEED[2]) * (0.65 + 0.5 * strength) / el
+        throwGib(kind, cx + rnd(-4, 4), cy + rnd(-5, 6), cz + rnd(-2, 2), ex * sp, ey * sp, ez * sp, floorY, sm)
+    end
+    for _ = 1, nbits do
+        local a, up = random() * 2 * pi, rnd(0.2, 1.2)
+        local ex, ey, ez = dx * 0.6 + cos(a), dy * 0.4 + up, dz * 0.6 + sin(a)
+        local el = sqrt(ex * ex + ey * ey + ez * ez)
+        if el < 1e-4 then ex, ey, ez, el = 0, 1, 0, 1 end
+        local sp = rnd(110, 300) * (0.6 + 0.5 * strength) / el
+        addBit(cx + rnd(-4, 4), cy + rnd(-5, 6), cz + rnd(-2, 2), ex * sp, ey * sp, ez * sp, rnd(T.BIT_SIZE[1], T.BIT_SIZE[2]) * sm, floorY)
+    end
+end
+
+-- Called by burst() for every burst of blood: a death, and a hit of at least BIG damage.
+function GIBS.onBurst(s, damage, dx, dy, dz, death)
+    if not preset or cfg.gibs == false then return end
+    local am = AMT[cfg.amount] or AMT.heavy
+    local n, nb, strength
+    if death then
+        n, nb, strength = am.death, am.bits, 1
+    else
+        local thr = cfg.amount == "absurd" and T.BIG_ABSURD or T.BIG
+        if damage < thr then return end
+        if s.gibAt and G.clock - s.gibAt < T.COOLDOWN then return end
+        n = am.big + (damage >= thr * 2 and 1 or 0)
+        nb = am.bitsBig
+        strength = min(1, damage / DEATH_DAMAGE)
+    end
+    s.gibAt = G.clock
+    fire(s, dx, dy, dz, min(n, floor(min(N, am.pool) / 2)), nb, strength, death)
+end
+
+-- ---------------------------------------------------------------- simulation
+-- Where the segment from (x0, y0, z0) to the point r further on along (ex, ey, ez) from (x1, y1, z1) first meets the terrain: the
+-- unit normal, the point and how far the end of the segment is beyond the surface (along the normal), or nil.
+local function contact(i, x0, y0, z0, x1, y1, z1, ex, ey, ez, r)
+    local ax, ay, az = x1 + ex * r, y1 + ey * r, z1 + ez * r
+    if DECALS.rayOK then
+        if G.rays >= T.RAYS then return nil end
+        G.rays = G.rays + 1
+        local t, nx, ny, nz = DECALS.cast(x0, y0, z0, ax, ay, az, false)
+        if t then
+            local hx, hy, hz = x0 + (ax - x0) * t, y0 + (ay - y0) * t, z0 + (az - z0) * t
+            return nx, ny, nz, hx, hy, hz, max(0, (hx - ax) * nx + (hy - ay) * ny + (hz - az) * nz)
+        end
+        return nil
+    end
+    local fy = F.floor[i]
+    if ay <= fy then return 0, 1, 0, ax, fy, az, fy - ay end
+    return nil
+end
+
+local function stepGib(i, dt)
+    local x0, y0, z0 = X[i], Y[i], Z[i]
+    local vx, vy, vz = VX[i], VY[i], VZ[i]
+    local dk = 1 - T.DRAG * dt
+    vx, vy, vz = vx * dk, (vy + GRAVITY * dt) * dk, vz * dk
+    local x1, y1, z1 = x0 + vx * dt, y0 + vy * dt, z0 + vz * dt
+    local r = F.cre[i]
+    local sp = sqrt(vx * vx + vy * vy + vz * vz)
+    local clock = G.clock
+    local ex, ey, ez
+    if sp * dt > 0.35 * r then
+        local k = 1 / sp
+        ex, ey, ez = vx * k, vy * k, vz * k
+    elseif clock - F.lastC[i] < 0.3 then
+        ex, ey, ez = -F.cnx[i], -F.cny[i], -F.cnz[i]
+    else
+        ex, ey, ez = 0, -1, 0
+    end
+    local kind = KIND[i]
+    local nx, ny, nz, hx, hy, hz, pen = contact(i, x0, y0, z0, x1, y1, z1, ex, ey, ez, r)
+    local touching = false
+    if nx then
+        touching = true
+        local wasOn = clock - F.lastC[i] < 0.05
+        -- pushed back out along the normal by how far it went in (not set down at the hit point: that creeps down a slope)
+        x1, y1, z1 = x1 + nx * pen, y1 + ny * pen, z1 + nz * pen
+        local vn = vx * nx + vy * ny + vz * nz
+        if vn < 0 then
+            local imp = -vn
+            local tx, ty, tz = vx - vn * nx, vy - vn * ny, vz - vn * nz
+            local rest = imp < 55 and 0 or T.REST[kind]
+            vx, vy, vz = tx * 0.72 - nx * vn * rest, ty * 0.72 - ny * vn * rest, tz * 0.72 - nz * vn * rest
+            -- a blow leaves blood where it lands, no more often than every tenth of a second
+            if imp > 70 and clock - F.splatAt[i] > 0.1 then
+                F.splatAt[i] = clock
+                splatAt(i, hx, hy, hz, nx, ny, nz, tx - nx * imp, ty - ny * imp, tz - nz * imp, SPLAT_SIZE[kind] * (0.8 + 0.4 * min(1, imp / 250)))
+            end
+        end
+        F.lastC[i], F.cnx[i], F.cny[i], F.cnz[i] = clock, nx, ny, nz
+        -- friction against the surface, a little less on a slope
+        local vn2 = vx * nx + vy * ny + vz * nz
+        local tx, ty, tz = vx - vn2 * nx, vy - vn2 * ny, vz - vn2 * nz
+        local ts = sqrt(tx * tx + ty * ty + tz * tz)
+        if ts > 0 then
+            local ts2 = max(0, ts - T.MU * max(ny, 0.15) * dt)
+            local k = ts2 / ts
+            vx, vy, vz = vx - tx * (1 - k), vy - ty * (1 - k), vz - tz * (1 - k)
+            ts = ts2
+        end
+        -- held by friction: it does not slip down the slope by what this frame's gravity would have moved it
+        if ts <= 0 and wasOn and st[i] ~= FLY then x1, y1, z1 = x0, y0, z0 end
+        -- it rolls: the spin follows the velocity (a bone only turns slowly, it does not roll)
+        local roll = kind == BONE and 0 or min(1, 7 * dt)
+        local rwx, rwy, rwz = (ny * tz - nz * ty) / r, (nz * tx - nx * tz) / r, (nx * ty - ny * tx) / r
+        local damp = exp(-(kind == BONE and 3.5 or 1.2) * dt)
+        WX[i], WY[i], WZ[i] = (WX[i] + (rwx - WX[i]) * roll) * damp, (WY[i] + (rwy - WY[i]) * roll) * damp, (WZ[i] + (rwz - WZ[i]) * roll) * damp
+        -- a streak where it slides
+        if ts > T.STREAK_SPEED and F.decals[i] > 0 then
+            F.streak[i] = F.streak[i] + ts * dt
+            if F.streak[i] > T.STREAK_EVERY then
+                F.streak[i] = 0
+                F.decals[i] = F.decals[i] - 1
+                splatAt(i, x1 - nx * r, y1 - ny * r, z1 - nz * r, nx, ny, nz, tx - nx * 20, ty - ny * 20, tz - nz * 20,
+                        kind == BONE and 1.0 or 1.5)
+            end
+        end
+        if st[i] == FLY and ts < T.SETTLE_SPEED and vn2 < 30 and ny > 0.45 then st[i] = SETTLE end
+    elseif st[i] == SETTLE and clock - F.lastC[i] > 0.25 then
+        -- it went over an edge: in the air again
+        st[i] = FLY
+        F.cre[i] = F.cr[i]
+        F.sleepT[i] = 0
+    end
+
+    -- turning: tumbling in the air, or lying down on a face once it has settled
+    local wx, wy, wz = WX[i], WY[i], WZ[i]
+    local wl = sqrt(wx * wx + wy * wy + wz * wz)
+    if st[i] == SETTLE then
+        local cnx, cny, cnz = F.cnx[i], F.cny[i], F.cnz[i]
+        local err = settleTurn(i, cnx, cny, cnz, 9 * dt)
+        local ds = 1 - exp(-6 * dt)
+        WX[i], WY[i], WZ[i] = wx * (1 - ds), wy * (1 - ds), wz * (1 - ds)
+        F.cre[i] = F.cre[i] + (F.hrT[i] - F.cre[i]) * min(1, 10 * dt)
+        local still = sqrt(vx * vx + vy * vy + vz * vz) < T.SLEEP_SPEED and wl < 0.5 and err < 0.05 and abs(F.cre[i] - F.hrT[i]) < 0.15 and touching
+        if still then
+            F.sleepT[i] = F.sleepT[i] + dt
+            if F.sleepT[i] >= T.SLEEP_SECS then
+                st[i] = SLEEP
+                vx, vy, vz = 0, 0, 0
+                WX[i], WY[i], WZ[i] = 0, 0, 0
+                -- the pool it lies in
+                if stainsOn() and cny > 0.2 then
+                    requestPool(x1 - cnx * F.cre[i], y1 - cny * F.cre[i], z1 - cnz * F.cre[i], POOL_SIZE[kind], cnx, cny, cnz)
+                end
+            end
+        else
+            F.sleepT[i] = 0
+        end
+    elseif wl > 1e-3 then
+        local k = 0.5 * dt
+        local qx, qy, qz, qw = QX[i], QY[i], QZ[i], QW[i]
+        local nqx = qx + k * (qw * wx + wy * qz - wz * qy)
+        local nqy = qy + k * (qw * wy + wz * qx - wx * qz)
+        local nqz = qz + k * (qw * wz + wx * qy - wy * qx)
+        local nqw = qw - k * (wx * qx + wy * qy + wz * qz)
+        local l = 1 / sqrt(nqx * nqx + nqy * nqy + nqz * nqz + nqw * nqw)
+        QX[i], QY[i], QZ[i], QW[i] = nqx * l, nqy * l, nqz * l, nqw * l
+    end
+    X[i], Y[i], Z[i], VX[i], VY[i], VZ[i] = x1, y1, z1, vx, vy, vz
+    if y1 < F.lowY[i] then
+        st[i] = 0
+        sendSlot(i)
+        recount()
+    end
+end
+
+-- One sleeping gib a frame, in turn, is asked whether the ground is still under it: when it is not (an explosion dug it away),
+-- it falls.
+local function wakeCheck()
+    local k = G.wake % N + 1
+    G.wake = G.wake + 1
+    if st[k] ~= SLEEP or not DECALS.rayOK or G.rays >= T.RAYS + 4 then return end
+    local nx, ny, nz = F.cnx[k], F.cny[k], F.cnz[k]
+    local reach = F.cre[k] + 2.5
+    G.rays = G.rays + 1
+    local t, reason = DECALS.cast(X[k], Y[k], Z[k], X[k] - nx * reach, Y[k] - ny * reach, Z[k] - nz * reach, true)
+    -- (a miss, not a refusal: the ground under it is gone)
+    if not t and reason == nil then
+        st[k] = FLY
+        F.cre[k], F.sleepT[k], F.lastC[k] = F.cr[k], 0, -9
+    end
+end
+
+-- ---------------------------------------------------------------- near the camera
+local function sstep(a, b, x)
+    if x <= a then return 0 end
+    if x >= b then return 1 end
+    local t = (x - a) / (b - a)
+    return t * t * (3 - 2 * t)
+end
+
+-- Is the camera in the aim view (close to the active worm)? Then the effect is told where the worm is.
+local function updateAim()
+    local on, ax, ay, az = false, 0, 0, 0
+    if CAM.ok and MEL.active then
+        local s = slots[MEL.active]
+        if s and not s.dead then
+            ax, ay, az = s.px, s.py + CENTRE_Y, s.pz
+            local dx, dy, dz = ax - CAM.px, ay - CAM.py, az - CAM.pz
+            on = dx * dx + dy * dy + dz * dz < T.AIM_DETECT * T.AIM_DETECT
+        end
+    end
+    G.aimOn, G.aimX, G.aimY, G.aimZ = on, ax, ay, az
+    if on then sendV4("aim", r05(ax), r05(ay), r05(az), 1) else sendV4("aim", 0, 0, 0, 0) end
+end
+
+-- How much of something at (x, y, z) is left after fading it for being near the camera (1 whole, 0 gone).
+local function nearFade(x, y, z)
+    if not CAM.ok then return 1 end
+    local dx, dy, dz = x - CAM.px, y - CAM.py, z - CAM.pz
+    local f = sstep(T.NEAR[1], T.NEAR[2], sqrt(dx * dx + dy * dy + dz * dz))
+    if G.aimOn then
+        f = min(f, sstep(T.AIM_CAM[1], T.AIM_CAM[2], sqrt(dx * dx + dy * dy + dz * dz)))
+        dx, dy, dz = x - G.aimX, y - G.aimY, z - G.aimZ
+        f = min(f, sstep(T.AIM_WORM[1], T.AIM_WORM[2], sqrt(dx * dx + dy * dy + dz * dz)))
+    end
+    return f
+end
+
+-- ---------------------------------------------------------------- the bits
+local function loadTex()
+    G.texChecked = true
+    if not (wum.draw.sprite and wum.draw.texture) then return end
+    local list = {}
+    for k = 1, 3 do
+        local ok, tex = pcall(wum.draw.texture, "textures/bs_bit" .. k .. ".png")
+        if not (ok and tex) then return end
+        list[k] = tex
+    end
+    G.tex = list
+end
+
+local function probeSprite()
+    G.spriteOK = G.tex ~= nil and pcall(wum.draw.sprite, G.tex[1], 0, 0, 0, 0, 0, 0, 0, 0)
+end
+
+local function stepBits(dt)
+    local n = G.bitsN
+    local spr = wum.draw.sprite
+    local tex = G.tex
+    local ok = G.spriteOK
+    local i = 1
+    while i <= n do
+        local age = B.age[i] + dt
+        local x, y, z = B.x[i], B.y[i], B.z[i]
+        local vx, vy, vz = B.vx[i], B.vy[i], B.vz[i]
+        local life = B.life[i]
+        if age >= life or y < B.floor[i] then
+            -- gone: the last one takes its place
+            local m = n
+            B.x[i], B.y[i], B.z[i], B.vx[i], B.vy[i], B.vz[i] = B.x[m], B.y[m], B.z[m], B.vx[m], B.vy[m], B.vz[m]
+            B.age[i], B.life[i], B.size[i], B.tex[i] = B.age[m], B.life[m], B.size[m], B.tex[m]
+            B.r[i], B.g[i], B.b[i], B.floor[i] = B.r[m], B.g[m], B.b[m], B.floor[m]
+            n = n - 1
+        else
+            local dk = 1 - 0.4 * dt
+            vx, vy, vz = vx * dk, (vy + GRAVITY * 0.9 * dt) * dk, vz * dk
+            x, y, z = x + vx * dt, y + vy * dt, z + vz * dt
+            B.x[i], B.y[i], B.z[i], B.vx[i], B.vy[i], B.vz[i], B.age[i] = x, y, z, vx, vy, vz, age
+            if ok then
+                local t = age / life
+                local a = (t > 0.7 and (1 - t) / 0.3 or 1) * nearFade(x, y, z)
+                if a > 0.01 then
+                    local sp = sqrt(vx * vx + vy * vy + vz * vz)
+                    col.r, col.g, col.b, col.a = min(1, B.r[i] * 1.25), min(1, B.g[i] * 1.25), min(1, B.b[i] * 1.25), a
+                    local hw = B.size[i] * 0.6
+                    local k = sp > 1 and 1 / sp or 0
+                    spr(tex[B.tex[i]], x, y, z, hw, hw * (1 + min(0.8, sp * 0.003)), vx * k, vy * k, vz * k, col, "alpha")
+                end
+            end
+            i = i + 1
+        end
+    end
+    G.bitsN = n
+end
+
+-- ---------------------------------------------------------------- the fallback
+-- Without the effect (an old Melange, or a driver it failed on) a gib is a sprite or two: a lump for flesh, a long pale one for
+-- bone.
+local function drawFallback()
+    if not (G.spriteOK and G.tex) then return end
+    local spr = wum.draw.sprite
+    for i = 1, N do
+        local fd = st[i] ~= 0 and nearFade(X[i], Y[i], Z[i]) or 0
+        if fd > 0.01 then
+            local kind = KIND[i]
+            if kind == BONE then
+                local ax, ay, az = localAxis(i, 1)
+                col.r, col.g, col.b, col.a = 1, 0.95, 0.82, fd
+                spr(G.tex[1], X[i], Y[i], Z[i], H2[i] * 1.2, H1[i], ax, ay, az, col, "alpha")
+            else
+                if kind == EYE then col.r, col.g, col.b = 1, 0.92, 0.9
+                elseif kind == MEAT then col.r, col.g, col.b = 0.9, 0.15, 0.12
+                else col.r, col.g, col.b = 0.75, 0.1, 0.1 end
+                col.a = fd
+                local hw = (H1[i] + H2[i] + H3[i]) / 3
+                spr(G.tex[(i % 3) + 1], X[i], Y[i], Z[i], hw, hw, 0, 0, 0, col, "alpha")
+            end
+        end
+    end
+end
+
+-- ---------------------------------------------------------------- per frame
+local function inView(i)
+    if not CAM.ok then return true end
+    local dx, dy, dz = X[i] - CAM.px, Y[i] - CAM.py, Z[i] - CAM.pz
+    local z = dx * G.fwdx + dy * G.fwdy + dz * G.fwdz
+    local r = F.bound[i]
+    if z < -r then return false end
+    local zr = max(z, 0) + r
+    if abs(dx * CAM.rx + dy * CAM.ry + dz * CAM.rz) > zr * 1.0 + r then return false end
+    if abs(dx * CAM.ux + dy * CAM.uy + dz * CAM.uz) > zr * 0.7 + r then return false end
+    return true
+end
+
+function GIBS.tick(dt)
+    G.thrown = 0
+    if G.n == 0 and G.bitsN == 0 then
+        if FX.enabled or WARM.on[FX.id] then fxEnable(false) end
+        return
+    end
+    if not preset or cfg.gibs == false then
+        GIBS.clear()
+        return
+    end
+    if dt <= 0 then return end
+    if not G.texChecked then loadTex() end
+    if G.tex and not G.bitsTried then
+        G.bitsTried = true
+        probeSprite()
+    end
+    G.clock = G.clock + dt
+    G.rays = 0
+    updateAim()
+    if CAM.ok then
+        G.fwdx, G.fwdy, G.fwdz = CAM.uy * CAM.rz - CAM.uz * CAM.ry, CAM.uz * CAM.rx - CAM.ux * CAM.rz, CAM.ux * CAM.ry - CAM.uy * CAM.rx
+    end
+    if G.bitsN > 0 then stepBits(dt) end
+    local vis = false
+    for i = 1, N do
+        local s = st[i]
+        -- A gib that the near and aim-view fades take away entirely is not sent to the effect at all (radius 0): the effect fades
+        -- with its own camera and projection, and in the aim view those did not always agree with the game's camera, which
+        -- left a big, half see-through organ over the aim. Lua's own camera decides here.
+        local hid = s ~= 0 and CAM.ok and nearFade(X[i], Y[i], Z[i]) < 0.02 or false
+        local flip = hid ~= (G.hid[i] or false)
+        G.hid[i] = hid
+        if s == FLY or s == SETTLE then
+            stepGib(i, dt)
+            if st[i] ~= 0 then sendSlot(i, true) end
+        elseif flip then
+            sendSlot(i)
+        end
+        if not vis and st[i] ~= 0 and inView(i) then vis = true end
+    end
+    G.anyVis = vis
+    wakeCheck()
+    -- the effect: a clock it dries by, how many slots to look at, on only while a gib may be on the screen
+    local ck = floor(G.clock * 4) / 4
+    if ck ~= G.clockSent then
+        G.clockSent = ck
+        sendParam(FX, "clock", ck)
+    end
+    if G.top ~= G.countSent then
+        G.countSent = G.top
+        sendParam(FX, "count", G.top)
+    end
+    local useFx = not FX.missing and not FX.failed and hasPostfx
+    fxEnable(useFx and vis)
+    if not useFx and G.n > 0 then drawFallback() end
+end
+
+-- ---------------------------------------------------------------- explosions
+-- An explosion at (x, y, z) that digs a crater of radius landR and hurts worms within wormR: gibs near it are thrown again, away
+-- from it, harder the nearer; a flesh gib right in the crater is blown into bits.
+function GIBS.blast(x, y, z, landR, wormR)
+    if G.n == 0 then return end
+    landR, wormR = landR or 0, wormR or 0
+    local reach = max(landR * 1.6, min(wormR, 90) * 0.7)
+    if reach <= 0 then return end
+    reach = max(reach, T.REACH_MIN)
+    local clock = G.clock
+    for i = 1, N do
+        if st[i] ~= 0 and clock - F.born[i] > T.GRACE then
+            local dx, dy, dz = X[i] - x, Y[i] - y, Z[i] - z
+            local d2 = dx * dx + dy * dy + dz * dz
+            if d2 < reach * reach then
+                local d = sqrt(d2)
+                local f = 1 - d / reach
+                local kind = KIND[i]
+                if d < landR * T.POP_FRAC and kind ~= BONE and random() < T.POP_CHANCE then
+                    -- popped: bits where it was, and the slot is free
+                    local floorY = F.floor[i]
+                    for _ = 1, 7 do
+                        local a, up = random() * 2 * pi, rnd(0.2, 1.1)
+                        local sp = rnd(110, 280)
+                        local l = sqrt(1 + up * up)
+                        addBit(X[i], Y[i], Z[i], cos(a) / l * sp, up / l * sp, sin(a) / l * sp, rnd(T.BIT_SIZE[1], T.BIT_SIZE[2]), floorY)
+                    end
+                    st[i] = 0
+                    sendSlot(i)
+                else
+                    local l = d > 1e-3 and 1 / d or 0
+                    local ox, oy, oz = dx * l, dy * l, dz * l
+                    if d <= 1e-3 then ox, oy, oz = 0, 1, 0 end
+                    oy = oy + 0.55
+                    local ol = sqrt(ox * ox + oy * oy + oz * oz)
+                    local sp = (70 + 190 * f) * rnd(0.8, 1.2) / ol
+                    VX[i], VY[i], VZ[i] = ox * sp, oy * sp, oz * sp
+                    local wl = rnd(6, 14)
+                    local a = random() * 2 * pi
+                    WX[i], WY[i], WZ[i] = cos(a) * wl, rnd(-0.5, 0.5) * wl, sin(a) * wl
+                    st[i] = FLY
+                    F.cre[i], F.sleepT[i], F.lastC[i], F.decals[i] = F.cr[i], 0, -9, T.DECALS
+                    F.lowY[i] = min(F.lowY[i], Y[i] - T.KILL_BELOW * 0.5)
+                end
+            end
+        end
+    end
+    recount()
+end
+
+-- ---------------------------------------------------------------- the rest
+function GIBS.clear()
+    for i = 1, N do
+        st[i] = 0
+        sendSlot(i)
+    end
+    G.n, G.top, G.bitsN, G.anyVis = 0, 0, 0, false
+    G.countSent = -1
+    sendParam(FX, "count", 0)
+    sendV4("aim", 0, 0, 0, 0)
+    G.aimOn = false
+    fxEnable(false)
+end
+
+function GIBS.apply(on)
+    if on == false and (G.n > 0 or G.bitsN > 0) then GIBS.clear() end
+    -- a smaller pool takes the slots above it away
+    local pool = min(N, (AMT[cfg.amount] or AMT.heavy).pool)
+    local changed = false
+    for i = pool + 1, N do
+        if st[i] ~= 0 then
+            st[i] = 0
+            sendSlot(i)
+            changed = true
+        end
+    end
+    if changed then recount() end
+end
+
+function GIBS.setBlood(c)
+    sendParam(FX, "blood", c[1], c[2], c[3])
+end
+
+-- Every slot goes out again, one at a time (steps 1..16 of the insurance resend) and the rest at step 17.
+function GIBS.resendStep(k)
+    if not hasPostfx then return end
+    if k <= N then
+        FX.cache[PA[k]], FX.cache[PB[k]], FX.cache[PC[k]], FX.cache[PD[k]] = nil, nil, nil, nil
+        sendSlot(k)
+    else
+        FX.cache.clock, FX.cache.count, FX.cache.blood, FX.cache.dryTime, FX.cache.aim = nil, nil, nil, nil, nil
+        G.clockSent, G.countSent = -1, -1
+        GIBS.setBlood(palette.stain)
+    end
+end
+
+function GIBS.zero()
+    for i = 1, N do sendSlot(i) end
+    sendV4("aim", 0, 0, 0, 0)
+    sendParam(FX, "count", 0)
+    sendParam(FX, "clock", 0)
+    GIBS.setBlood(palette.stain)
+end
+
+-- Is the effect there and does it run? Asked every couple of seconds.
+function GIBS.checkFx()
+    if not (hasPostfx and wum.postfx.list) then return end
+    local ok, list = pcall(wum.postfx.list)
+    if not ok or type(list) ~= "table" then return end
+    local found = false
+    for i = 1, #list do
+        local e = list[i]
+        if type(e) == "table" and e.id == FX.id then
+            found = true
+            FX.failed = e.failed == true
+        end
+    end
+    FX.missing = not found
+    if FX.failed and not FX.warned then
+        FX.warned = true
+        if wum.log and wum.log.warn then
+            wum.log.warn("Bloodsand: the effect " .. FX.id .. " failed to draw on this graphics driver, so the gibs are drawn as flat sprites")
+        end
+    end
+end
+
+-- One press of Preview: gibs thrown from the worm like a very big hit, and from every third press like a death.
+function GIBS.preview(s)
+    if not preset or cfg.gibs == false then return end
+    G.pv = G.pv + 1
+    local dx, dz
+    if CAM.ok then dx, dz = CAM.rx, CAM.rz else dx, dz = sin(s.heading or 0), cos(s.heading or 0) end
+    local l = sqrt(dx * dx + dz * dz)
+    if l < 1e-3 then dx, dz, l = 1, 0, 1 end
+    local am = AMT[cfg.amount] or AMT.heavy
+    local death = G.pv % 3 == 0
+    fire(s, dx / l * 0.8, 0.5, dz / l * 0.8, death and am.death or am.big + 1, death and am.bits or am.bitsBig + 4, death and 1 or 0.7, death)
+end
+
+-- For the tests: the live gibs.
+function GIBS.stats()
+    local o = { n = G.n, bits = G.bitsN, fly = 0, settle = 0, sleep = 0, top = G.top }
+    for i = 1, N do
+        local s = st[i]
+        if s == FLY then o.fly = o.fly + 1 elseif s == SETTLE then o.settle = o.settle + 1 elseif s == SLEEP then o.sleep = o.sleep + 1 end
+    end
+    return o
+end
+
+
+end
+build()
+end
+WARM.ids[#WARM.ids + 1] = "bloodsand/gibs"
+wum.timers.every(2, GIBS.checkFx)
+-- == end Gibs ==
 
 -- == Melee hooks ================================================================================================
 -- Kept at the end of the file, below every local the other sections define, so that these names find them.

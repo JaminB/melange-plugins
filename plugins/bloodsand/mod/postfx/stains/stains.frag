@@ -9,7 +9,10 @@
 //         flowPack = phi * 4096 + e      the direction the blood ran, an angle in the tangent frame, and how stretched
 //                                        the splat is (0..4), both 12 bits
 //         birth                          p_clock when the blood landed (the decal dries as p_clock moves on)
-//         tsPack   = r * 16384 + (type * 16 + thick) * 256 + seed   radius in tenths, 1 splat or 2 pool, thickness 0..15
+//         tsPack   = r * 16384 + (type * 16 + thick) * 256 + seed   radius in tenths, 1 splat or 2 pool or 3 trail piece,
+//                                thickness 0..15. A trail piece (r is its half-width, e its length, half of it being 2 + 20 e
+//                                world units, phi the direction to the head, see Streak) has 48 + 8 * smear + thick (0..7)
+//                                in place of type * 16 + thick: smear 0 is a line of drips, 1 a smear.
 // All the integers are below 2^24 so they survive being floats. The seed (0..255) also picks the outline of the blot: how
 // many lobes it has, how lumpy and how long it is, how many satellite drops and specks it throws and how thickly.
 //   wN = (x, y, z, 1)            the middle of the body of worm N (slot N), 0 in w when there is no such worm;
@@ -41,7 +44,8 @@
 // curved rock, facet by facet, and its own outline is what ends it), when its normal turns more than about 60 degrees from
 // the decal's (about 50 for a pool, which lies on ground, and not on a camera-facing puff of smoke), when a neighbour lies well behind its tangent plane (the
 // edge of a silhouette, smoke or anything else thin that writes depth; a convex crease between two facets is far less than
-// that), when it is a grey that floats over the plane (smoke that hangs low and flat enough to pass the tests above), and
+// that), when it is a grey that floats over the plane (smoke that hangs low and flat enough to pass the tests above; a fading
+// puff, which the ground's colour shows through, only needs to be dull and well above it), and
 // when it is inside a worm's volume (a worm standing or lying in a pool, hats, arms) and either faces another way than the
 // decal or stands high above its plane: the curved ground a worm lies on still takes blood, and what is not ground does not,
 // even where it crosses the decal's plane (a worm on a slope is cut through by the plane of a pool). A decal fades out as the
@@ -202,10 +206,124 @@ float WormE(vec3 Pw) {
     return e;
 }
 
+// A trail piece (type 3: a line of drips, type 4: a smear), which Bloodsand's Lua lengthens step by step as a worm crawls on:
+// a straight strip, centred on the decal's middle, the head (where the worm is) at +a and the old end at -a, c across it. R is
+// its half-width (for drips the size of a drip, for a smear half the width of the stripe), the half length is 2 + 20 E, thick
+// (0..1) is the density of the drips or the thickness of the smear. It is blood like any other: it joins the one fluid (Fl,
+// Merge), so a trail runs into a pool or a splat it meets, and it dries the same way (a thin smear a little faster).
+//   drips: along the strip in cells of 2.2 R + 1.5 (8 to 9.5) units, each holding a drip or not (thick says how often; a slow noise
+//          along the strip makes clusters of them and bare stretches), at a place across the strip and of a size the cell picks:
+//          a bead, or now and then (a tenth of them) a big splat, an oval with a tail toward the old end (it ran as the worm went
+//          on) and sometimes a small satellite drop behind it. A cell's drop reaches into the next cells, so each pixel looks at
+//          three;
+//   smear: a stripe of the worm's own width, nearly even, with a short taper at the old end (a piece laid over the end of another
+//          overlaps it by 12 units, so there is no neck between them) and a blunt head; streaks along the drag (the ridges the dragged body
+//          left: thicker and darker lines between lighter ones) and dry-brush skips along them where the blood ran thin (thick
+//          low) or the worm pressed lightly, more at the edges than in the middle, and the edges themselves thick and dark.
+// One cell of a line of drips: the drip of cell id, if it has one, at the pixel (a, c). Takes the nearest edge over F (the larger
+// distance), with the size of the blot, its thickness and the way the surface tilts for the drip that gave it.
+void DripCell(float id, float cs, float Lh, float R, float seed, float thick, float a, float c, float cp, float sp,
+              inout float F, inout float Rl, inout float kth, inout vec2 tilt) {
+    vec3 hs = H23(vec2(id + seed * 7.0, seed * 1.3 + 3.0));
+    float cluster = VN(vec2(id * 0.45 + seed * 1.7, seed * 0.9 + 4.1));
+    if (hs.x >= clamp((0.45 + 0.55 * thick) * (0.15 + 1.7 * cluster), 0.0, 1.0)) return;
+    float hr = H21(vec2(id * 1.7 + seed, 9.9));
+    float big = step(0.9, hr);
+    float rd = R * (0.42 + 0.52 * hr * hr + 0.6 * big);
+    float a0 = (id + 0.4 + 0.2 * hs.y) * cs - Lh;
+    if (abs(a0) >= Lh - 0.5) return;
+    float c0 = (hs.z - 0.5) * R * 2.2;
+    vec2 dd = vec2(a - a0, c - c0);
+    float Fd = rd - length(vec2(dd.x / (dd.x < 0.0 ? 1.55 + 0.9 * big + 0.5 * hr : 1.0), dd.y))
+             + (VN(dd * (1.6 / max(rd, 0.5)) + id * 3.7 + seed) - 0.5) * rd * (0.1 + 0.5 * big);   // a splat's edge is ragged
+    // a small satellite drop behind it, on one side (a big splat always has one)
+    float hq = H21(vec2(id * 3.1 + seed, 2.2));
+    if (hq < 0.55 || big > 0.5) {
+        float rs = rd * (0.28 + 0.2 * hq);
+        vec2 ds = dd - vec2(-(rd * 1.5 + rs + 0.6 + 1.2 * hq), (hs.z - 0.5) * 2.0 * rd);
+        Fd = max(Fd, rs - length(ds));
+    }
+    if (Fd > F) {
+        F = Fd;
+        Rl = rd;
+        vec2 g = dd / max(length(dd), 1e-4);
+        tilt = vec2(g.x * cp - g.y * sp, g.x * sp + g.y * cp);
+        kth = 0.62 + 0.25 * hr + 0.1 * big;
+    }
+}
+
+void Streak(float u, float v, float a, float c, float cp, float sp, float h, float dist, float nd, float ng, float hg, float wE,
+            vec3 N, vec3 T, vec3 Bt, float R, float E, float seed, float thick, float type, float age, inout Fl acc) {
+    float Lh = 2.0 + 20.0 * E;
+    if (abs(a) > Lh + 1.5 || abs(c) > (type < 3.5 ? 3.0 * R + 2.0 : 1.4 * R + 1.5)) return;
+    float F = -1.0e3;       // the distance to the edge of the blood, positive inside
+    float Rl = 1.0;         // the size of the blot around the pixel
+    float dm = 0.0;
+    float fr = 0.0;         // 1 for a drip (a round bead), 0 for the smear
+    float kth = 0.65;
+    vec2 out2 = vec2(0.0);  // the way the surface tilts, in (u, v)
+    if (type < 3.5) {
+        float cs = clamp(2.2 * R + 1.5, 8.0, 9.5);
+        float id = floor((a + Lh) / cs);
+        DripCell(id - 1.0, cs, Lh, R, seed, thick, a, c, cp, sp, F, Rl, kth, out2);
+        DripCell(id, cs, Lh, R, seed, thick, a, c, cp, sp, F, Rl, kth, out2);
+        DripCell(id + 1.0, cs, Lh, R, seed, thick, a, c, cp, sp, F, Rl, kth, out2);
+        fr = 1.0;
+    } else {
+        float prof = VN(vec2(a * 0.07 + seed * 3.7, seed * 0.31 + 2.0));
+        float prof2 = VN(vec2(a * 0.31 + seed * 1.9, 5.5));
+        float w = R * (0.86 + 0.16 * prof) * (0.94 + 0.12 * prof2);
+        float tapO = smoothstep(-Lh, -Lh + min(4.0, Lh), a);
+        float wt = w * tapO;
+        float dry = 1.0 - thick;
+        float stripe = VN(vec2(a * 0.055 + seed * 3.1, c * 1.15 + seed));      // the ridges of the drag: long along it, about a unit across
+        float q = abs(c) / max(wt, 0.05);
+        float press = VN(vec2(a * 0.045 + seed * 5.3, 1.7));      // where the drag pressed hard and where it skimmed
+        float gap = smoothstep(0.55, 0.95, q * (0.5 + 0.5 * (1.0 - press)) + (0.5 - stripe) * (0.7 + 0.8 * dry) + (1.0 - tapO) * 0.6 + 0.3 * dry * q);
+        float fib = VN(vec2(a * 0.085 + seed * 2.3, c * 1.9 + seed * 0.7));
+        float skim = (1.0 - smoothstep(0.16, 0.32, fib)) * smoothstep(0.35, 0.85, (1.0 - press) * (0.6 + 0.8 * dry) + (1.0 - tapO) * 0.5) * (0.4 + 0.6 * q);   // lines the drag skipped
+        F = min(wt - abs(c), (Lh - a) + 0.35 * R * (VN(vec2(c * 1.1 + seed, 3.3)) - 0.5))
+          - gap * w * 0.9 - skim * w * 0.8 + 0.12 * R * (VN(vec2(a * 1.3 + seed, c * 0.9)) - 0.5);
+        Rl = max(wt, 0.7 * R);
+        dm = 0.5 * clamp(q, 0.0, 1.5);
+        float edge = smoothstep(0.55, 0.95, q);
+        float ridge = smoothstep(0.22, 0.78, stripe);
+        kth = (0.5 + 0.5 * thick) * (0.3 + 0.7 * ridge) * (0.8 + 0.2 * tapO) * (1.0 + 0.9 * edge);
+        float across = clamp(c / max(wt, 0.1), -1.0, 1.0);
+        out2 = vec2(-sp, cp) * across * 0.3;
+    }
+    float mg = 0.15 + 0.5 * min(R, 3.0);
+    if (F < -mg) return;
+
+    // ---- where blood may not land: as for any decal (see Shape) ----
+    float wAway = max(1.0 - smoothstep(0.75, 0.92, nd), smoothstep(5.0, 8.0, abs(h)));
+    float wm = 1.0 - (1.0 - smoothstep(WORM_E0, 1.0, wE)) * wAway;
+    float gate = ng * hg * wm;
+    if (gate <= 0.0) return;
+
+    float dryRaw = clamp(age * 1.4 / max(p_dryTime, 1.0), 0.0, 1.0);
+    Fl o;
+    o.F = F;
+    o.R = Rl;
+    o.S = fr > 0.5 ? max(R, 0.8) : 2.5 * R;       // (a smear is a film: a low dome, a flat highlight)
+    o.uv = vec2(u, v) + seed * R * vec2(1.37, 2.11);
+    o.bf = 1.0;
+    o.dm = dm;
+    o.kth = kth;
+    o.fr = fr;
+    o.dryT = dryRaw * dryRaw * (3.0 - 2.0 * dryRaw);
+    o.lum = 0.4 + 0.2 * H21(vec2(seed, 31.7));
+    o.pool = 0.0;
+    o.gate = gate;
+    o.nrm = N;
+    o.outw = T * out2.x + Bt * out2.y;
+    Merge(acc, o);
+}
+
 // One decal at the pixel: Pw is the pixel in world space, nW the surface normal there (world), pxw the size of a pixel in
 // world units. Adds what the decal contributes (its body, and the satellite, speck or drip nearest the pixel) to acc.
 // wE is the worm test (WormE) at the pixel.
-void Shape(vec3 Pw, vec3 nW, float pxw, float grey, vec4 A, vec4 B, float wE, inout Fl acc) {
+void Shape(vec3 Pw, vec3 nW, float pxw, vec2 grey, vec4 A, vec4 B, float wE, inout Fl acc) {
     float nu = floor(B.x / 4096.0);
     float nq = B.x - nu * 4096.0;
     float az = nu / 4095.0 * 2.0 * PI - PI;
@@ -238,8 +356,12 @@ void Shape(vec3 Pw, vec3 nW, float pxw, float grey, vec4 A, vec4 B, float wE, in
     float hg = 1.0 - smoothstep(0.5 * tolH, tolH, abs(h));
     // Smoke is grey, and hangs a few units over the plane, which that tolerance lets through (a wide pool on a dune needs it,
     // and a tighter one cut the pool short): a grey pixel that is off the plane at all is not ground. (Pixels on the plane
-    // keep whatever their colour: the ground of a grey level is on it.)
-    hg *= 1.0 - 0.9 * grey * smoothstep(0.7, 1.6, abs(h));
+    // keep whatever their colour: the ground of a grey level is on it.) A puff that is fading out lets the sand or the grass
+    // through and is no longer grey (a puff over desert sand measured a saturation of 0.39 to 0.48, against 0.7 for the sand
+    // and more for blood and grass), so anything that dull standing well above the plane (on the side the decal faces) is
+    // taken for smoke too: such a puff took a pool's colour up to a straight edge where the plane's tolerance ended.
+    hg *= 1.0 - 0.9 * grey.x * smoothstep(0.7, 1.6, abs(h));
+    hg *= 1.0 - grey.y * smoothstep(1.2, 2.2, h);
     if (hg <= 0.0) return;
 
     vec3 ref = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
@@ -257,6 +379,13 @@ void Shape(vec3 Pw, vec3 nW, float pxw, float grey, vec4 A, vec4 B, float wE, in
     float a = u * cp + v * sp;       // along the flow, the tail is at +a
     float c = -u * sp + v * cp;      // across it
     float age = max(p_clock - B.z, 0.0);
+    if (type > 2.5) {
+        // (a trail piece: the 6 bits after the radius are 3, then 0 drips or 1 smear, then a thickness of 3 bits)
+        float sub = tt - 48.0;
+        float sm = step(8.0, sub);
+        Streak(u, v, a, c, cp, sp, h, dist, nd, ng, hg, wE, N, T, Bt, R, E, seed, (sub - sm * 8.0) / 7.0, 3.0 + sm, age, acc);
+        return;
+    }
 
     // ---- shape ----
     float La = R * (1.0 + E);
@@ -674,7 +803,9 @@ void main() {
     float wE = p_wn > 0.5 ? WormE(Pw) : 9.0;
     // How grey the scene is here (smoke and steam over the ground are; sand, grass and blood are not).
     float gmx = max(scene.r, max(scene.g, scene.b));
-    float grey = 1.0 - smoothstep(0.07, 0.17, (gmx - min(scene.r, min(scene.g, scene.b))) / max(gmx, 1e-3));
+    // (x: grey, y: dull enough to be a fading puff over the ground)
+    float satS = (gmx - min(scene.r, min(scene.g, scene.b))) / max(gmx, 1e-3);
+    vec2 grey = vec2(1.0 - smoothstep(0.07, 0.17, satS), 1.0 - smoothstep(0.5, 0.62, satS));
     cnt = min(cnt, 3.0);
     for (int k = 0; k < 3; k++) {
         if (float(k) >= cnt) break;

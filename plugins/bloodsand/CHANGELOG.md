@@ -1,3 +1,81 @@
+## 1.3.0
+
+Gorier again: worms spurt blood, leave trails and pools, and come apart. Three new things that work together, each with
+the Blood setting to turn it down and (for the gibs, and the trails and pools) a setting of its own, both on by default.
+
+Gibs. A worm that dies, and one that takes a very big hit (45 damage or more, 30 on Absurd), now throws chunks of meat,
+shards of bone and a few organs (a kidney, a liver lobe, a heart, an eyeball on its stump of nerve), with small bits of meat
+flying out around them, and they stay: up to 16 on Absurd (14 on Heavy, 8 on Light), the oldest recycled. They are ray-marched
+signed distance fields drawn by a new Post-FX pass, `bloodsand/gibs` (PostWorld, order 53, after the guts): flesh is dark red with
+lighter fibres, cream marbling, silverskin and fibrous tear faces, bone ivory with a jagged, hollow, porous break, the eye
+bloodshot with an iris and a pupil; all wet and glossy with light through the thin flesh at first, drying over about a minute to
+a dark, brown, matte finish. The organs and bones were reworked after the first in-game look (they read as glossy pills, cigarette
+butts and a tomato): the liver is a dark maroon lobed wedge with a thin sharp edge, a cleft, a vessel stub and torn raw faces; the
+kidney a bean with a hilum, fat and the cut stubs of its vein, artery and ureter; the heart a leaning cone with a groove, a lumpy
+cap of fat and the hollow, obliquely torn ends of its great vessels; new lung lobes and loops of intestine; bones are ivory, matte
+and porous, a long bone with a knobbed joint end, a shaft snapped at both ends, a curved rib or a shard, each with splintered
+breaks round a hollow marrow cavity and on some a rag of red meat still clinging; some meat chunks are fatty or dark. The wet
+sheen is a thin, patchy, weak film (no glassy glint), with dark clotted blood in the crevices. A gib (and its bits) fades out
+between 60 and 25 units from the camera and is gone nearer, one that would fill much of the screen fades too, and in the aim
+view (the camera within 40 units of the active worm) the ones near the camera or the worm are hidden so they never block the
+aim. They fly with spin, bounce, roll and slide on the terrain (`wum.game.landRay`; on the plane at the
+worm's feet without it), come to rest lying on their flattest face and sleep (no rays, nothing sent to the effect), and leave
+a splat where they land hard, a streak where they slide and a pool where they lie. An explosion near them throws them again, and
+flesh in the middle of its crater is blown into bits; ground dug out from under one lets it fall. A new setting, Gibs (on),
+and Preview throws some. If the pass cannot run each gib is drawn as a flat sprite. A frame throws at most twenty gibs between
+all the worms that die in it, so a blast that kills the whole pack does not spend its time recycling what it has just thrown.
+
+Blood trails and pools (the new setting "Pools & trails", on by default, which needs Blood on the ground). A worm below
+two thirds of its health leaves a line of drips behind it as it walks, and below a quarter of it a smear where it drags
+itself, laid on the ground under the worm (slopes included, with Melange 0.6's `wum.game.landRay`). The drips are beads of
+every size, one every 8 to 15 units in clusters with bare stretches between, now and then a big splat with a satellite drop
+behind it, each a few units across, so that the line reads from the usual play distance. The smear is a stripe of the worm's
+own width, streaked along the drag with thicker, darker edges, thinner and drier the further the worm has dragged itself
+since its last hit (a hit brings fresh blood), now and then broken for a body length, and pieces are laid overlapping so
+that it is one continuous stripe, not dashes. A worm that is dying, or hurt and
+lying still, slowly grows a pool under it over six to eight seconds, which stays wet while it spreads and dries later; and
+after a worm blows up its grave sits in a pool with smears running out of it and a spatter of splats around.
+Light, Heavy and Absurd scale the size, the number of trail pieces (5, 8 and 12) and the smears round a grave (2, 3 and 5).
+A trail is a straight strip that the worm lengthens as it goes, two new decal kinds of the stains pass (a dotted line of
+drips, and a smear), so it costs a decal slot for every 30 to 50 units and not one for each step; the oldest goes first.
+The pass stays within 2% of its old cost (5% in a view full of drip pieces; measured with native GL at 1080p) and keeps its 32 slots: 48 would have cost
+21% more with everything in use. Melange's CreateGravestoneMessage has no decoder, so the grave is where the worm was
+last seen. Trail and pool pieces follow the same rules as any decal on a worm and on smoke (a pool takes surface up to about
+50 degrees from its plane, a grey pixel off the plane is skipped, and a worm's wider volume stays clear of blood however
+close its flank is to the plane), so a smear no longer paints a worm standing on a slope.
+
+Arterial spurts. A worm below about a third of its health spurts blood from its deepest open wound in time with a
+heartbeat (1.1 to 1.6 beats a second, faster the lower it is, slightly irregular, often with a weaker second beat): each
+beat is a pressurised stream, a continuous arc of thin dark-red tubes of blood (a new sprite, `bs_jet.png`, no glint) laid
+at a steady rate along the arc and closer together than they are long, thinning and breaking into beads at the far end,
+a few beads flying ahead of it, a short sputter after the beat, a fine mist puff at the wound and a weak dribble between
+the beats. The jets follow the worm as it moves and turns, land through the existing droplet
+collision and leave splats and streaks, pause while the worm is thrown or falling and come back stronger after it lands,
+start stronger after a new hit and weaken and stop on a dying worm. One wound spurts on Light and Heavy, two on Absurd. The
+previewed worm spurts for a few seconds. They follow the Blood setting and have no setting of their own.
+The gashes (and so the spurts) now sit on the middle of the body, not the head: their elevation runs from -0.6 to 0.4 radians
+about the body's middle, from -0.35 to 0.75 before (the highest wounds were at three quarters of the worm's height, under
+its head), which puts them 6 to 16 units above the feet. The wound sites that the code computes (`woundSites`) are now where `skin.frag` draws the gashes: it used to put them
+up to 0.14 of a unit direction off (a unit or two at the upper wounds) and the belly opening about a unit and a half too
+high, because the shader finds a gash along the ray from the body's middle in the ellipsoid's own space.
+
+Working together. All three draw on the same limits, which are shared out so that none starves the others. The 32 decal
+slots: the spray of a spurting worm used to push the trails and pools it leaves out of them within seconds, so a new splat
+now leaves a pool or a trail piece alone while it is still fresh (about fifty seconds for a piece, a minute or more for a
+pool), as long as pools and pieces take no more than 18 of the slots, which leaves 14 for splats. The 64 terrain rays a frame:
+the flying gibs take up to 20 and go first, the droplets (the spurts' too) up to 48, and the trails, pools, guts and melee
+sprays, which can wait a frame, what is left under 24. The frame's spawn budget: bursts first, the spurts after them with 40
+spawns kept back for the bursts and no more than 60% of the pool, the gibs' bits of meat (up to 96, sprites) apart from
+both. Preview throws a very big hit's worth of gibs (a death's worth every third press), lays a trail piece and a pool and
+makes the worm spurt. The insurance resend is still spread over 17 frames.
+
+Needs no new Melange: the sprites, `landRay` and the worms' velocity of 0.6 are used where there, with fallbacks. Costs, in
+the test rig at 1080p: the gibs pass about 0.18 ms with sixteen on screen (nothing while none may be seen), the stains pass
+within 2% of what it was; in the mock host the script averages 170000 to 210000 VM instructions a frame, and peaks at about
+330000 (the limit is 500000), with sixteen badly hurt worms on Absurd crawling, spurting and trailing, then big hits and
+thirteen deaths. A few badly hurt worms spurting now make the script's steady cost about two and a half times what it was
+in 1.2 (eight worms on Heavy, four of them at 15 health: 113000 instructions a frame, from 42000), nearly all of it the droplets.
+
 ## 1.2.0
 
 Much gorier, and it looks like flesh. A worm's intestines are now ray-marched, simulated tubes: a sixteen-point chain
