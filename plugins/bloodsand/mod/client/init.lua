@@ -32,8 +32,13 @@ local BURST_MAX = 170           -- droplets in one burst, however much damage it
 -- A death is the one burst that must never be lost: it may overspend the frame's budget by DEATH_EXTRA, waits in the queue
 -- DEATH_QUEUE_SECS instead of QUEUE_SECS, and pushes older particles out of a full pool to make room for DEATH_ROOM of its own.
 -- A worm that vanishes from the worm list is taken to have died (its blood is thrown) after GONE_SECS.
+-- A worm whose health reaches 0 is dying: the game blows it up seconds later (at the end of the turn, once the damage has
+-- been counted down), and the death burst waits for that: for its state to turn dead, for it to leave the list, or for an
+-- explosion within DYING_REACH of it at least DYING_MIN seconds after its health ran out, and at most DYING_SECS.
+-- The death throws DEATH_CLOTS heavy clots as well, which land and splat around the crater.
 local BUDGET = { SPAWN = 200, MIN_LEFT = 30, QUEUE = 24, QUEUE_SECS = 0.75, FAIR_MIN = 24, spawned = 0,
-                 DEATH_EXTRA = 120, DEATH_QUEUE_SECS = 3, DEATH_ROOM = 90, evicted = 0, GONE_SECS = 0.3 }
+                 DEATH_EXTRA = 120, DEATH_QUEUE_SECS = 3, DEATH_ROOM = 90, evicted = 0, GONE_SECS = 0.3,
+                 DYING_REACH = 30, DYING_MIN = 0.4, DYING_SECS = 40, DEATH_CLOTS = 14 }
 local BURST_BASE = 8            -- every hit sprays as if it did this much more damage, so a light one still shows
 local DEATH_DAMAGE = 75         -- a death counts as this much damage
 -- A burst this far from the camera (world units) throws bigger droplets and more mist, up to +45% and double at FAR_START + FAR_SPAN,
@@ -53,19 +58,21 @@ local MIST_SIZE = { 9, 20 }
 local MIST_ALPHA = 0.22
 local DROPLET_ALPHA = 0.9
 local FADE_START = 0.7          -- droplets start to fade after this fraction of their life
-local STREAK_SECONDS = 0.03     -- a streak is as long as the distance covered in this time...
-local STREAK_MIN, STREAK_MAX = 3.5, 22  -- ...within these limits
+local STREAK_SECONDS = 0.045    -- a streak is as long as the distance covered in this time...
+local STREAK_MIN, STREAK_MAX = 3.5, 26  -- ...within these limits
 -- A droplet is a teardrop (a rounded head and a tail that tapers to a point) drawn as a small triangle fan, longer the faster it
--- goes (see Particle shapes). A droplet that has flown a while stretches up to AGE_GAIN more and gets thinner. By its width on
--- the screen, in pixels: under LOD2 it is one thin quad, under LOD3 a six-point fan, and from there an eight-point fan inside a
--- lighter, more transparent ring (RING times as large, RING_ALPHA of the alpha, RING_LIGHT times the colour), and from GLINT_PX
--- (and GLINT_SIZE world units) up a tiny round glint. At most BIG_MAX droplets a frame get the full shape. A droplet that would
--- be narrower than PX_MIN pixels is grown to it, but by no more than BOOST times; one wider than PX_MAX, or longer than LEN_MAX,
+-- goes (see Particle shapes): in flight it reads as a thin streak, not a flat petal. A droplet that has flown a while stretches
+-- up to AGE_GAIN more and gets thinner. By its width on the screen, in pixels: under LOD2 it is one thin quad, under LOD3 a
+-- six-point fan, and from there an eight-point fan inside a fringe of the same colour about FRINGE_PX pixels wide at
+-- FRINGE_ALPHA of the alpha (the edge anti-aliased: world quads have none of their own), and from GLINT_PX (and GLINT_SIZE world
+-- units) up a tiny faint glint near the head. At most BIG_MAX droplets a frame get the full shape. A droplet that would be
+-- narrower than PX_MIN pixels is grown to it, but by no more than BOOST times; one wider than PX_MAX, or longer than LEN_MAX,
 -- is held to it. Nearer the camera than NEAR_CULL a droplet is not drawn, and it fades in up to NEAR_FADE. Puffs (mist, steam)
--- are cut at PUFF_CULL, fade in to PUFF_FADE and are held to PUFF_PX_MAX pixels in radius.
-local DROP = { AGE_GAIN = 0.8, BODY = 0.72, RING = 1.3, RING_ALPHA = 0.4, RING_LIGHT = 1.0, LOD2 = 3.5, LOD3 = 8,
-               GLINT_PX = 12, GLINT_SIZE = 2.0, BIG_MAX = 32, PX_MIN = 2, BOOST = 3, PX_MAX = 24, LEN_MAX = 70,
-               NEAR_CULL = 12, NEAR_FADE = 34, PUFF_CULL = 20, PUFF_FADE = 60, PUFF_PX_MAX = 260 }
+-- are cut at PUFF_CULL, fade in to PUFF_FADE and are held to PUFF_PX_MAX pixels in radius. Char and ash flakes (CHAR_STREAK of a
+-- droplet's stretch) never get more than the six-point shape.
+local DROP = { AGE_GAIN = 0.8, BODY = 0.72, FRINGE_PX = 1.1, FRINGE_ALPHA = 0.45, LOD2 = 3.5, LOD3 = 8,
+               GLINT_PX = 14, GLINT_SIZE = 2.0, BIG_MAX = 32, PX_MIN = 2, BOOST = 3, PX_MAX = 16, LEN_MAX = 70,
+               NEAR_CULL = 12, NEAR_FADE = 34, PUFF_CULL = 20, PUFF_FADE = 60, PUFF_PX_MAX = 260, CHAR_STREAK = 0.45 }
 
 -- Offsets from the worm's reported position, to be calibrated in game: up to the middle of the body, and down to
 -- the ground the worm stands on.
@@ -319,14 +326,21 @@ end
 -- told where the living worms are ("w0".."w15", sendWorms), so that it keeps blood off them.
 -- Everything is inside one do-block so the main chunk keeps its few free local-variable slots (Lua allows 200); what
 -- the rest of the file uses is declared here and set below: updateStainEnable, clearStains, requestPool, placeStain,
--- and the DECALS table (update, resend, zero, cast, splat, rayOK, rayUsed).
+-- and the DECALS table (update, resend, zero, cast, splat, blast, rayOK, rayUsed).
+-- A worm's pool (placeStain) goes down STAIN_DELAY seconds after it is asked for, so that the crater of the explosion that
+-- caused it is there to lie in; and an explosion that digs a crater (DECALS.blast) takes away the decals whose middle is
+-- within BLAST_K of its land damage radius: their surface is gone, and what was left of them were strips where the old
+-- plane cut the new crater.
+DEC.STAIN_DELAY, DEC.LATER_MAX, DEC.BLAST_K = 0.4, 12, 0.75
 local updateStainEnable, clearStains, requestPool, placeStain
 local DECALS = { rayUsed = 0, rayOK = false, frame = 0, prevHeavy = 0, prevLight = 0, now = 0 }
 do
 local DS = { live = {}, x = {}, y = {}, z = {}, nx = {}, ny = {}, nz = {}, np = {}, r = {}, rt = {}, e = {}, phi = {},
              birth = {}, seed = {}, kind = {}, thick = {}, dirtyA = {}, dirtyB = {}, sentRq = {}, r0 = {}, t0 = {},
              -- the worms the shader keeps blood off (params "w0".."w15"): where each was last sent, and the frame it was last seen
-             wx = {}, wy = {}, wz = {}, wlive = {}, wseen = {}, wtop = 0 }
+             wx = {}, wy = {}, wz = {}, wlive = {}, wseen = {}, wtop = 0,
+             -- the pools waiting to go down (placeStain): where, how big and when
+             lx = {}, ly = {}, lz = {}, lr = {}, lat = {}, ln = 0 }
 local DEC_A, DEC_B, DEC_W = {}, {}, {}
 for i = 1, SKIN_SLOTS do
     DEC_W[i] = "w" .. (i - 1)
@@ -379,6 +393,7 @@ function clearStains()
         sendVec4(STAINS, DEC_B[i], 0, 0, 0, 0)
     end
     decCount = 0
+    DS.ln = 0
     sendParam(STAINS, "count", 0)
     zeroWorms()
     updateStainEnable()
@@ -583,7 +598,7 @@ local function sendWorms(slots, frameId)
     local mv = DEC.WORM_SEND
     for slot, s in pairs(slots) do
         local i = slot + 1
-        if s.seen == frameId and s.alive and i >= 1 and i <= SKIN_SLOTS then
+        if s.seen == frameId and s.alive and not s.dead and i >= 1 and i <= SKIN_SLOTS then
             local x, y, z = s.px, s.py + CENTRE_Y, s.pz
             DS.wseen[i] = frameId
             if i > top then top = i end
@@ -605,6 +620,19 @@ end
 
 function DECALS.update(dt, slots, frameId)
     fxClock = fxClock + dt
+    -- The pools that are due go down now.
+    local n, k = DS.ln, 1
+    while k <= n do
+        if DECALS.now >= DS.lat[k] then
+            local x, y, z, r = DS.lx[k], DS.ly[k], DS.lz[k], DS.lr[k]
+            DS.lx[k], DS.ly[k], DS.lz[k], DS.lr[k], DS.lat[k] = DS.lx[n], DS.ly[n], DS.lz[n], DS.lr[n], DS.lat[n]
+            n = n - 1
+            DS.ln = n
+            requestPool(x, y, z, r)
+        else
+            k = k + 1
+        end
+    end
     if decCount > 0 and slots then sendWorms(slots, frameId) end
     for i = 1, STAIN_SLOTS do
         if DS.live[i] then
@@ -731,8 +759,31 @@ function requestPool(x, y, z, size, gx, gy, gz)
     return decalAdd(2, px, py, pz, px, py, pz, nx, ny, nz, min(DEC.POOL_MAX, max(2, size * 0.9)), 0, phi, random(11, 15))
 end
 
+-- A worm's pool: it goes down STAIN_DELAY seconds from now (see DECALS.update), when the crater it may lie in is there.
 function placeStain(x, y, z, radius)
-    requestPool(x, y, z, radius)
+    local n = DS.ln
+    if n >= DEC.LATER_MAX then
+        requestPool(x, y, z, radius)
+        return
+    end
+    n = n + 1
+    DS.lx[n], DS.ly[n], DS.lz[n], DS.lr[n], DS.lat[n] = x, y, z, radius, DECALS.now + DEC.STAIN_DELAY
+    DS.ln = n
+end
+
+-- An explosion at (x, y, z) that digs a crater of radius landR: the decals whose middle is in it go.
+function DECALS.blast(x, y, z, landR)
+    if not landR or landR <= 0 then return end
+    local r = landR * DEC.BLAST_K
+    for i = 1, STAIN_SLOTS do
+        if DS.live[i] then
+            local dx, dy, dz = DS.x[i] - x, DS.y[i] - y, DS.z[i] - z
+            if dx * dx + dy * dy + dz * dz < r * r then
+                DS.live[i], DS.dirtyA[i] = false, true
+                decCount = decCount - 1
+            end
+        end
+    end
 end
 
 DECALS.cast, DECALS.splat = castRay, decalSplat
@@ -851,7 +902,7 @@ do
     local C8 = 0.25
 
     -- lod 1: one thin kite quad; 2: a six-point fan (three quads); 3: an eight-point fan (four quads). k scales the eight-point shape
-    -- about the fan centre (the ring around a big droplet is the same shape 1.3 times as large). The centre of the droplet is (x, y, z),
+    -- about the fan centre (the fringe around a big droplet is drawn with k = 1 and its axes lengthened instead). The centre of the droplet is (x, y, z),
     -- (ax, ay, az) is the half length along its velocity and (sx, sy, sz) the half width.
     function P.shape.drop(lod, k, x, y, z, ax, ay, az, sx, sy, sz, r, g, b, a)
         col.r, col.g, col.b, col.a = r, g, b, a
@@ -1090,6 +1141,7 @@ local function simulate(dt)
                         end
                         local hl2 = sp * STREAK_SECONDS * (1 + DROP.AGE_GAIN * min(age, 1.2))
                         if hl2 < STREAK_MIN then hl2 = STREAK_MIN elseif hl2 > STREAK_MAX then hl2 = STREAK_MAX end
+                        if kd == CHARK then hl2 = hl2 * DROP.CHAR_STREAK end    -- a flake tumbles, it does not streak
                         if hl2 > DROP.LEN_MAX / ppu then hl2 = DROP.LEN_MAX / ppu end
                         if hl2 < size * 1.2 then hl2 = size * 1.2 end
                         local k = hl2 * 0.5 / sp
@@ -1108,25 +1160,28 @@ local function simulate(dt)
                             local r, g, b = pr[i], pg[i], pb[i]
                             local pxw = hw * 2 * ppu
                             local lod = pxw < LOD2 and 1 or pxw < LOD3 and 2 or 3
+                            if lod == 3 and kd == CHARK then lod = 2 end
                             if lod == 3 then
                                 nBig = nBig + 1
                                 if nBig > DROP.BIG_MAX then lod = 2 end
                             end
+                            local br, bg, bb = r * BODY, g * BODY, b * BODY
                             if lod == 3 then
-                                -- A lighter, more transparent ring first, then the dark core.
-                                local rl = DROP.RING_LIGHT
-                                PD.drop(3, DROP.RING, x, y, z, ax, ay, az, sx, sy, sz, min(1, r * rl), min(1, g * rl), min(1, b * rl),
-                                        a * DROP.RING_ALPHA)
+                                -- The fringe first, the same colour and fainter, about a pixel past the edge all round (so the
+                                -- width and the length grow by different factors); then the body.
+                                local kw, kl = 1 + DROP.FRINGE_PX * 2 / pxw, 1 + DROP.FRINGE_PX * 2 / max(pxw, hl2 * ppu)
+                                PD.drop(3, 1, x, y, z, ax * kl, ay * kl, az * kl, sx * kw, sy * kw, sz * kw, br, bg, bb,
+                                        a * DROP.FRINGE_ALPHA)
                             end
-                            PD.drop(lod, 1, x, y, z, ax, ay, az, sx, sy, sz, r * BODY, g * BODY, b * BODY, a)
-                            if lod == 3 and kd ~= CHARK and pxw >= DROP.GLINT_PX and size >= DROP.GLINT_SIZE then
-                                -- The light is up and to the left of the camera: a small round glint off centre, a little
-                                -- toward the camera so that the core does not hide it.
-                                local gk, go = 0.4 / D, hw * 0.4
-                                PD.glint(x + ax * 0.3 + (ux * 0.35 - rx * 0.3) * go + tx * gk,
-                                         y + ay * 0.3 + (uy * 0.35 - ry * 0.3) * go + ty * gk,
-                                         z + az * 0.3 + (uz * 0.35 - rz * 0.3) * go + tz * gk,
-                                         max(0.1, hw * 0.2), rx, ry, rz, ux, uy, uz, 1, 0.9, 0.88, a * 0.4)
+                            PD.drop(lod, 1, x, y, z, ax, ay, az, sx, sy, sz, br, bg, bb, a)
+                            if lod == 3 and pxw >= DROP.GLINT_PX and size >= DROP.GLINT_SIZE then
+                                -- The light is up and to the left of the camera: a tiny faint glint toward the head, a little
+                                -- toward the camera so that the body does not hide it.
+                                local gk, go = 0.4 / D, hw * 0.35
+                                PD.glint(x + ax * 0.45 + (ux * 0.35 - rx * 0.3) * go + tx * gk,
+                                         y + ay * 0.45 + (uy * 0.35 - ry * 0.3) * go + ty * gk,
+                                         z + az * 0.45 + (uz * 0.35 - rz * 0.3) * go + tz * gk,
+                                         max(0.08, hw * 0.13), rx, ry, rz, ux, uy, uz, 1, 0.9, 0.88, a * 0.25)
                             end
                         end
                     end
@@ -1194,6 +1249,7 @@ end
 
 -- Sends up to four floats to a parameter of the effect, when they changed.
 local function lensSend(name, a, b, c, d)
+    if not hasPostfx then return end        -- (LS.setBlood calls this on a Melange without post-FX too)
     local fx = LS.fx
     local old = fx.cache[name]
     if old and old[1] == a and old[2] == b and old[3] == c and old[4] == d then return end
@@ -1312,7 +1368,7 @@ local function resetSlot(s)
     s.stainRadius, s.restSince = nil, nil
     s.vomitAt, s.vomitUntil, s.vomitAcc = nil, 0, 0
     s.gutLive = false
-    s.dead = false
+    s.dead, s.dying, s.dieNow = false, nil, nil
 end
 
 local function requestStain(s, radius)
@@ -1376,7 +1432,7 @@ do
         [DROPLET] = { g = 1, drag = DRAG, puff = false },
         [MIST] = { g = MIST_GRAVITY, drag = MIST_DRAG, puff = true, grow = 1, fade = 0 },
         [STEAM] = { g = -0.4, drag = 1.3, puff = true, grow = 2.8, fade = 5 },
-        [CHAR] = { g = 1, drag = 0.9, puff = false },
+        [CHAR] = { g = 0.5, drag = 2.2, puff = false },     -- light flakes: they slow down and flutter down, not fly like drops
         [CLOT] = { g = 1.5, drag = 0.25, puff = false },
     }
     for k, d in pairs(KIND) do
@@ -1391,13 +1447,16 @@ do
             local k = rnd(0.65, 1.15)
             r, g, b = c[1] * k, c[2] * k, c[3] * k
         elseif mode == 2 then
-            -- Charred: mostly brown-black, some dark blood. Nothing bright.
-            local k = rnd(0.6, 1.4)
-            if random() < 0.65 then
-                r, g, b = 0.075 * k, 0.05 * k, 0.04 * k
-            else
-                k = k * 0.36
+            -- Burnt: mostly dark cooked blood, some brown soot, a few flecks of grey ash. Nothing bright, and not the flat black
+            -- that read as confetti.
+            local k, u = rnd(0.75, 1.25), random()
+            if u < 0.55 then
+                k = k * 0.45
                 r, g, b = c[1] * k, c[2] * k, c[3] * k
+            elseif u < 0.85 then
+                r, g, b = 0.15 * k, 0.11 * k, 0.09 * k
+            else
+                r, g, b = 0.36 * k, 0.34 * k, 0.32 * k
             end
         elseif mode == 3 then
             local k = rnd(0.7, 1.1)
@@ -1631,9 +1690,9 @@ do
                             local smoke = random() < 0.15
                             puff(STEAM, smoke and 6 or 5, x + rnd(-5, 5), y + rnd(-6, 8), z + rnd(-4, 4),
                                  rnd(-10, 10), rnd(30, 70), rnd(-10, 10), rnd(9, 16), rnd(0.6, 1.1), smoke and 0.45 or 0.55)
-                            if random() < 0.15 then
+                            if random() < 0.1 then
                                 drop(CHAR, 2, x + rnd(-4, 4), y + rnd(-4, 4), z + rnd(-3, 3), rnd(-0.5, 0.5), 1, rnd(-0.5, 0.5),
-                                     rnd(40, 100), rnd(1.1, 2.0), rnd(0.4, 0.8))
+                                     rnd(40, 100), rnd(0.5, 1.0), rnd(0.4, 0.8), 0.75)
                             end
                         end
                     end
@@ -1686,7 +1745,9 @@ do
         return first + rest + 8
     end
 
-    PR.FP_CHAR = { cone = 0.5, s0 = 130, s1 = 320, z0 = 1.1, z1 = 2.4, l0 = 0.6, l1 = 1.1, mode = 2, kind = CHAR }
+    -- Burnt flakes: small, few and fainter than blood, so the burn reads in the scorch on the skin and the steam, not in a
+    -- cloud of dark confetti.
+    PR.FP_CHAR = { cone = 0.6, s0 = 90, s1 = 220, z0 = 0.5, z1 = 1.1, l0 = 0.5, l1 = 0.9, mode = 2, kind = CHAR, alpha = 0.75 }
     PR.FP_BLOOD = { cone = 0.5, s0 = 130, s1 = 300, z0 = 1.1, z1 = 2.2, l0 = 0.7, l1 = 1.2 }
     -- A few faint embers, gone within about a third of a second.
     PR.FP_EMBER = { cone = 0.9, s0 = 50, s1 = 150, z0 = 0.9, z1 = 1.5, l0 = 0.15, l1 = 0.32, mode = 4, kind = CHAR, alpha = 0.5 }
@@ -1694,7 +1755,7 @@ do
     function F.sprayFire(s, damage, n, dx, dy, dz, cx, cy, cz)
         -- An uppercut: everything goes up, a little away from the attacker.
         local ux, uy, uz = tilt(dx * 0.4, 0, dz * 0.4, 1)
-        local nChar, nBlood = floor(n * 0.6), floor(n * 0.2)
+        local nChar, nBlood = floor(n * 0.25), floor(n * 0.45)
         jet(PR.FP_CHAR, cx, cy - 2, cz, ux, uy, uz, nChar)
         jet(PR.FP_BLOOD, cx, cy - 2, cz, ux, uy, uz, nBlood)
         local embers = 2 + floor(n / 40)
@@ -1902,6 +1963,17 @@ local function emitBurst(s, damage, dx, dy, dz, death, sig)
         spawn(DROPLET, cx + rnd(-4, 4), cy + rnd(-5, 5), cz + rnd(-2, 2), ex * speed, ey * speed, ez * speed,
               rnd(DROPLET_SIZE[1], DROPLET_SIZE[2]) * sizeMul, rnd(DROPLET_LIFE[1], DROPLET_LIFE[2]),
               min(1, c[1] * shade), min(1, c[2] * shade), min(1, c[3] * shade), DROPLET_ALPHA)
+    end
+    if death then
+        -- Heavy clots thrown out of the blast all round and up: they carry past the smoke of the explosion and splat round
+        -- the crater, so the death reads as a burst of its own.
+        for _ = 1, min(BUDGET.DEATH_CLOTS, poolRoom()) do
+            local a, up, sp, shade = random() * 2 * pi, rnd(0.35, 1.1), rnd(140, 280), rnd(0.55, 0.85)
+            local hl = sqrt(1 + up * up)
+            spawn(MEL.CLOT, cx + rnd(-3, 3), cy + rnd(-3, 3), cz + rnd(-3, 3), cos(a) / hl * sp, up / hl * sp, sin(a) / hl * sp,
+                  rnd(3.0, 5.0) * sizeMul, rnd(1.2, 2.0), min(1, c[1] * shade), min(1, c[2] * shade), min(1, c[3] * shade),
+                  DROPLET_ALPHA)
+        end
     end
     local m = palette.mist
     for _ = 1, min(floor((death and preset.mist * 2 or preset.mist) * gen * (1 + far) + 0.5), poolRoom()) do
@@ -2667,7 +2739,7 @@ end
 local function gutUpdate(s, dt)
     local level = 0
     -- The tubes come out of the belly opening that bloodsand/skin paints, so no skin, no guts.
-    if s.alive and cfg.guts and cfg.skin ~= false and not SKIN.failed then
+    if s.alive and not s.dead and cfg.guts and cfg.skin ~= false and not SKIN.failed then
         if s.hasGut and s.wound > GUT.START then level = min(1, (s.wound - GUT.START) / (1 - GUT.START)) end
         if s.previewGut > level then level = s.previewGut end
     end
@@ -3167,7 +3239,7 @@ local function startHeave(s)
 end
 
 local function updateVomit(s, dt)
-    if not (s.alive and cfg.vomit) then
+    if not (s.alive and cfg.vomit) or s.dead then
         s.vomitAt, s.vomitUntil, s.vomitAcc = nil, 0, 0
         return
     end
@@ -3213,10 +3285,14 @@ local function updateVomit(s, dt)
     if s.vomitAcc > 2 then s.vomitAcc = 0 end
 end
 
--- A worm's death: the big burst, a pool and the lens, once per death (s.dead). A worm is seen to die in three ways, whichever comes
--- first: its health reaching zero (the game takes a hit off at the end of the turn, when the worm blows up), its state
--- flipping to dead (which for a worm killed that way happens only once the body is gone) and the worm disappearing from the
--- list. The first two come in trackWorms, the last at its end.
+-- A worm's death: the big burst, a pool and the lens, once per death (s.dead), when the body blows up. A worm whose health
+-- reaches zero is only dying (s.dying): the game counts the damage down and blows it up seconds later, and a burst at the
+-- moment the health ran out was lost in the smoke of the hit and the bleeding already there, with nothing at the death
+-- itself. The burst comes with whichever is first: an explosion at the dying worm (the Explosion handler sets s.dieNow),
+-- its state flipping to dead (which for a worm killed that way happens once the body is gone), the worm disappearing from
+-- the list, or BUDGET.DYING_SECS. A worm that dies without its health running out first (drowned, say) bursts at the flip
+-- or the disappearance as before. All but the disappearance come in trackWorms, that one at its end. A dead worm (its
+-- grave, while the game still lists it) gets no more skin, guts, vomit or place in the stains pass's worm list.
 local function deathBurst(s)
     s.dead = true
     s.credited = 0
@@ -3264,12 +3340,11 @@ local function trackWorms(worms, dt)
                     if health > s.health then
                         resetSlot(s)
                     elseif health < s.health then
-                        if health <= 0 then
-                            if not s.dead then deathBurst(s) end
-                        else
-                            settleHealth(s, s.health - health)
-                        end
+                        -- (Down to zero it still bleeds what the hit did not show, and starts dying.)
+                        settleHealth(s, s.health - health)
+                        if health <= 0 and not s.dead and not s.dying then s.dying = now end
                     end
+                    if s.dying and not s.dead and (s.dieNow or now - s.dying > BUDGET.DYING_SECS) then deathBurst(s) end
                 end
                 s.health, s.alive = health, alive
                 if not alive then s.gore = 0 end
@@ -3299,7 +3374,8 @@ local function trackWorms(worms, dt)
             -- Taken before the worms are looked at: if this frame is stopped half way, the entry must not match again.
             EX.at[e] = -1000
             for _, s in pairs(slots) do
-                if s.seen == frameId and s.alive then
+                -- (A dying worm that this explosion blows up gets its death burst instead.)
+                if s.seen == frameId and s.alive and not s.dead and not s.dieNow then
                     local dx, dy, dz = s.px - ex, s.py + CENTRE_Y - ey, s.pz - ez
                     local d = sqrt(dx * dx + dy * dy + dz * dz)
                     if d <= radius + BODY_MARGIN then
@@ -3414,7 +3490,8 @@ local function updateSkin()
     skinCount = 0
     if hasPostfx and preset and cfg.skin then
         for slot, s in pairs(slots) do
-            if s.seen == frameId and s.alive and (s.gore > 0 or s.wound > 0 or s.eye > 0 or s.gut > 0 or VIS.scorchLevel(slot + 1) > 0)
+            if s.seen == frameId and s.alive and not s.dead
+                and (s.gore > 0 or s.wound > 0 or s.eye > 0 or s.gut > 0 or VIS.scorchLevel(slot + 1) > 0)
                 and slot >= 0 and slot < SKIN_SLOTS then
                 driveSkin(slot, s)
             end
@@ -3550,10 +3627,21 @@ end
 -- ---------------------------------------------------------------- events and preview
 if wum.events and wum.events.on then
     wum.events.on("Explosion", function(p)
-        if not preset or type(p) ~= "table" or nExp >= EXPLOSIONS_MAX then return end
+        if not preset or type(p) ~= "table" then return end
         local x, y, z = vec(p.damageEpicentre)
+        if not x then return end
+        -- Whatever it hurt: the crater takes the decals in it, and a dying worm it goes off at is blowing up.
+        DECALS.blast(x, y, z, tonumber(p.landDamageRadius))
+        local t, reach = os.clock(), BUDGET.DYING_REACH
+        for _, s in pairs(slots) do
+            if s.dying and not s.dead and t - s.dying >= BUDGET.DYING_MIN then
+                local dx, dy, dz = s.px - x, s.py + CENTRE_Y - y, s.pz - z
+                if dx * dx + dy * dy + dz * dz < reach * reach then s.dieNow = true end
+            end
+        end
+        if nExp >= EXPLOSIONS_MAX then return end
         local damage, radius = tonumber(p.wormDamage), tonumber(p.wormDamageRadius)
-        if not (x and damage and radius) or damage <= 0 or radius <= 0 then return end
+        if not (damage and radius) or damage <= 0 or radius <= 0 then return end
         nExp = nExp + 1
         EX.x[nExp], EX.y[nExp], EX.z[nExp], EX.dmg[nExp], EX.radius[nExp], EX.at[nExp] = x, y, z, damage, radius, os.clock()
     end)
