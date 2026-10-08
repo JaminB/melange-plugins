@@ -11,8 +11,9 @@
 // unchanged.
 //
 // An opening (a gash or the belly) is built in layers from the outside in: a rolled lip of torn skin that is lit from the
-// depth buffer's own normal and tilted by a profile, a thin ring of yellow fat, dark red muscle with fibres running across
-// it, and a cavity that gets darker with depth. The cavity is seen with parallax: the view direction, taken into the
+// depth buffer's own normal and tilted by a profile, pink-red raw dermis, thin broken patches of pale fat on only part of
+// the torn edge (no continuous band), dark wet muscle with fibres running across it, and a cavity that gets darker with
+// depth, with a film of blood over all of it. The layer boundaries wander on their own noise. The cavity is seen with parallax: the view direction, taken into the
 // opening's frame, shifts where the floor is seen, so the walls show on the near side and the floor slides as the camera
 // moves. In a gash the floor is clotted blood; in the belly it is coils of intestine in the same colours as the
 // bloodsand/guts effect that draws the loops hanging out of it. Blood on the skin has a wet sheen from the same normal.
@@ -84,6 +85,14 @@ float Noise3(vec3 p) {
     float c = mix(Hash3(i + vec3(0.0, 0.0, 1.0)), Hash3(i + vec3(1.0, 0.0, 1.0)), f.x);
     float d = mix(Hash3(i + vec3(0.0, 1.0, 1.0)), Hash3(i + vec3(1.0, 1.0, 1.0)), f.x);
     return mix(mix(a, b, f.y), mix(c, d, f.y), f.z);
+}
+
+// Bilinear value noise, 0..1, for the flat layers of an opening (half the hashes of Noise3).
+float Noise2(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(Hash(i), Hash(i + vec2(1.0, 0.0)), f.x), mix(Hash(i + vec2(0.0, 1.0)), Hash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
 
 // 1 below a and 0 above b (the reverse of smoothstep, which is undefined when its edges are the wrong way round).
@@ -207,65 +216,101 @@ float Opening(vec2 o, vec2 osz, vec3 Vf, vec3 Kf, vec3 Ff, vec3 Nf, vec3 qu, flo
     lipCol *= mix(vec3(1.0), tint * 0.75, 0.4 * pink);
     lipCol += vec3(1.0, 0.92, 0.9) * lipSpec * 0.35 * lum * pink;
 
-    // Fat: pale yellow with mottling, thin.
-    float fn = Noise3(qu * 2.2 + seed);
-    vec3 fatCol = vec3(0.86, 0.68, 0.40) * (0.28 + 0.7 * lum) * (0.75 + 0.5 * fn);
-    fatCol *= mix(vec3(1.0), tint * 0.9, 0.3);
-    fatCol += vec3(1.0, 0.95, 0.8) * pow(max(dot(normalize(vec3(n1 * 1.6, n2 * 1.6, 1.0)), Hk), 0.0), 40.0) * 0.35 * lum;
+    // The layers are not tidy rings. Each boundary wanders on its own noise (in world units on the skin, so a layer's
+    // wander does not follow the opening's shape), the fat is only there on part of the edge, and a film of blood is over
+    // all of it. A layer is only worked out where it can show: the muscle and the cavity inside, the fat in a band.
+    vec2 wp = o * osz;
+    float pa = Noise2(wp * 0.75 + seed * 0.61);
+    float pb = Noise2(wp * 2.1 + seed * 1.37 + 7.0);
+    float pc = Noise2(wp * 5.6 + seed * 0.43 + 19.0);
+    float qd = q + 0.16 * (pa - 0.5) + 0.07 * (pb - 0.5);
+    float wMus = Edge(0.78, 0.88, qd);
+    float wCav = Edge(0.5, 0.6, q + 0.05 * (pc - 0.5));
+
+    // Dermis, raw and pink-red, with a mottle of paler and redder.
+    vec3 dermCol = mix(vec3(0.78, 0.38, 0.35), vec3(0.58, 0.17, 0.17), smoothstep(0.25, 0.75, pb * 0.6 + pc * 0.4)) * (0.3 + 0.85 * lum);
+    dermCol *= mix(vec3(1.0), tint * 0.9, 0.35);
+    vec3 c = mix(lipCol, dermCol, Edge(1.0, 1.1, q + 0.07 * (pb - 0.5)));
 
     // Muscle: dark red fibres running across the opening, sloping down into it, with wet glints.
     // Fibres run along the opening, stretched noise rather than rays.
-    float fib = 0.55 * Noise3(vec3(o.x * 1.6, o.y * 7.0, seed)) + 0.45 * Noise3(vec3(o.x * 4.0 + 5.0, o.y * 16.0, seed + 3.0));
-    fib = smoothstep(0.2, 0.8, fib);
+    float fib = 0.0;
     vec3 mHi = clamp(p_blood * 1.6 + 0.04, 0.0, 1.0);
     vec3 mLo = p_blood * 0.3;
-    vec3 Nm = normalize(Nb + vec3(-rdir * 0.5 * (0.9 - q) + vec2(n1, n2) * 0.9, 0.0));
-    float mDiff = clamp(dot(Nm, Kf) * 0.7 + 0.45, 0.15, 1.0);
-    vec3 muscleCol = mix(mLo, mHi, 0.25 + 0.75 * fib) * mDiff * expo * (1.0 - 0.45 * Edge(0.5, 0.86, q));
-    muscleCol += vec3(1.0, 0.9, 0.88) * pow(max(dot(Nm, Hk), 0.0), 45.0) * 0.5 * lum;
-    muscleCol += vec3(0.8, 0.85, 1.0) * pow(max(dot(Nm, Hf), 0.0), 30.0) * 0.12 * lum;
+    if (wMus > 0.0 || wCav > 0.0) {
+        fib = 0.55 * Noise3(vec3(o.x * 1.6, o.y * 7.0, seed)) + 0.45 * Noise3(vec3(o.x * 4.0 + 5.0, o.y * 16.0, seed + 3.0));
+        fib = smoothstep(0.2, 0.8, fib);
+    }
+    if (wMus > 0.0) {
+        vec3 Nm = normalize(Nb + vec3(-rdir * 0.5 * (0.9 - q) + vec2(n1, n2) * 0.9, 0.0));
+        float mDiff = clamp(dot(Nm, Kf) * 0.7 + 0.45, 0.15, 1.0);
+        vec3 muscleCol = mix(mLo, mHi, 0.25 + 0.75 * fib) * mDiff * expo * (1.0 - 0.45 * Edge(0.5, 0.86, q));
+        muscleCol += vec3(1.0, 0.9, 0.88) * pow(max(dot(Nm, Hk), 0.0), 45.0) * 0.5 * lum;
+        muscleCol += vec3(0.8, 0.85, 1.0) * pow(max(dot(Nm, Hf), 0.0), 30.0) * 0.12 * lum;
+        c = mix(c, muscleCol, wMus);
+    }
+
+    // Fat: thin, broken patches of pale cream-yellow on part of the torn edge only. Where a patch is, it sits just inside
+    // the dermis; its width varies along the edge and is nil in places, and a fine noise nibbles its borders.
+    float fatM = 0.0;
+    if (qd > 0.6 && qd < 1.2) {
+        float fatPres = smoothstep(0.34, 0.6, Noise2(wp * 1.15 + seed * 2.3 + 31.0));
+        float fatCen = 0.9 + 0.1 * (pa - 0.5);
+        float fatHw = 0.1 * fatPres * (0.5 + 1.1 * pb);
+        float qf = qd - fatCen + 0.05 * (pc - 0.5);
+        fatM = smoothstep(0.0, 0.05, fatHw - abs(qf));
+        if (fatM > 0.0) {
+            fatM *= smoothstep(0.3, 0.55, Noise2(vec2(phi * 2.6 + seed, qd * 11.0)) + 0.25 * (pc - 0.5)) * (0.4 + 0.6 * smoothstep(0.3, 0.6, pc));
+            vec3 fatCol = mix(vec3(0.88, 0.72, 0.42), vec3(0.95, 0.86, 0.64), pc) * (0.34 + 0.7 * lum);
+            fatCol *= mix(vec3(1.0), tint * 0.9, 0.25);
+            fatCol += vec3(1.0, 0.95, 0.8) * pow(max(dot(normalize(vec3((pb - 0.5) * 2.2, (pc - 0.5) * 2.2, 1.0)), Hk), 0.0), 40.0) * 0.3 * lum;
+            c = mix(c, fatCol, fatM * 0.8);
+        }
+    }
 
     // The cavity. depth is 0 at its edge and 1 in the middle; the view ray shifts sideways on its way down by the camera's
     // direction in the opening's frame, so it meets the floor in a different place, or the wall.
-    float dep = 1.0 - smoothstep(0.0, 0.58, q);
-    float Dp = mix(1.3, 2.6, isGut);
-    vec2 o2 = o - Vf.xy / max(Vf.z, 0.3) * (dep * Dp) / osz;
-    float q2 = length(o2) / shape;
-    float wall = smoothstep(0.5, 0.68, q2);
-    // Light has to come in through the opening as well: the floor is lit where the key light's own ray down is clear.
-    vec2 o3 = o2 + Kf.xy / max(Kf.z, 0.3) * (dep * Dp) / osz;
-    float lit = Edge(0.38, 0.62, length(o3) / shape);
-    vec3 floorCol;
-    if (isGut > 0.5) {
-        // Coils: tubes with a normal from the height's own slope, in the same wet colours as the guts effect.
-        vec2 w = o2 * osz;
-        float h0 = GutTubes(w, seed);
-        float hx = GutTubes(w + vec2(0.14, 0.0), seed) - GutTubes(w - vec2(0.14, 0.0), seed);
-        float hy = GutTubes(w + vec2(0.0, 0.14), seed) - GutTubes(w - vec2(0.0, 0.14), seed);
-        vec3 Ng = normalize(vec3(-hx * 2.2, -hy * 2.2, 1.0));
-        float m = clamp(0.1 + 0.6 * Noise3(qu * 0.9 + seed * 2.0) + 0.5 * (1.0 - h0) * (1.0 - h0), 0.0, 1.0);
-        vec3 gc = GutRamp(m);
-        gc = mix(gc, tint * dot(gc, vec3(0.299, 0.587, 0.114)) * 1.8, 0.1);
-        float gd = clamp((dot(Ng, Kf) + 0.4) / 1.4, 0.0, 1.0);
-        floorCol = gc * (0.5 * expo + gd * gd * lit * 0.8 * expo) * (0.35 + 0.65 * h0);
-        floorCol += vec3(1.0, 0.95, 0.92) * pow(max(dot(Ng, Hk), 0.0), 120.0) * 1.6 * lit * lum;
-        floorCol += vec3(1.0, 0.86, 0.86) * pow(max(dot(Ng, Hf), 0.0), 60.0) * 0.4 * lum;
-    } else {
-        // Clotted blood, nearly black, with a few wet glints.
-        float cn = Noise3(vec3(o2 * 4.0, seed));
-        vec3 Nc = normalize(vec3((cn - 0.5) * 1.6, (Noise3(vec3(o2 * 4.0 + 7.0, seed)) - 0.5) * 1.6, 1.0));
-        floorCol = mix(p_blood * 0.55, p_blood * 0.12, cn) * (0.25 + 0.9 * lit) * expo;
-        floorCol += vec3(1.0, 0.9, 0.9) * pow(max(dot(Nc, Hk), 0.0), 70.0) * 0.7 * lit * lum;
+    if (wCav > 0.0) {
+        float dep = 1.0 - smoothstep(0.0, 0.58, q);
+        float Dp = mix(1.3, 2.6, isGut);
+        vec2 o2 = o - Vf.xy / max(Vf.z, 0.3) * (dep * Dp) / osz;
+        float q2 = length(o2) / shape;
+        float wall = smoothstep(0.5, 0.68, q2);
+        // Light has to come in through the opening as well: the floor is lit where the key light's own ray down is clear.
+        vec2 o3 = o2 + Kf.xy / max(Kf.z, 0.3) * (dep * Dp) / osz;
+        float lit = Edge(0.38, 0.62, length(o3) / shape);
+        vec3 floorCol;
+        if (isGut > 0.5) {
+            // Coils: tubes with a normal from the height's own slope, in the same wet colours as the guts effect.
+            vec2 w = o2 * osz;
+            float h0 = GutTubes(w, seed);
+            float hx = GutTubes(w + vec2(0.14, 0.0), seed) - GutTubes(w - vec2(0.14, 0.0), seed);
+            float hy = GutTubes(w + vec2(0.0, 0.14), seed) - GutTubes(w - vec2(0.0, 0.14), seed);
+            vec3 Ng = normalize(vec3(-hx * 2.2, -hy * 2.2, 1.0));
+            float m = clamp(0.1 + 0.6 * Noise3(qu * 0.9 + seed * 2.0) + 0.5 * (1.0 - h0) * (1.0 - h0), 0.0, 1.0);
+            vec3 gc = GutRamp(m);
+            gc = mix(gc, tint * dot(gc, vec3(0.299, 0.587, 0.114)) * 1.8, 0.1);
+            float gd = clamp((dot(Ng, Kf) + 0.4) / 1.4, 0.0, 1.0);
+            floorCol = gc * (0.5 * expo + gd * gd * lit * 0.8 * expo) * (0.35 + 0.65 * h0);
+            floorCol += vec3(1.0, 0.95, 0.92) * pow(max(dot(Ng, Hk), 0.0), 120.0) * 1.6 * lit * lum;
+            floorCol += vec3(1.0, 0.86, 0.86) * pow(max(dot(Ng, Hf), 0.0), 60.0) * 0.4 * lum;
+        } else {
+            // Clotted blood, nearly black, with a few wet glints.
+            float cn = Noise3(vec3(o2 * 4.0, seed));
+            vec3 Nc = normalize(vec3((cn - 0.5) * 1.6, (Noise3(vec3(o2 * 4.0 + 7.0, seed)) - 0.5) * 1.6, 1.0));
+            floorCol = mix(p_blood * 0.55, p_blood * 0.12, cn) * (0.25 + 0.9 * lit) * expo;
+            floorCol += vec3(1.0, 0.9, 0.9) * pow(max(dot(Nc, Hk), 0.0), 70.0) * 0.7 * lit * lum;
+        }
+        // The wall is lit from the far side: its normal points toward the middle of the opening.
+        vec3 Nw = normalize(vec3(-normalize(o2 + 1e-4) * 0.9, 0.35));
+        vec3 wallCol = mix(mLo, mHi, 0.2 + 0.6 * fib) * (0.12 + 0.55 * clamp(dot(Nw, Kf) + 0.2, 0.0, 1.0)) * expo;
+        vec3 cavCol = mix(floorCol, wallCol, wall) * (1.0 - 0.4 * dep * dep);
+        c = mix(c, cavCol, wCav);
     }
-    // The wall is lit from the far side: its normal points toward the middle of the opening.
-    vec3 Nw = normalize(vec3(-normalize(o2 + 1e-4) * 0.9, 0.35));
-    vec3 wallCol = mix(mLo, mHi, 0.2 + 0.6 * fib) * (0.12 + 0.55 * clamp(dot(Nw, Kf) + 0.2, 0.0, 1.0)) * expo;
-    vec3 cavCol = mix(floorCol, wallCol, wall) * (1.0 - 0.4 * dep * dep);
-
-    vec3 c = lipCol;
-    c = mix(c, fatCol, Edge(0.96, 1.03, q));
-    c = mix(c, muscleCol, Edge(0.78, 0.88, q));
-    c = mix(c, cavCol, Edge(0.5, 0.6, q));
+    // The film of blood over everything: heaviest toward the middle, broken by noise, glinting where it is wet.
+    float film = clamp(0.2 + 0.55 * (1.0 - q) + 0.5 * (pa - 0.5) - 0.1 * fatM, 0.0, 0.8) * Edge(1.02, 1.12, q);
+    c = mix(c, c * tint * 0.6 + p_blood * 0.05, film);
+    c += vec3(1.0, 0.92, 0.9) * pow(max(dot(normalize(vec3((pb - 0.5) * 1.6, (pc - 0.5) * 1.6, 1.0)), Hk), 0.0), 60.0) * 0.45 * lum * film;
     col = mix(col, c, cover);
     return cover;
 }

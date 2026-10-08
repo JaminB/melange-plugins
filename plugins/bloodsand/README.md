@@ -28,9 +28,9 @@ shipped — no game file, or anything derived from one.
   order 51), that paints the blood from the depth buffer onto the surfaces inside each worm's body. The pattern is
   held in the worm's own frame, so it travels with the worm and turns with the way it faces.
 - **Wounds**: once a worm is below about two thirds of its health, gashes open on its body, more and larger the lower
-  it gets (up to five). Each is built in layers: a rolled lip of torn skin that catches the light, a thin ring of
-  yellow fat, dark red muscle with wet glints and a cavity that gets darker the deeper it goes and shifts as the camera
-  moves. Blood runs down from it in beads. They close again if the worm is healed; the blood on its skin stays. The same
+  it gets (up to five). Each is built in layers: a rolled lip of torn skin that catches the light, pink-red raw
+  dermis, broken patches of pale fat on parts of the torn edge only, dark wet muscle with glints and a cavity that gets
+  darker the deeper it goes and shifts as the camera moves, all under a film of blood. Blood runs down from it in beads. They close again if the worm is healed; the blood on its skin stays. The same
   `bloodsand/skin` pass paints them. Blood on the skin is wet: it has a sheen, and is darker and glossier where it pools.
 - **Black eyes**: below four fifths of its health a worm gets a black eye, a purple-black bruise around the eye that
   is darkest in a ring under it. One eye goes first and the other follows; both are fully black at about a third of
@@ -38,7 +38,7 @@ shipped — no game file, or anything derived from one.
 - **Throwing up**: a worm at a quarter of its health or less heaves now and then while it stands still: a stream of
   blood from its mouth for about a second, every 12 to 30 seconds, leaving a small stain in front of it.
 - **Intestines**: about two worms in five, picked at random each match, have their belly torn open once they are
-  badly wounded (around a third of their health). The skin pass paints the opening, with a ragged lip of skin, fat and
+  badly wounded (around a third of their health). The skin pass paints the opening, with a ragged lip of skin, patches of fat and
   muscle round a dark cavity that holds coils. A length of intestine slides out of it and drops to the ground: a chain
   of sixteen points that sags, drags, lies in coils and piles up on the ground (and follows slopes, with Melange 0.6's
   `wum.game.landRay`), stretches when the worm is knocked, and slides further out every time the worm is hit again. It
@@ -52,7 +52,8 @@ shipped — no game file, or anything derived from one.
 - **Ground decals**: blood that reaches the terrain stays there. A droplet that hits the ground or a wall leaves a
   splat shaped by the way it came in (a round splat with satellite specks when it came down steeply, a teardrop
   streak when it came in low, with drips that run down a wall), and a burst or a heave leaves a pool under the worm
-  that spreads over about two seconds. Fresh blood is wet and glossy, thick in the middle and thin at the edge; over
+  that spreads over about two seconds. Fresh blood is a wet, glossy bead with a crisp edge: a thin dark line at the rim, a rounded raised shoulder that
+  catches the light, a domed middle and darker clots inside; over
   30 to 60 seconds it dries to a dark matte brown with a clotted rim, and a pool cracks. The decals are a
   depth-projected Post-FX pass, `bloodsand/stains` (PostWorld, order 50, so before Sunstone's effects), with 32 slots
   on floors, walls and overhangs; the oldest and smallest are recycled first and a speck never pushes out a big blot.
