@@ -136,9 +136,10 @@ float CapT(vec3 ro, vec3 rd, vec3 pa, vec3 pb, float r) {
     return -1.0;
 }
 
-// Tests the view ray against slot k's bounding sphere and keeps the sphere that is entered first, with where the ray
-// leaves it.
-void Bound(vec4 s, float k, vec3 ro, vec3 rd, float tScene, inout float tIn, inout float tOut, inout float sel) {
+// Tests the view ray against slot k's bounding sphere and keeps the two spheres that are entered first, each as
+// (where the ray enters, where it leaves, the slot): f is the first and g the second. Where two spheres overlap the ray may
+// reach tubes of either, so main() looks into both.
+void Bound(vec4 s, float k, vec3 ro, vec3 rd, float tScene, inout vec3 f, inout vec3 g) {
     if (s.w <= 0.0) return;
     vec3 oc = ro - s.xyz;
     float b = dot(oc, rd);
@@ -148,10 +149,11 @@ void Bound(vec4 s, float k, vec3 ro, vec3 rd, float tScene, inout float tIn, ino
     float t0 = -b - h;
     float t1 = -b + h;
     if (t1 < 0.0 || t0 > tScene + 1.0) return;
-    if (t0 < tIn) {
-        tIn = t0;
-        tOut = t1;
-        sel = k;
+    if (t0 < f.x) {
+        g = f;
+        f = vec3(t0, t1, k);
+    } else if (t0 < g.x) {
+        g = vec3(t0, t1, k);
     }
 }
 
@@ -171,73 +173,104 @@ void main() {
         tScene = length(vp.xyz / vp.w);
     }
 
-    float tIn = 1e5;
-    float tOut = 0.0;
-    float sel = -1.0;
-    Bound(p_g0a, 0.0, camW, dirW, tScene, tIn, tOut, sel);
-    Bound(p_g1a, 1.0, camW, dirW, tScene, tIn, tOut, sel);
-    Bound(p_g2a, 2.0, camW, dirW, tScene, tIn, tOut, sel);
-    Bound(p_g3a, 3.0, camW, dirW, tScene, tIn, tOut, sel);
-    if (sel < 0.0) return;
-    Load(sel);
+    vec3 sph0 = vec3(1e5, 0.0, -1.0);
+    vec3 sph1 = vec3(1e5, 0.0, -1.0);
+    Bound(p_g0a, 0.0, camW, dirW, tScene, sph0, sph1);
+    Bound(p_g1a, 1.0, camW, dirW, tScene, sph0, sph1);
+    Bound(p_g2a, 2.0, camW, dirW, tScene, sph0, sph1);
+    Bound(p_g3a, 3.0, camW, dirW, tScene, sph0, sph1);
+    if (sph0.z < 0.0) return;
 
-    // A cheap test per segment before any marching: the ray against a capsule a little fatter than the segment's tube (nothing
-    // the smooth union or the swell does reaches outside it) and against a sphere that reaches RECV beyond that. A ray that
-    // touches no sphere has nothing to do here. One that touches a capsule marches from the first it reaches, over the
-    // segments whose capsules it touched; one that touches only spheres can still land on ground near a tube.
+    // Up to two slots are looked into, the first sphere the ray enters and the second (only where two spheres overlap), by
+    // the same code in a loop, so the long code is expanded once. The nearer tube wins.
     float pix = 2.0 / (mg_proj[1][1] * mg_resolution.y);
-    float margin = 0.2 + 1.5 * pix * max(tIn, 0.0);
-    float sA = 1e5;
-    float reach = 0.0;
-    for (int i = 0; i < 15; i++) {
-        vec4 a = PT[i];
-        vec4 b = PT[i + 1];
-        SEGM[i] = 0.0;
-        if (a.w + b.w > 0.2) {
-            float rm = max(a.w, b.w) * 1.2 + margin;
-            vec3 oc = camW - (a.xyz + b.xyz) * 0.5;
-            float rr = 0.5 * length(b.xyz - a.xyz) + rm + RECV;
-            float bq = dot(oc, dirW);
-            if (bq * bq - (dot(oc, oc) - rr * rr) > 0.0) {
-                reach = 1.0;
-                float tc = CapT(camW, dirW, a.xyz, b.xyz, rm);
-                if (tc > 0.0) {
-                    SEGM[i] = 1.0;
-                    sA = min(sA, tc);
+    float bSel = -1.0;      // the slot of the best candidate so far, and what it found
+    float bCover = 0.0;
+    float bT = 0.0;
+    float bD = 1e5;
+    float bU = 0.0;
+    float loaded = -1.0;    // the slot whose chain is in PT
+    for (int pass = 0; pass < 2; pass++) {
+        vec3 sph = pass == 0 ? sph0 : sph1;
+        if (sph.z < 0.0) break;
+        float tIn = sph.x;
+        float tOut = sph.y;
+        Load(sph.z);
+        loaded = sph.z;
+
+        // A cheap test per segment before any marching: the ray against a capsule a little fatter than the segment's tube
+        // (nothing the smooth union or the swell does reaches outside it) and against a sphere that reaches RECV beyond
+        // that. A ray that touches no sphere has nothing to do here. One that touches a capsule marches from the first it
+        // reaches, over the segments whose capsules it touched; one that touches only spheres can still land on ground near
+        // a tube.
+        float margin = 0.2 + 1.5 * pix * max(tIn, 0.0);
+        float sA = 1e5;
+        float reach = 0.0;
+        for (int i = 0; i < 15; i++) {
+            vec4 a = PT[i];
+            vec4 b = PT[i + 1];
+            SEGM[i] = 0.0;
+            if (a.w + b.w > 0.2) {
+                float rm = max(a.w, b.w) * 1.2 + margin;
+                vec3 oc = camW - (a.xyz + b.xyz) * 0.5;
+                float rr = 0.5 * length(b.xyz - a.xyz) + rm + RECV;
+                float bq = dot(oc, dirW);
+                if (bq * bq - (dot(oc, oc) - rr * rr) > 0.0) {
+                    reach = 1.0;
+                    float tc = CapT(camW, dirW, a.xyz, b.xyz, rm);
+                    if (tc > 0.0) {
+                        SEGM[i] = 1.0;
+                        sA = min(sA, tc);
+                    }
                 }
             }
         }
-    }
-    if (reach < 0.5) return;
+        if (reach < 0.5) continue;
 
-    // March from the first capsule. A step is 0.85 of the distance, and a hit is within a third of a pixel; a ray that gets
-    // within a pixel of a tube without touching it keeps that closest point for the soft edge.
-    float t = max(sA - 0.3, 0.0);
-    float tEnd = min(tOut, tScene + 0.5);
-    float tBest = t;
-    float dBest = 1e5;
-    float uBest = 0.0;
-    float hit = 0.0;
-    if (sA < 1e4) {
-        for (int i = 0; i < 28; i++) {
-            vec2 m = Map(camW + dirW * t);
-            float d = m.x;
-            if (d < dBest) {
-                dBest = d;
-                tBest = t;
-                uBest = m.y;
+        // March from the first capsule. A step is 0.85 of the distance, and a hit is within a third of a pixel; a ray that
+        // gets within a pixel of a tube without touching it keeps that closest point for the soft edge.
+        float t = max(sA - 0.3, 0.0);
+        float tEnd = min(tOut, tScene + 0.5);
+        float tBest = t;
+        float dBest = 1e5;
+        float uBest = 0.0;
+        float hit = 0.0;
+        if (sA < 1e4) {
+            for (int i = 0; i < 28; i++) {
+                vec2 m = Map(camW + dirW * t);
+                float d = m.x;
+                if (d < dBest) {
+                    dBest = d;
+                    tBest = t;
+                    uBest = m.y;
+                }
+                if (d < 0.33 * pix * t + 0.004) {
+                    hit = 1.0;
+                    break;
+                }
+                t += d * 0.85;
+                if (t > tEnd) break;
             }
-            if (d < 0.33 * pix * t + 0.004) {
-                hit = 1.0;
-                break;
-            }
-            t += d * 0.85;
-            if (t > tEnd) break;
+        }
+        float cov = hit;
+        if (hit < 0.5) cov = 1.0 - smoothstep(0.0, pix * tBest + 1e-4, dBest);
+        if (tBest > tScene + 0.4) cov = 0.0;
+        // Keep the nearer of the two that cover the pixel; with none covering, the one that came closest.
+        if (bSel < 0.0 || (cov > 0.0 && (bCover <= 0.0 || tBest < bT)) || (cov <= 0.0 && bCover <= 0.0 && dBest < bD)) {
+            bSel = sph.z;
+            bCover = cov;
+            bT = tBest;
+            bD = dBest;
+            bU = uBest;
         }
     }
-    float cover = hit;
-    if (hit < 0.5) cover = 1.0 - smoothstep(0.0, pix * tBest + 1e-4, dBest);
-    if (tBest > tScene + 0.4) cover = 0.0;
+    if (bSel < 0.0) return;
+    // Every use of the field below masks the segments first, so only the chain has to be the winner's.
+    if (loaded != bSel) Load(bSel);
+    float tBest = bT;
+    float dBest = bD;
+    float uBest = bU;
+    float cover = bCover;
 
     vec3 tint = p_blood / max(max(p_blood.r, p_blood.g), max(p_blood.b, 1e-3));
     vec3 lumW = vec3(0.299, 0.587, 0.114);
