@@ -44,7 +44,8 @@
 // curved rock, facet by facet, and its own outline is what ends it), when its normal turns more than about 60 degrees from
 // the decal's (about 50 for a pool, which lies on ground, and not on a camera-facing puff of smoke), when a neighbour lies well behind its tangent plane (the
 // edge of a silhouette, smoke or anything else thin that writes depth; a convex crease between two facets is far less than
-// that), when it is a grey that floats over the plane (smoke that hangs low and flat enough to pass the tests above), and
+// that), when it is a grey that floats over the plane (smoke that hangs low and flat enough to pass the tests above; a fading
+// puff, which the ground's colour shows through, only needs to be dull and well above it), and
 // when it is inside a worm's volume (a worm standing or lying in a pool, hats, arms) and either faces another way than the
 // decal or stands high above its plane: the curved ground a worm lies on still takes blood, and what is not ground does not,
 // even where it crosses the decal's plane (a worm on a slope is cut through by the plane of a pool). A decal fades out as the
@@ -322,7 +323,7 @@ void Streak(float u, float v, float a, float c, float cp, float sp, float h, flo
 // One decal at the pixel: Pw is the pixel in world space, nW the surface normal there (world), pxw the size of a pixel in
 // world units. Adds what the decal contributes (its body, and the satellite, speck or drip nearest the pixel) to acc.
 // wE is the worm test (WormE) at the pixel.
-void Shape(vec3 Pw, vec3 nW, float pxw, float grey, vec4 A, vec4 B, float wE, inout Fl acc) {
+void Shape(vec3 Pw, vec3 nW, float pxw, vec2 grey, vec4 A, vec4 B, float wE, inout Fl acc) {
     float nu = floor(B.x / 4096.0);
     float nq = B.x - nu * 4096.0;
     float az = nu / 4095.0 * 2.0 * PI - PI;
@@ -355,8 +356,12 @@ void Shape(vec3 Pw, vec3 nW, float pxw, float grey, vec4 A, vec4 B, float wE, in
     float hg = 1.0 - smoothstep(0.5 * tolH, tolH, abs(h));
     // Smoke is grey, and hangs a few units over the plane, which that tolerance lets through (a wide pool on a dune needs it,
     // and a tighter one cut the pool short): a grey pixel that is off the plane at all is not ground. (Pixels on the plane
-    // keep whatever their colour: the ground of a grey level is on it.)
-    hg *= 1.0 - 0.9 * grey * smoothstep(0.7, 1.6, abs(h));
+    // keep whatever their colour: the ground of a grey level is on it.) A puff that is fading out lets the sand or the grass
+    // through and is no longer grey (a puff over desert sand measured a saturation of 0.39 to 0.48, against 0.7 for the sand
+    // and more for blood and grass), so anything that dull standing well above the plane (on the side the decal faces) is
+    // taken for smoke too: such a puff took a pool's colour up to a straight edge where the plane's tolerance ended.
+    hg *= 1.0 - 0.9 * grey.x * smoothstep(0.7, 1.6, abs(h));
+    hg *= 1.0 - grey.y * smoothstep(1.2, 2.2, h);
     if (hg <= 0.0) return;
 
     vec3 ref = abs(N.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
@@ -798,7 +803,9 @@ void main() {
     float wE = p_wn > 0.5 ? WormE(Pw) : 9.0;
     // How grey the scene is here (smoke and steam over the ground are; sand, grass and blood are not).
     float gmx = max(scene.r, max(scene.g, scene.b));
-    float grey = 1.0 - smoothstep(0.07, 0.17, (gmx - min(scene.r, min(scene.g, scene.b))) / max(gmx, 1e-3));
+    // (x: grey, y: dull enough to be a fading puff over the ground)
+    float satS = (gmx - min(scene.r, min(scene.g, scene.b))) / max(gmx, 1e-3);
+    vec2 grey = vec2(1.0 - smoothstep(0.07, 0.17, satS), 1.0 - smoothstep(0.5, 0.62, satS));
     cnt = min(cnt, 3.0);
     for (int k = 0; k < 3; k++) {
         if (float(k) >= cnt) break;

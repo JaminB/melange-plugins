@@ -417,18 +417,23 @@ void Load(float sel) {
     }
 }
 
-// How much of the current gib is left after it is faded for being near the camera (whole at 60 units, gone at 25), for filling much
-// of the screen, and, while the camera is in the aim view (p_aim), for being near the camera or the active worm there.
+// How much of the current gib is left after it is faded for being near the camera (whole at 60 units, gone at 25), for being big
+// on the screen, and, while the camera is in the aim view (p_aim), for being near the camera or the active worm there. The size
+// is what a ball of the gib's mean size takes of half the screen's height (the projection's own scale, so a zoomed camera, as
+// the aim view's is, counts as nearer): a gib that would cover more than about a third of the screen's height is gone whatever
+// its distance, and in the aim view one of an eighth already, so nothing big ever sits in front of the aim. The size ramps are
+// short, so a gib is half see-through only for a moment as the camera passes it.
 float Fade(vec3 camW) {
     float dc = length(GC - camW);
     float f = smoothstep(25.0, 60.0, dc);
+    float s0 = 0.2;
     if (p_aim.w > 0.5) {
         f = min(f, smoothstep(50.0, 90.0, dc));
         f = min(f, smoothstep(26.0, 52.0, length(GC - p_aim.xyz)));
+        s0 = 0.08;
     }
-    // (the size it would have on the screen, as a fraction of the screen's height, of a ball of the gib's mean size)
     float rm = pow(GH.x * GH.y * GH.z, 0.3333) * 1.35;
-    return f * (1.0 - smoothstep(0.3, 0.45, rm * mg_proj[1][1] / max(dc, 1.0)));
+    return f * (1.0 - smoothstep(s0, s0 * 1.5, rm * mg_proj[1][1] / max(dc, 1.0)));
 }
 
 // Tests the view ray against slot k's bounding sphere and keeps the three spheres that are entered first, each as
@@ -517,6 +522,9 @@ void main() {
     for (int pass = 0; pass < 3; pass++) {
         vec3 sph = pass == 0 ? sph0 : (pass == 1 ? sph1 : sph2);
         if (sph.z < 0.0) break;
+        // (the spheres come in the order the ray enters them: once a gib is hit solidly nearer than where the next sphere begins,
+        // nothing in it can be in front, and what it would do to the ground is hidden under the gib)
+        if (bCover >= 1.0 && sph.x > bT) break;
         Load(sph.z);
         loaded = sph.z;
         float gf = Fade(camW);
@@ -548,7 +556,7 @@ void main() {
         float tBest = t;
         float dBest = 1e5;
         float hit = 0.0;
-        for (int i = 0; i < 22; i++) {
+        for (int i = 0; i < 20; i++) {
             if (t > tEnd) break;
             float d = Map(camW + dirW * t);
             if (d < dBest) {
@@ -562,6 +570,10 @@ void main() {
             t += d;
             if (t > tEnd) break;
         }
+        // A ray that used up its steps still inside the box and close to the surface is on it: near the camera a gib is hundreds
+        // of pixels across, the hit test asks for a third of a pixel, and the steps run out first, which used to leave rings of
+        // half-covered pixels across the gib.
+        if (hit < 0.5 && t <= tEnd && dBest < 0.06) hit = 1.0;
         float cov = hit;
         if (hit < 0.5) cov = 1.0 - smoothstep(0.0, pix * tBest + 1e-4, dBest);
         if (tBest > tScene + 0.4) cov = 0.0;
@@ -628,14 +640,16 @@ void main() {
         float b0 = Noise3(q);
         vec3 g = vec3(Noise3(q + vec3(0.4, 0.0, 0.0)), Noise3(q + vec3(0.0, 0.4, 0.0)), Noise3(q + vec3(0.0, 0.0, 0.4))) - b0;
         float bump = (ty < 0.5 ? 0.9 : (ty < 1.5 ? 0.5 : (ty > 5.5 && ty < 6.5 ? 0.5 : (ty > 3.5 && ty < 4.5 ? 0.6 : 0.4)))) * detail * (1.0 + 1.2 * raw);
-        // a second, finer octave: the grain of the surface, ragged on the raw faces
+        // a second, finer octave: the grain of the surface, ragged on the raw faces (only on a gib more than 12 pixels across its
+        // thinnest, full over 20: smaller, the grain is under a pixel and only costs time)
         vec3 g2 = vec3(0.0);
-        if (ty > 0.5) {
+        float grainK = clamp((mn / (pix * tBest) - 12.0) / 8.0, 0.0, 1.0);
+        if (ty > 0.5 && grainK > 0.0) {
             vec3 q2 = pl * bk * 3.3 + seed * 1.7;
             float c0 = Noise3(q2);
             g2 = vec3(Noise3(q2 + vec3(0.4, 0.0, 0.0)), Noise3(q2 + vec3(0.0, 0.4, 0.0)), Noise3(q2 + vec3(0.0, 0.0, 0.4))) - c0;
         }
-        vec3 gw = GM * (g + g2 * (0.35 + 0.6 * raw));          // the bump is made in the local frame and turned into the world's
+        vec3 gw = GM * (g + g2 * grainK * (0.35 + 0.6 * raw));          // the bump is made in the local frame and turned into the world's
         n = normalize(n + bump * (gw - dot(gw, n) * n));
     }
     float nv = clamp(dot(n, V), 0.0, 1.0);
@@ -647,12 +661,10 @@ void main() {
     if (detail > 0.0) {
         float hk = 0.35 + 0.1 * mn;
         ao = mix(1.0, clamp(1.0 - 1.1 * (hk - Map(p + n * hk)) / max(mn * 0.5, 0.5), 0.0, 1.0), detail);
-        float st = 0.2;
-        for (int k = 0; k < 2; k++) {
-            float hs = Map(p + n * 0.05 + Lk * st);
-            shade = min(shade, 6.0 * hs / st);
-            st += clamp(hs, 0.3, 1.4);
-        }
+        // (one step, at the distance the second of two used to reach: the first added little and cost a field evaluation)
+        float st = 0.55;
+        float hs = Map(p + n * 0.05 + Lk * st);
+        shade = min(shade, 6.0 * hs / st);
         shade = mix(1.0, clamp(shade, 0.0, 1.0), detail);
     }
     ao *= mix(0.45, 1.0, clamp(n.y * 0.5 + 0.6, 0.0, 1.0));

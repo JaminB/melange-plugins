@@ -88,15 +88,15 @@ float Hash3(vec3 p) {
 
 // Where gash k sits on the body: azimuth (x) and elevation (y). Each worm has an offset and a step for each, so the five sites
 // of a worm are spread out along the azimuth and the height and no two worms match. The elevation (radians above the horizon of
-// the worm's middle) runs from -0.6 to 0.4: the gashes, and the spurts that start at them, sit on the middle of the body and not on
-// the head. There is a single multiplication and fract() in each term, so that bloodsand's Lua can compute the same in doubles
+// the worm's middle) runs from -0.6 to 0.1: the gashes, and the spurts that start at them, sit on the body (from about 6 to 13 units
+// above the feet) and not on the head (0.4 put the top site level with the eyes, so the spurts came from under the face). There is a single multiplication and fract() in each term, so that bloodsand's Lua can compute the same in doubles
 // (woundSites) and a float32 GPU agrees to about 1e-3. A hash built on sin() or on products of products would not agree.
 vec2 SiteDir(float seed, float k) {
     float a0 = fract(seed * 0.7548777);
     float b0 = fract(seed * 0.5698403);
     float sa = 0.55 + 0.2 * fract(seed * 0.1234567 + 0.3);
     float sb = 0.30 + 0.2 * fract(seed * 0.2718282 + 0.6);
-    return vec2(6.2831853 * fract(a0 + k * sa), mix(-0.6, 0.4, fract(b0 + k * sb)));
+    return vec2(6.2831853 * fract(a0 + k * sa), mix(-0.6, 0.1, fract(b0 + k * sb)));
 }
 
 // Trilinear value noise, 0..1.

@@ -757,14 +757,15 @@ local function sendCount()
 end
 
 -- Tells the stains pass where the living worms are, so that blood does not land on them (see stains.frag): the middle of
--- each body, sent again when it moved WORM_SEND, and zeros for the slots that are gone. `slots` is the plugin's table of
+-- each body, sent again when it moved WORM_SEND, and zeros for the slots that are gone. A dead worm the game still lists is
+-- its grave, which stands where it died, in its pool: it keeps the volume, so the stone is not painted. `slots` is the plugin's table of
 -- tracked worms and `frameId` the frame they were seen in.
 local function sendWorms(slots, frameId)
     local top = 0
     local mv = DEC.WORM_SEND
     for slot, s in pairs(slots) do
         local i = slot + 1
-        if s.seen == frameId and s.alive and not s.dead and i >= 1 and i <= SKIN_SLOTS then
+        if s.seen == frameId and (s.alive or s.dead) and i >= 1 and i <= SKIN_SLOTS then
             local x, y, z = s.px, s.py + CENTRE_Y, s.pz
             DS.wseen[i] = frameId
             if i > top then top = i end
@@ -937,15 +938,27 @@ function placeStain(x, y, z, radius)
     DS.ln = n
 end
 
--- An explosion at (x, y, z) that digs a crater of radius landR: the decals whose middle is in it go.
+-- An explosion at (x, y, z) that digs a crater of radius landR: the decals whose middle is in it go, and so does a pool that
+-- reaches well into it (its middle within half its radius of the crater's edge). A pool that stayed was cut by its own plane
+-- into a ring round the new hole (a worm's death left its pool as a ring round its crater); its blood runs down into the
+-- crater instead: one pool of the same area goes down at the middle a moment later (placeStain), on the crater's floor.
 function DECALS.blast(x, y, z, landR)
     if not landR or landR <= 0 then return end
     local r = landR * DEC.BLAST_K
+    local spilt = 0
     for i = 1, STAIN_SLOTS do
         if DS.live[i] then
             local dx, dy, dz = DS.x[i] - x, DS.y[i] - y, DS.z[i] - z
-            local hit = dx * dx + dy * dy + dz * dz < r * r
-            if not hit and DS.kind[i] >= 3 then
+            local d2 = dx * dx + dy * dy + dz * dz
+            local hit = d2 < r * r
+            if DS.kind[i] == 2 then
+                local pr = max(DS.r[i], DS.rt[i])
+                local reach = r + 0.5 * pr
+                if hit or d2 < reach * reach then
+                    hit = true
+                    spilt = spilt + pr * pr
+                end
+            elseif not hit and DS.kind[i] >= 3 then
                 -- a trail piece goes when either end is in the crater
                 dx, dy, dz = DS.sx[i] - x, DS.sy[i] - y, DS.sz[i] - z
                 hit = dx * dx + dy * dy + dz * dz < r * r
@@ -960,6 +973,7 @@ function DECALS.blast(x, y, z, landR)
             end
         end
     end
+    if spilt > 0 then placeStain(x, y, z, min(DEC.POOL_MAX, sqrt(spilt))) end
 end
 
 DECALS.cast, DECALS.splat = castRay, decalSplat
@@ -1405,16 +1419,18 @@ local function simulate(dt)
                                 -- ages and shortens, the older ones sooner (by a share the particle's seed picks), so that the far end of
                                 -- the stream breaks up into beads. A bead (a drop of a spurt) is a short one from the start.
                                 local sdn = (pph[i] % 8) * 0.125
-                                local th = min(1, max(0, (age - 0.08) * 2.4))
+                                -- (It keeps most of its width and length for the first third of a second, so that neighbours overlap end
+                                -- to end and read as one rope of blood; only the far end beads.)
+                                local th = min(1, max(0, (age - 0.12) * 2.4))
                                 th = th * th * (3 - 2 * th)
-                                local hw = size * 0.5 * (1 - 0.5 * th)
+                                local hw = size * 0.5 * (1 - 0.35 * th)
                                 local hl
                                 if kd == BEADK then
                                     hl = max(hw * 1.5, sp * 0.007)
                                 else
-                                    local sh = min(1, max(0, (age - 0.14 - 0.22 * sdn) * 3.2))
+                                    local sh = min(1, max(0, (age - 0.22 - 0.22 * sdn) * 3.2))
                                     sh = sh * sh * (3 - 2 * sh)
-                                    hl = min(sp * DROP.JET_LEN, DROP.JET_PX / ppu) * (1 - 0.72 * sh)
+                                    hl = min(sp * DROP.JET_LEN, DROP.JET_PX / ppu) * (1 - 0.6 * sh)
                                     if hl < hw * 1.5 then hl = hw * 1.5 end
                                 end
                                 col.r, col.g, col.b, col.a = pr[i], pg[i], pb[i], a
@@ -2850,7 +2866,7 @@ local function siteDir(seed, k)
     local a0, b0 = fract(seed * 0.7548777), fract(seed * 0.5698403)
     local sa = 0.55 + 0.2 * fract(seed * 0.1234567 + 0.3)
     local sb = 0.30 + 0.2 * fract(seed * 0.2718282 + 0.6)
-    return 6.2831853 * fract(a0 + k * sa), -0.6 + 1.0 * fract(b0 + k * sb)
+    return 6.2831853 * fract(a0 + k * sa), -0.6 + 0.7 * fract(b0 + k * sb)
 end
 
 local BODY_RX, BODY_RY = 5.6, 12.5  -- the body's radius and half-height, for a point on its surface from a direction
@@ -4063,8 +4079,9 @@ local K = {
     HIT_SECS = { 1.2, 3.5 }, HIT_PER_DAMAGE = 0.04, HIT_FULL = 50, HIT_GAIN = 0.6,   -- a new hit: strong pulses for this long, up to this much stronger
     TILT = 0.14, UP = 0.4, MIN_DIR_Y = 0.02,       -- sideways tilt per pulse, the lift added to the wound's normal, the lowest a jet points
     CONE = 0.012,                                  -- how far the pieces of one stream stray from its line (per component of the direction)
-    WIDTH = { 1.5, 2.0 }, WIDTH_LOW = 0.55,        -- a piece's width in units at full pressure, and the share of it left at none
-    SPEED_LOW = 0.93,                              -- the share of the top speed a piece leaves at with no pressure (the pressure is the rest)
+    WIDTH = { 1.9, 2.5 }, WIDTH_LOW = 0.6,         -- a piece's width in units at full pressure, and the share of it left at none
+    SPEED_LOW = 0.975,                             -- the share of the top speed a piece leaves at with no pressure (the pressure is the rest;
+                                                   -- more spread than this fanned the far end of the stream into a rake of parallel sticks)
     SPUTTER = 0.16, SPUTTER_P = 0.4,               -- seconds of broken weak pieces after a pulse, and the share of the moments that have one
     BEAD_SIZE = { 0.9, 1.4 }, BEADS_AHEAD = 1.06,  -- the drops that fly ahead of a stream (size in units; the fastest, as a share of the top speed)
     JET_SEV = { 0, 0.3, 0.55 }, JET_GAIN = { 1, 0.7, 0.55 },
@@ -4929,7 +4946,7 @@ end
 local st, X, Y, Z, VX, VY, VZ = F.st, F.x, F.y, F.z, F.vx, F.vy, F.vz
 local QX, QY, QZ, QW, WX, WY, WZ = F.qx, F.qy, F.qz, F.qw, F.wx, F.wy, F.wz
 local H1, H2, H3, KIND = F.h1, F.h2, F.h3, F.kind
-local G = { clock = 0, serial = 0, n = 0, top = 0, rays = 0, wake = 0, pv = 0, anyVis = false, countSent = -1, clockSent = -1,
+local G = { hid = {}, clock = 0, serial = 0, n = 0, top = 0, rays = 0, wake = 0, pv = 0, anyVis = false, countSent = -1, clockSent = -1,
             fwdx = 0, fwdy = 0, fwdz = 1, tex = nil, texChecked = false, spriteOK = false, bitsN = 0, bitsTried = false, thrown = 0 }
 
 local B = {}                            -- the bits of meat: struct of arrays
@@ -4965,7 +4982,9 @@ local function sendSlot(i, moved)
         sendV4(PD[i], 0, 0, 0, 0)
         return
     end
-    sendV4(PA[i], r05(X[i]), r05(Y[i]), r05(Z[i]), F.bound[i])
+    -- (a gib right up against the camera, or round the active worm in the aim view, goes out with a radius of 0, which the
+    -- effect skips: see GIBS.tick)
+    sendV4(PA[i], r05(X[i]), r05(Y[i]), r05(Z[i]), G.hid[i] and 0 or F.bound[i])
     sendV4(PB[i], r10(QX[i]), r10(QY[i]), r10(QZ[i]), r10(QW[i]))
     sendV4(PC[i], H1[i], H2[i], H3[i], KIND[i])
     sendV4(PD[i], F.seed[i], floor(F.birth[i] * 100 + 0.5) / 100, F.wet[i], F.blood[i])
@@ -5561,9 +5580,17 @@ function GIBS.tick(dt)
     local vis = false
     for i = 1, N do
         local s = st[i]
+        -- A gib that the near and aim-view fades take away entirely is not sent to the effect at all (radius 0): the effect fades
+        -- with its own camera and projection, and in the aim view those did not always agree with the game's camera, which
+        -- left a big, half see-through organ over the aim. Lua's own camera decides here.
+        local hid = s ~= 0 and CAM.ok and nearFade(X[i], Y[i], Z[i]) < 0.02 or false
+        local flip = hid ~= (G.hid[i] or false)
+        G.hid[i] = hid
         if s == FLY or s == SETTLE then
             stepGib(i, dt)
             if st[i] ~= 0 then sendSlot(i, true) end
+        elseif flip then
+            sendSlot(i)
         end
         if not vis and st[i] ~= 0 and inView(i) then vis = true end
     end
