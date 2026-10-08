@@ -9,14 +9,26 @@ shipped — no game file, or anything derived from one.
 ## What it does
 
 - **Bursts**: the moment a worm is hurt, blood droplets are thrown from it, away from the explosion if there was one.
-  The number and speed of the droplets scale with the damage, and even a light hit throws a visible spray.
+  The number and speed of the droplets scale with the damage, and even a light hit throws a visible spray. A droplet is
+  a teardrop: a rounded head and a tail that tapers to a point, longer along its flight the faster it goes, drawn as a
+  small triangle fan with a dark core inside a lighter, translucent edge (a big one near the camera also gets a tiny
+  round glint). Far droplets are a single thin streak, and ones that would be under two pixels wide are grown a little
+  so they still read at the usual distance of play, as are the bursts' droplets and mist when the burst is far from the
+  camera. Mist is a fine red haze of soft blobs (several translucent fans, each smaller and denser than the last, with
+  an irregular outline). Nothing is drawn nearer than 12 world units to the camera, and what is a little further fades
+  in and is held to a size, so a droplet that flies past the lens is never a huge flat shape.
 - **Bleeding**: a wounded worm keeps dripping for a while after the hit.
-- **Death**: a worm that dies throws a larger burst.
+- **Death**: a worm that dies throws a larger burst, with more mist, and leaves a big pool. It is shown the moment the
+  worm's health reaches zero (the game takes health off at the end of the turn, when the worm blows up), or when its state
+  flips to dead, or when it has gone from the worm list for a third of a second, whichever comes first and only once.
+  A death is never dropped: it may use more of a frame's spawn budget than other bursts, waits up to three seconds in the
+  queue when even that is spent, and pushes older particles out of a full pool.
 - **Weapon sprays**: each melee and special weapon has its own signature, scaled by the Blood setting (see below for how
   a hit is matched to a weapon). The **baseball
   bat** flings a wide horizontal arc of long streaks with a few heavy clots and a fine mist. The **prod** squirts a thin
   pulsing jet from the contact point, then dribbles. The **fire punch** throws a gush of blackened, cauterised drops
-  straight up with embers, rising steam and smoke, and asks the skin pass for a scorch mark. **No more nails** fires
+  straight up (charcoal black and dark red, with a few faint embers that are gone within a third of a second) with a short
+  rise of pale steam and a little smoke, and asks the skin pass for a scorch mark. **No more nails** fires
   several small jets in a ragged cone. The **concrete donkey** and **Fatkins** crush: a flat ring of blood hugging the
   ground and a big pool. The **old woman** and **Scouser** shred: many fine fast drops in every direction on top of the
   blast. A **ninja rope** knock smears blood along the knock. A **fall** splats downward into a pool. The **shotgun**
@@ -70,7 +82,13 @@ shipped — no game file, or anything derived from one.
   it is destroyed. Droplets only collide with the terrain on a Melange that has `wum.game.landRay` (0.6); on an older
   one there are only pools, as before. Droplets of every weapon spray and the heavy clots collide; steam and smoke do
   not. The Post-FX panel has two settings for the pass: drying time and wet gloss.
-- **Lens splatter**: heavy hits near the camera splash blood across the lens, fading over a few seconds.
+- **Lens splatter**: heavy hits near the camera, and a death, splash blood across the lens, fading over a few seconds. It
+  is a Post-FX pass, `bloodsand/lens` (PostWorld, order 60), so it is drawn before the HUD and the minimap and the timer
+  stay clear. Where a splat is, the picture is bent as if by a wet droplet, blurred a little, tinted and darkened (clear
+  at the thin edges, nearly opaque in the thick middle), with a dark edge, a pale highlight on the side the light is on
+  and a few drips that run down and lengthen. Up to six splats at once. If that pass cannot run (an older Melange, or a
+  driver that cannot draw it, which Melange reports and Bloodsand checks every two seconds), the same shapes are drawn
+  flat on the HUD, as in 1.1.
 
 ## Settings
 
@@ -83,7 +101,7 @@ On the Mods page:
 | Worms throw up blood | on / off | on | the heaving of nearly dead worms |
 | Intestines | on / off | on | the torn belly and the length of intestine that comes out of it |
 | Blood on the ground | on / off | on | the decals pass: splats, drips and pools, and the droplets' collision with the terrain |
-| Splatter on the lens | on / off | on | the camera lens splatter |
+| Splatter on the lens | on / off | on | the camera lens splatter (the lens pass, or the flat fallback) |
 | Blood colour | Red / Green | Red | the colour of droplets, decals, blood on worms, wounds, guts and lens splatter |
 
 The **Mods > Bloodsand > Preview** menu item throws a test burst at the active worm so you can see the current
@@ -158,6 +176,8 @@ four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0
 - **Skin pass**: about 0.10 ms (1.1: about 0.09), only while a worm wears blood, a wound or a burn.
 - **Guts pass**: only on while a gutted worm is in view. About 0.16 to 0.18 ms at the usual zoom, and up to 0.4 ms with
   the camera right on top of the guts. A pass that only copies the screen takes about 0.05 ms of that.
+- **Lens pass**: about 0.02 ms (a copy of the screen) with no splat in the way, 0.04 ms with a few and 0.055 ms with six large
+  ones on top of each other (the same harness, 1920x1080), only while there is a splat on the lens.
 - **Decals pass**: about 0.03 ms with nothing on the ground, 0.1 ms with a handful of decals and a large pool, and
   about 0.2 ms for a deliberately dense pile of 32 covering a sixth of the screen. It is switched off while there are none.
   Measured on the same card against the pass as it was before the decals were made one fluid and kept off the worms
@@ -169,8 +189,11 @@ four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0
   session after three faults, so the script keeps clear of that: one frame spawns about 200 particles for bursts (the rest of
   a big blast waits a few frames in a queue, and a burst takes at most half of what the pool has left, so the worms of one
   blast share it), and only the four gutted worms nearest the camera are simulated (with one fixed step and fewer passes
-  while more than two are going). In the mock host the world callback peaked at about 230000 instructions for sixteen
-  worms in one Absurd blast and at about 260000 for sixteen gutted worms.
+  while more than two are going). In the mock host the world callback peaked at about 270000 instructions for sixteen
+  worms in one Absurd blast (with the camera right on top of them), at about 280000 when all sixteen die in one frame
+  and at about 260000 for sixteen gutted worms. Drawing the droplets and puffs as fans costs about 0.05 to 0.15 ms a frame
+  more than the old kites and squares on Heavy at the usual distance of play, and about the same far away (where most are one
+  thin quad); a crowded pool and a camera close in draw simpler shapes so the cost stays bounded.
 - **Terrain rays**: at most 64 calls of `wum.game.landRay` a frame, all counted together (48 for droplets, at most 24
   between the guts' 8 probes, the pools and the melee sprays' ground rays). Melange 0.6 logs their average and worst cost
   at the end of each match; a few microseconds each is expected, and if it is more, the droplets' share is what to lower.
@@ -234,6 +257,10 @@ Edit the template, not the generated files.
 
 `tools/make_splats.py` regenerates the four lens textures (`mod/textures/splat1.png` to `splat4.png`). It uses only
 the Python standard library.
+
+`tools/make_lens_atlas.js` builds `mod/postfx/lens/atlas.png` from those four, for the lens pass: the shape, how thick
+the blood is and which way its surface leans, side by side in one 256x256 picture. Run it with Node after changing the
+splat textures.
 
 ## Licence
 

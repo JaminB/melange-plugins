@@ -44,6 +44,22 @@ A held melee weapon only counts for a worm that was knocked, and a donkey's blas
 Intestines need Blood on worms. Where more than four decals overlap, the least deeply held ones are dropped instead of
 whole decals being cut off along a circle, and two overlapping gutted worms both draw their guts.
 
+Droplets, mist and steam were flat diamonds and see-through squares; they are round now. A droplet is a teardrop with a
+rounded head and a tapering tail, a dark core in a lighter translucent edge, and no white square (only a tiny round
+glint on a big one up close). Far droplets are one thin streak and ones narrower than two pixels are grown a little, so
+blood reads at the distance the game is played from; a burst far from the camera throws bigger droplets and more mist.
+Mist is a fine red haze and steam a pale grey one, both soft blobs of several translucent layers with an irregular
+outline instead of squares. Nothing is drawn nearer than 12 units to the camera and what is just beyond fades in, so no
+droplet fills the screen. The fire punch's drops are charcoal black and dark red instead of glowing orange, with a few
+faint embers that last a third of a second, and its steam is shorter. The lens splatter is now a Post-FX pass
+(`bloodsand/lens`) that runs before the HUD, so it no longer covers the minimap and the timer, and it looks like blood on
+glass: the view bends through it, blurs a little, is tinted and darkened, with a highlight along the edge and drips that
+run down (the flat HUD splats are only used if the pass cannot run). A death now always throws the big burst and leaves a
+pool: it is shown when the worm's health reaches zero or its state flips to dead or it disappears from the worm list
+(before, only a state flip was watched, so a worm that went without one, or only after its body was gone, left nothing),
+it may overspend a frame's spawn budget, waits longer in the queue and makes room in a full pool. Bigger stains from
+big hits and a bigger death pool.
+
 ## 1.1.3
 
 Runs on Melange 0.5. No other change.

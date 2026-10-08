@@ -4,12 +4,13 @@
 -- It only reads game state (worm health, positions and facing, damage and explosion messages, the camera) and draws. It
 -- never changes the simulation, sends anything or asks for a permission, so every player sees their own blood.
 --
--- Droplets and mist are world quads drawn from one "world" callback. The ground decals are the bloodsand/stains post-FX
+-- Droplets (teardrops), mist and steam (soft blobs) are small triangle fans of world quads drawn from one "world" callback. The ground decals are the bloodsand/stains post-FX
 -- effect (32 slots of splats and pools on any surface; a droplet that meets the terrain, seen with wum.game.landRay where
 -- Melange has it, leaves one), the blood, wounds, black eyes, scorching and the torn belly painted on a worm are
 -- bloodsand/skin (sixteen slots that follow the worms) and the intestines that hang out of a torn belly are
 -- bloodsand/guts (up to four worms), a chain simulated here and ray-marched there; all three are fed with
--- wum.postfx.setTransient, which writes nothing to Melange.ini. The lens splats are textures drawn at the "hud" stage.
+-- wum.postfx.setTransient, which writes nothing to Melange.ini. The lens splatter is the bloodsand/lens post-FX effect, which
+-- runs before the HUD (only if it cannot run are the splat textures drawn at the "hud" stage instead).
 
 if not (wum.draw and wum.draw.on and wum.game and wum.game.worms) then return end
 
@@ -18,19 +19,26 @@ local DEBUG = false
 -- Per "Blood" setting: the most live particles, droplets per point of damage, mist puffs per burst, a multiplier for
 -- the bleeding rate and the most splats one burst puts on the lens.
 local AMOUNT = {
-    light  = { max = 120, perDamage = 1.0, mist = 2, bleed = 0.6, lens = 1 },
-    heavy  = { max = 300, perDamage = 2.4, mist = 4, bleed = 1.0, lens = 2 },
-    absurd = { max = 480, perDamage = 4.5, mist = 7, bleed = 1.8, lens = 3 },
+    light  = { max = 120, perDamage = 1.0, mist = 3, bleed = 0.6, lens = 1 },
+    heavy  = { max = 300, perDamage = 2.4, mist = 6, bleed = 1.0, lens = 2 },
+    absurd = { max = 480, perDamage = 4.5, mist = 10, bleed = 1.8, lens = 3 },
 }
 local POOL_MAX = 480
-local BURST_MAX = 150           -- droplets in one burst, however much damage it was
+local BURST_MAX = 170           -- droplets in one burst, however much damage it was
 -- A Lua callback may run 500000 VM instructions (Melange stops it after three faults for the rest of the session), and a
 -- spawned particle costs a few hundred. So one frame spawns about SPAWN particles for bursts; a burst that finds the budget
 -- spent waits in a queue of QUEUE entries for the next frames (and is dropped after QUEUE_SECS), and a burst never takes
 -- more than half of the room the pool has left (but FAIR_MIN at least) so the worms of one blast share it.
-local BUDGET = { SPAWN = 200, MIN_LEFT = 30, QUEUE = 24, QUEUE_SECS = 0.75, FAIR_MIN = 24, spawned = 0 }
+-- A death is the one burst that must never be lost: it may overspend the frame's budget by DEATH_EXTRA, waits in the queue
+-- DEATH_QUEUE_SECS instead of QUEUE_SECS, and pushes older particles out of a full pool to make room for DEATH_ROOM of its own.
+-- A worm that vanishes from the worm list is taken to have died (its blood is thrown) after GONE_SECS.
+local BUDGET = { SPAWN = 200, MIN_LEFT = 30, QUEUE = 24, QUEUE_SECS = 0.75, FAIR_MIN = 24, spawned = 0,
+                 DEATH_EXTRA = 120, DEATH_QUEUE_SECS = 3, DEATH_ROOM = 90, evicted = 0, GONE_SECS = 0.3 }
 local BURST_BASE = 8            -- every hit sprays as if it did this much more damage, so a light one still shows
-local DEATH_DAMAGE = 60         -- a death counts as this much damage
+local DEATH_DAMAGE = 75         -- a death counts as this much damage
+-- A burst this far from the camera (world units) throws bigger droplets and more mist, up to +45% and double at FAR_START + FAR_SPAN,
+-- so that it still reads from the usual play distance.
+local FAR_START, FAR_SPAN = 250, 900
 
 -- World units and seconds. A worm is about 30 units tall and +Y is up.
 local GRAVITY = -420
@@ -41,16 +49,23 @@ local DROPLET_LIFE = { 0.8, 1.8 }
 local DROPLET_SPEED = { 70, 230 }
 local DROPLET_SIZE = { 1.1, 3.0 }
 local MIST_LIFE = { 0.5, 0.9 }
-local MIST_SIZE = { 8, 18 }
-local MIST_ALPHA = 0.3
+local MIST_SIZE = { 9, 20 }
+local MIST_ALPHA = 0.22
 local DROPLET_ALPHA = 0.9
 local FADE_START = 0.7          -- droplets start to fade after this fraction of their life
 local STREAK_SECONDS = 0.03     -- a streak is as long as the distance covered in this time...
 local STREAK_MIN, STREAK_MAX = 3.5, 22  -- ...within these limits
--- A droplet is drawn as a thin lighter film, a dark body and a small gleam. A droplet that has flown a while stretches up
--- to AGE_GAIN more and gets thinner. Only droplets wider than EDGE_SIZE get the film; only those wider than FLECK_SIZE
--- and nearer the camera than FLECK_NEAR get the gleam.
-local DROP = { AGE_GAIN = 0.8, EDGE = 1.25, BODY = 0.72, FLECK_NEAR = 260, FLECK_SIZE = 2.0, EDGE_SIZE = 1.5 }
+-- A droplet is a teardrop (a rounded head and a tail that tapers to a point) drawn as a small triangle fan, longer the faster it
+-- goes (see Particle shapes). A droplet that has flown a while stretches up to AGE_GAIN more and gets thinner. By its width on
+-- the screen, in pixels: under LOD2 it is one thin quad, under LOD3 a six-point fan, and from there an eight-point fan inside a
+-- lighter, more transparent ring (RING times as large, RING_ALPHA of the alpha, RING_LIGHT times the colour), and from GLINT_PX
+-- (and GLINT_SIZE world units) up a tiny round glint. At most BIG_MAX droplets a frame get the full shape. A droplet that would
+-- be narrower than PX_MIN pixels is grown to it, but by no more than BOOST times; one wider than PX_MAX, or longer than LEN_MAX,
+-- is held to it. Nearer the camera than NEAR_CULL a droplet is not drawn, and it fades in up to NEAR_FADE. Puffs (mist, steam)
+-- are cut at PUFF_CULL, fade in to PUFF_FADE and are held to PUFF_PX_MAX pixels in radius.
+local DROP = { AGE_GAIN = 0.8, BODY = 0.72, RING = 1.3, RING_ALPHA = 0.4, RING_LIGHT = 1.0, LOD2 = 3.5, LOD3 = 8,
+               GLINT_PX = 12, GLINT_SIZE = 2.0, BIG_MAX = 32, PX_MIN = 2, BOOST = 3, PX_MAX = 24, LEN_MAX = 70,
+               NEAR_CULL = 12, NEAR_FADE = 34, PUFF_CULL = 20, PUFF_FADE = 60, PUFF_PX_MAX = 260 }
 
 -- Offsets from the worm's reported position, to be calibrated in game: up to the middle of the body, and down to
 -- the ground the worm stands on.
@@ -77,7 +92,7 @@ local BLEED_SECS_PER_DAMAGE = 0.2
 
 -- Ground stains (decals).
 local STAIN_SLOTS = 32
-local STAIN_BASE, STAIN_PER_DAMAGE, STAIN_MAX, STAIN_DEATH = 9, 0.35, 28, 30
+local STAIN_BASE, STAIN_PER_DAMAGE, STAIN_MAX, STAIN_DEATH = 10, 0.45, 34, 42
 local STAIN_MIN_DAMAGE = 2      -- lighter hits leave nothing on the ground
 local REST_SPEED = 40           -- slower than this a worm counts as at rest
 local REST_SECS = 0.3
@@ -223,9 +238,9 @@ local LENS_CREEP = 6            -- pixels per second downwards
 local LENS_ALPHA = 0.85
 
 local COLOURS = {
-    red   = { droplet = { 0.62, 0.03, 0.03 }, mist = { 0.30, 0.01, 0.01 }, stain = { 0.42, 0.02, 0.02 },
+    red   = { droplet = { 0.62, 0.03, 0.03 }, mist = { 0.52, 0.02, 0.02 }, stain = { 0.42, 0.02, 0.02 },
               lens = { 0.55, 0.02, 0.02 }, gut = { 0.86, 0.52, 0.54 }, gutDark = { 0.52, 0.20, 0.24 } },
-    green = { droplet = { 0.40, 0.80, 0.12 }, mist = { 0.18, 0.42, 0.05 }, stain = { 0.22, 0.48, 0.05 },
+    green = { droplet = { 0.40, 0.80, 0.12 }, mist = { 0.24, 0.52, 0.06 }, stain = { 0.22, 0.48, 0.05 },
               lens = { 0.32, 0.68, 0.08 }, gut = { 0.66, 0.72, 0.42 }, gutDark = { 0.30, 0.38, 0.14 } },
 }
 
@@ -763,7 +778,9 @@ local function removeParticle(i)
 end
 
 -- Camera values for this frame, so the particles do not each ask for them.
-local CAM = { ok = false, px = 0, py = 0, pz = 0, rx = 0, ry = 0, rz = 0, ux = 0, uy = 0, uz = 0 }
+-- focal is the camera's focal length in pixels: a thing one world unit across at distance d is focal / d pixels wide. It is
+-- measured from where wum.render.worldToScreen puts a point ahead and to the right, or guessed from the window height.
+local CAM = { ok = false, px = 0, py = 0, pz = 0, rx = 0, ry = 0, rz = 0, ux = 0, uy = 0, uz = 0, focal = 1900, probe = { x = 0, y = 0, z = 0 } }
 
 local function readCamera()
     CAM.ok = false
@@ -781,6 +798,18 @@ local function readCamera()
     CAM.rx, CAM.ry, CAM.rz = rx / len, ry / len, rz / len
     CAM.ux, CAM.uy, CAM.uz = ux, uy, uz
     CAM.ok = true
+    local w, h
+    if wum.render.windowSize then w, h = wum.render.windowSize() end
+    if type(h) == "number" and h > 0 then CAM.focal = h * 1.8 end
+    if type(w) == "number" and w > 0 and wum.render.worldToScreen then
+        local fl = sqrt(fx * fx + fy * fy + fz * fz)
+        if fl > 1e-6 then
+            local p, k = CAM.probe, 1 / fl
+            p.x, p.y, p.z = px + fx * k * 200 + CAM.rx * 50, py + fy * k * 200 + CAM.ry * 50, pz + fz * k * 200 + CAM.rz * 50
+            local ok, sx = pcall(wum.render.worldToScreen, p)
+            if ok and type(sx) == "number" and abs(sx - w * 0.5) > 1 then CAM.focal = abs(sx - w * 0.5) * 4 end
+        end
+    end
 end
 
 -- The quad's corner tables and the colour are read by wum.draw.quad before it returns, so one set is reused.
@@ -799,6 +828,128 @@ local function corner(q, x, y, z)
     q.x, q.y, q.z = x, y, z
 end
 
+-- == Particle shapes ============================================================================================
+-- Droplets and puffs are triangle fans. wum.draw.quad draws the triangles (p1, p2, p3) and (p1, p3, p4), so a quad whose p1
+-- is the fan centre and whose other three corners are consecutive points of the rim is a fan of two triangles: four of
+-- them make an octagon, three a hexagon. The rim points are written once into a few corner tables that are reused (wum.draw.quad
+-- reads them before it returns) and each is shared by two quads. Every shape runs counter-clockwise as the camera sees it.
+-- Everything is in one do-block, and P.shape is what simulate calls: drop, glint and puff.
+P.shape = {}
+do
+    local VT = {}
+    for i = 1, 9 do VT[i] = { x = 0, y = 0, z = 0 } end
+    local CT = VT[9]
+    local col = { r = 0, g = 0, b = 0, a = 0 }
+    local dq = drawQuad
+
+    -- The teardrop outline in (along, across) units: the head at +1, the tail point at -1, in the order that runs
+    -- counter-clockwise on the screen for a droplet whose across axis is (along x line to the camera). C8 is where the fan
+    -- centre is. (The six-point shape is the same idea, with corners (1, 0), (0.45, -0.95), (-0.4, -0.8), (-1, 0), (-0.4, 0.8),
+    -- (0.45, 0.95) and its centre at 0.1; it is written out in drop.)
+    local U8 = { 1.0, 0.78, 0.25, -0.28, -1.0, -0.28, 0.25, 0.78 }
+    local W8 = { 0, -0.707, -1, -0.707, 0, 0.707, 1, 0.707 }
+    local C8 = 0.25
+
+    -- lod 1: one thin kite quad; 2: a six-point fan (three quads); 3: an eight-point fan (four quads). k scales the eight-point shape
+    -- about the fan centre (the ring around a big droplet is the same shape 1.3 times as large). The centre of the droplet is (x, y, z),
+    -- (ax, ay, az) is the half length along its velocity and (sx, sy, sz) the half width.
+    function P.shape.drop(lod, k, x, y, z, ax, ay, az, sx, sy, sz, r, g, b, a)
+        col.r, col.g, col.b, col.a = r, g, b, a
+        if lod == 1 then
+            local hx, hy, hz = x + ax * 0.45, y + ay * 0.45, z + az * 0.45
+            local v1, v2, v3, v4 = VT[1], VT[2], VT[3], VT[4]
+            v1.x, v1.y, v1.z = x - ax * 0.92, y - ay * 0.92, z - az * 0.92
+            v2.x, v2.y, v2.z = hx + sx, hy + sy, hz + sz
+            v3.x, v3.y, v3.z = x + ax, y + ay, z + az
+            v4.x, v4.y, v4.z = hx - sx, hy - sy, hz - sz
+            dq(v1, v2, v3, v4, col)
+        elseif lod == 2 then
+            -- (the six-point shape is only drawn at its own size, so its corners are written out)
+            local bx, by, bz, cx, cy, cz = ax * 0.45, ay * 0.45, az * 0.45, ax * 0.4, ay * 0.4, az * 0.4
+            local dx, dy, dz, ex, ey, ez = sx * 0.95, sy * 0.95, sz * 0.95, sx * 0.8, sy * 0.8, sz * 0.8
+            local v = VT[1]
+            v.x, v.y, v.z = x + ax, y + ay, z + az
+            v = VT[2]
+            v.x, v.y, v.z = x + bx - dx, y + by - dy, z + bz - dz
+            v = VT[3]
+            v.x, v.y, v.z = x - cx - ex, y - cy - ey, z - cz - ez
+            v = VT[4]
+            v.x, v.y, v.z = x - ax, y - ay, z - az
+            v = VT[5]
+            v.x, v.y, v.z = x - cx + ex, y - cy + ey, z - cz + ez
+            v = VT[6]
+            v.x, v.y, v.z = x + bx + dx, y + by + dy, z + bz + dz
+            CT.x, CT.y, CT.z = x + ax * 0.1, y + ay * 0.1, z + az * 0.1
+            dq(CT, VT[1], VT[2], VT[3], col)
+            dq(CT, VT[3], VT[4], VT[5], col)
+            dq(CT, VT[5], VT[6], VT[1], col)
+        else
+            local k0 = C8 * (1 - k)
+            for i = 1, 8 do
+                local u, w = k0 + U8[i] * k, W8[i] * k
+                local v = VT[i]
+                v.x, v.y, v.z = x + ax * u + sx * w, y + ay * u + sy * w, z + az * u + sz * w
+            end
+            CT.x, CT.y, CT.z = x + ax * C8, y + ay * C8, z + az * C8
+            dq(CT, VT[1], VT[2], VT[3], col)
+            dq(CT, VT[3], VT[4], VT[5], col)
+            dq(CT, VT[5], VT[6], VT[7], col)
+            dq(CT, VT[7], VT[8], VT[1], col)
+        end
+    end
+
+    -- The hexagon corners, for the glint and the puffs: angles go from the camera right toward its up, which is counter-clockwise.
+    local HC, HS = {}, {}
+    for k = 1, 6 do HC[k], HS[k] = cos((k - 1) * pi / 3), sin((k - 1) * pi / 3) end
+
+    -- A tiny round highlight (a hexagon of radius gr facing the camera) on a big droplet.
+    function P.shape.glint(x, y, z, gr, rx, ry, rz, ux, uy, uz, r, g, b, a)
+        col.r, col.g, col.b, col.a = r, g, b, a
+        for k = 1, 6 do
+            local c, s = HC[k] * gr, HS[k] * gr
+            local v = VT[k]
+            v.x, v.y, v.z = x + rx * c + ux * s, y + ry * c + uy * s, z + rz * c + uz * s
+        end
+        CT.x, CT.y, CT.z = x, y, z
+        dq(CT, VT[1], VT[2], VT[3], col)
+        dq(CT, VT[3], VT[4], VT[5], col)
+        dq(CT, VT[5], VT[6], VT[1], col)
+    end
+
+    -- A soft puff: up to four hexagonal fans one inside the other, each with less of the radius and more of the alpha, so that the
+    -- alpha falls off toward the edge in steps too small to see. Every corner of every fan is pulled in or out by its own factor
+    -- (the pattern shifts from fan to fan), so the outline is irregular. The seed (0..255) turns the puff and sets the pattern.
+    local NZ = { 1.0, 0.8, 1.14, 0.9, 1.07, 0.74 }
+    local PX, PY, PZ = {}, {}, {}
+    local LSC = { { 1.0 }, { 1.1, 0.6 }, { 1.15, 0.78, 0.42 }, { 1.2, 0.92, 0.64, 0.34 } }
+    local LAL = { { 0.45 }, { 0.3, 0.5 }, { 0.22, 0.34, 0.46 }, { 0.15, 0.26, 0.34, 0.42 } }
+
+    function P.shape.puff(x, y, z, R, r, g, b, a, seed, nl, rx, ry, rz, ux, uy, uz)
+        local ang = seed * 0.02454
+        local ca, sa = cos(ang), sin(ang)
+        for k = 1, 6 do
+            local c, s = HC[k], HS[k]
+            local a1, b1 = c * ca - s * sa, c * sa + s * ca
+            PX[k], PY[k], PZ[k] = rx * a1 + ux * b1, ry * a1 + uy * b1, rz * a1 + uz * b1
+        end
+        CT.x, CT.y, CT.z = x, y, z
+        col.r, col.g, col.b = r, g, b
+        local sc, al = LSC[nl], LAL[nl]
+        for l = 1, nl do
+            local s, sh = sc[l] * R, seed + l * 2
+            for k = 1, 6 do
+                local f = s * NZ[(k + sh) % 6 + 1]
+                local v = VT[k]
+                v.x, v.y, v.z = x + PX[k] * f, y + PY[k] * f, z + PZ[k] * f
+            end
+            col.a = a * al[l]
+            dq(CT, VT[1], VT[2], VT[3], col)
+            dq(CT, VT[3], VT[4], VT[5], col)
+            dq(CT, VT[5], VT[6], VT[1], col)
+        end
+    end
+end
+
 -- Integrates and draws every live particle. Droplets are drops stretched along their velocity that turn to face the
 -- camera; mist puffs are flat against the screen. With wum.game.landRay a droplet or clot that reaches the terrain is removed
 -- and leaves a decal (see == Droplet collision ==).
@@ -808,7 +959,14 @@ local function simulate(dt)
     local plx, ply, plz, pph, plt = P.lx, P.ly, P.lz, P.ph, P.lt
     local draw = CAM.ok
     local KP, KD, KG, KGROW, KFADE = MEL.KP, MEL.KD, MEL.KG, MEL.KGROW, MEL.KFADE
-    local CLOTK = MEL.CLOT        -- heavy clots from the melee sprays collide like droplets; steam and char do not
+    local CLOTK, CHARK = MEL.CLOT, MEL.CHAR       -- heavy clots from the melee sprays collide like droplets; steam and char do not
+    local PD, focal = P.shape, CAM.focal
+    local BODY, NEAR_CULL, NEAR_FADE, PX_MIN, PX_MAX, BOOST = DROP.BODY, DROP.NEAR_CULL, DROP.NEAR_FADE, DROP.PX_MIN, DROP.PX_MAX, DROP.BOOST
+    local PUFF_CULL, PUFF_FADE, PUFF_PX_MAX = DROP.PUFF_CULL, DROP.PUFF_FADE, DROP.PUFF_PX_MAX
+    local nBig, nPuff = 0, 0      -- full-shape droplets and puffs drawn so far this frame, which cap the cost (see DROP)
+    -- With a crowded pool the shapes give way to simpler ones sooner (up to two and a half times the pixel width at the most particles).
+    local lf = nP > 250 and 1 + (nP - 250) / 150 or 1
+    local LOD2, LOD3 = DROP.LOD2 * lf, DROP.LOD3 * lf
     local cpx, cpy, cpz = CAM.px, CAM.py, CAM.pz
     local rx, ry, rz, ux, uy, uz = CAM.rx, CAM.ry, CAM.rz, CAM.ux, CAM.uy, CAM.uz
     -- == Droplet collision == rays are spent on heavy and fast droplets first; the rest take turns, each droplet
@@ -896,70 +1054,79 @@ local function simulate(dt)
             end
             if draw and not hit then
                 local t = age / life
+                local tx, ty, tz = cpx - x, cpy - y, cpz - z
+                local D = sqrt(tx * tx + ty * ty + tz * tz)
                 if mist then
-                    local h = psize[i] * (0.5 + t * KGROW[kd]) * 0.5
-                    local a = pa[i] * (1 - t) * (1 - t)
-                    local fi = KFADE[kd]
-                    if fi > 0 and t * fi < 1 then a = a * t * fi end
-                    -- A square and the same square turned 45 degrees overlap into a soft-cornered puff.
-                    corner(q1, x - (rx + ux) * h, y - (ry + uy) * h, z - (rz + uz) * h)
-                    corner(q2, x + (rx - ux) * h, y + (ry - uy) * h, z + (rz - uz) * h)
-                    corner(q3, x + (rx + ux) * h, y + (ry + uy) * h, z + (rz + uz) * h)
-                    corner(q4, x + (ux - rx) * h, y + (uy - ry) * h, z + (uz - rz) * h)
-                    emitQuad(pr[i], pg[i], pb[i], a)
-                    local d = h * 1.2
-                    corner(q1, x - ux * d, y - uy * d, z - uz * d)
-                    corner(q2, x + rx * d, y + ry * d, z + rz * d)
-                    corner(q3, x + ux * d, y + uy * d, z + uz * d)
-                    corner(q4, x - rx * d, y - ry * d, z - rz * d)
-                    emitQuad(pr[i], pg[i], pb[i], a)
+                    if first then pph[i] = random(0, 255) end
+                    if D > PUFF_CULL then
+                        local h = psize[i] * (0.5 + t * KGROW[kd]) * 0.5
+                        local ppu = focal / D
+                        local R = h * 1.3
+                        if R * ppu > PUFF_PX_MAX then R = PUFF_PX_MAX / ppu end
+                        local a = pa[i] * (1 - t) * (1 - t)
+                        local fi = KFADE[kd]
+                        if fi > 0 and t * fi < 1 then a = a * t * fi end
+                        if D < PUFF_FADE then a = a * (D - PUFF_CULL) / (PUFF_FADE - PUFF_CULL) end
+                        if a > 0.004 then
+                            local rpx = R * ppu / lf
+                            local nl = rpx < 4 and 1 or rpx < 14 and 2 or rpx < 40 and 3 or 4
+                            nPuff = nPuff + 1
+                            if nPuff > 60 then nl = 1 elseif nPuff > 28 and nl > 2 then nl = 2 end
+                            PD.puff(x, y, z, R, pr[i], pg[i], pb[i], a, pph[i], nl, rx, ry, rz, ux, uy, uz)
+                        end
+                    end
                 else
                     local sp = sqrt(vx * vx + vy * vy + vz * vz)
-                    if sp > 1e-3 then
-                        -- A droplet stretches with its speed, and one that has been flying a while stretches more
-                        -- (and thins out, as a stretched drop does).
+                    if sp > 1e-3 and D > NEAR_CULL then
+                        -- A droplet stretches with its speed, and one that has been flying a while stretches more (and thins
+                        -- out, as a stretched drop does). Far ones are grown a little and near ones held, by their width in pixels.
+                        local ppu = focal / D
                         local size = psize[i]
-                        local hl2 = min(max(sp * STREAK_SECONDS * (1 + DROP.AGE_GAIN * min(age, 1.2)), STREAK_MIN), STREAK_MAX)
-                        local hl = hl2 * 0.5
-                        local k = hl / sp
+                        local pw = size * ppu
+                        if pw < PX_MIN then
+                            size = min(size * BOOST, PX_MIN / ppu)
+                        elseif pw > PX_MAX then
+                            size = PX_MAX / ppu
+                        end
+                        local hl2 = sp * STREAK_SECONDS * (1 + DROP.AGE_GAIN * min(age, 1.2))
+                        if hl2 < STREAK_MIN then hl2 = STREAK_MIN elseif hl2 > STREAK_MAX then hl2 = STREAK_MAX end
+                        if hl2 > DROP.LEN_MAX / ppu then hl2 = DROP.LEN_MAX / ppu end
+                        if hl2 < size * 1.2 then hl2 = size * 1.2 end
+                        local k = hl2 * 0.5 / sp
                         local ax, ay, az = vx * k, vy * k, vz * k
                         -- The short axis is perpendicular to both the streak and the line to the camera.
-                        local tx, ty, tz = cpx - x, cpy - y, cpz - z
                         local sx, sy, sz = ay * tz - az * ty, az * tx - ax * tz, ax * ty - ay * tx
                         local sl = sqrt(sx * sx + sy * sy + sz * sz)
                         if sl > 1e-6 then
                             local thin = 1 / sqrt(max(1, hl2 / max(size, 0.5) * 0.35))
-                            local w = size * 0.5 * thin / sl
+                            local hw = size * 0.5 * thin
+                            local w = hw / sl
                             sx, sy, sz = sx * w, sy * w, sz * w
                             local a = pa[i]
                             if t > FADE_START then a = a * (1 - t) / (1 - FADE_START) end
+                            if D < NEAR_FADE then a = a * (D - NEAR_CULL) / (NEAR_FADE - NEAR_CULL) end
                             local r, g, b = pr[i], pg[i], pb[i]
-                            -- A kite: a pointed tail behind, widest just short of the rounded head. First a wider,
-                            -- lighter, thin film around it, then the dark body, then a gleam toward the light.
-                            local hx, hy, hz = x + ax * 0.45, y + ay * 0.45, z + az * 0.45
-                            if size >= DROP.EDGE_SIZE then
-                                corner(q1, x - ax, y - ay, z - az)
-                                corner(q2, hx + sx * 1.45, hy + sy * 1.45, hz + sz * 1.45)
-                                corner(q3, x + ax * 1.08, y + ay * 1.08, z + az * 1.08)
-                                corner(q4, hx - sx * 1.45, hy - sy * 1.45, hz - sz * 1.45)
-                                emitQuad(min(1, r * DROP.EDGE), min(1, g * DROP.EDGE), min(1, b * DROP.EDGE), a * 0.4)
+                            local pxw = hw * 2 * ppu
+                            local lod = pxw < LOD2 and 1 or pxw < LOD3 and 2 or 3
+                            if lod == 3 then
+                                nBig = nBig + 1
+                                if nBig > DROP.BIG_MAX then lod = 2 end
                             end
-                            corner(q1, x - ax * 0.92, y - ay * 0.92, z - az * 0.92)
-                            corner(q2, hx + sx, hy + sy, hz + sz)
-                            corner(q3, x + ax, y + ay, z + az)
-                            corner(q4, hx - sx, hy - sy, hz - sz)
-                            emitQuad(r * DROP.BODY, g * DROP.BODY, b * DROP.BODY, a)
-                            if size >= DROP.FLECK_SIZE and tx * tx + ty * ty + tz * tz < DROP.FLECK_NEAR * DROP.FLECK_NEAR then
-                                -- The light is up and to the left of the camera: a small bright square near the head.
-                                local fs = max(0.25, size * 0.17)
-                                local fx = hx + (ux * 0.3 - rx * 0.25) * size * 0.4
-                                local fy = hy + (uy * 0.3 - ry * 0.25) * size * 0.4
-                                local fz = hz + (uz * 0.3 - rz * 0.25) * size * 0.4
-                                corner(q1, fx - (rx + ux) * fs, fy - (ry + uy) * fs, fz - (rz + uz) * fs)
-                                corner(q2, fx + (rx - ux) * fs, fy + (ry - uy) * fs, fz + (rz - uz) * fs)
-                                corner(q3, fx + (rx + ux) * fs, fy + (ry + uy) * fs, fz + (rz + uz) * fs)
-                                corner(q4, fx + (ux - rx) * fs, fy + (uy - ry) * fs, fz + (uz - rz) * fs)
-                                emitQuad(1, 0.86, 0.84, a * 0.75)
+                            if lod == 3 then
+                                -- A lighter, more transparent ring first, then the dark core.
+                                local rl = DROP.RING_LIGHT
+                                PD.drop(3, DROP.RING, x, y, z, ax, ay, az, sx, sy, sz, min(1, r * rl), min(1, g * rl), min(1, b * rl),
+                                        a * DROP.RING_ALPHA)
+                            end
+                            PD.drop(lod, 1, x, y, z, ax, ay, az, sx, sy, sz, r * BODY, g * BODY, b * BODY, a)
+                            if lod == 3 and kd ~= CHARK and pxw >= DROP.GLINT_PX and size >= DROP.GLINT_SIZE then
+                                -- The light is up and to the left of the camera: a small round glint off centre, a little
+                                -- toward the camera so that the core does not hide it.
+                                local gk, go = 0.4 / D, hw * 0.4
+                                PD.glint(x + ax * 0.3 + (ux * 0.35 - rx * 0.3) * go + tx * gk,
+                                         y + ay * 0.3 + (uy * 0.35 - ry * 0.3) * go + ty * gk,
+                                         z + az * 0.3 + (uz * 0.35 - rz * 0.3) * go + tz * gk,
+                                         max(0.1, hw * 0.2), rx, ry, rz, ux, uy, uz, 1, 0.9, 0.88, a * 0.4)
                             end
                         end
                     end
@@ -971,21 +1138,34 @@ local function simulate(dt)
 end
 
 -- ---------------------------------------------------------------- lens splats
+-- The lens splatter is the bloodsand/lens post-FX effect, which runs before the HUD is drawn (stage PostWorld) and looks through the
+-- splats: it refracts, blurs and darkens the scene where a splat is, lets it run down in drips and shines a highlight along the
+-- edge (see lens.frag). Up to LENS_MAX splats are kept here (position and size as fractions of the window, which of the four
+-- shapes, and when each was born) and sent once each; the effect works out the age. Only when the effect is missing or has
+-- failed (LS.bad) are the same shapes drawn as flat textures on the HUD instead.
 local lensTex = {}
-local LS = { x = {}, y = {}, size = {}, tex = {}, age = {}, life = {} }
+local LS = { x = {}, y = {}, size = {}, tex = {}, ti = {}, age = {}, life = {}, seed = {}, birth = {}, bad = false,
+             fields = { "x", "y", "size", "tex", "ti", "age", "life", "seed", "birth" }, na = {}, nb = {},
+             fx = { id = "bloodsand/lens", cache = {}, enabled = nil } }
 local nL = 0
 local tint = { r = 1, g = 1, b = 1, a = 1 }
+for i = 1, LENS_MAX do LS.na[i], LS.nb[i] = "l" .. (i - 1) .. "a", "l" .. (i - 1) .. "b" end
 
 local function loadLens()
     if not (wum.render and wum.render.windowSize and wum.draw.texture and wum.draw.hudImage) then return end
     for i = 1, 4 do
         local ok, tex = pcall(wum.draw.texture, "textures/splat" .. i .. ".png")
-        if ok and tex then lensTex[#lensTex + 1] = tex end
+        if ok and tex then lensTex[i] = tex end
     end
 end
 
+-- Can a splat be shown at all, by the effect or by the HUD fallback?
+function LS.can()
+    return (hasPostfx and not LS.bad) or next(lensTex) ~= nil
+end
+
 local function addSplat()
-    if #lensTex == 0 then return end
+    if not LS.can() then return end
     local slot
     if nL < LENS_MAX then
         nL = nL + 1
@@ -1003,25 +1183,80 @@ local function addSplat()
     end
     LS.x[slot], LS.y[slot] = x, y
     LS.size[slot] = rnd(LENS_SIZE[1], LENS_SIZE[2])
-    LS.tex[slot] = lensTex[random(#lensTex)]
+    local ti = random(4)
+    LS.ti[slot] = ti
+    LS.tex[slot] = lensTex[ti] or next(lensTex) and lensTex[next(lensTex)] or false
     LS.age[slot] = 0
     LS.life[slot] = LENS_LIFE * rnd(0.85, 1.15)
+    LS.seed[slot] = random(0, 99)
+    LS.birth[slot] = os.clock()
+end
+
+-- Sends up to four floats to a parameter of the effect, when they changed.
+local function lensSend(name, a, b, c, d)
+    local fx = LS.fx
+    local old = fx.cache[name]
+    if old and old[1] == a and old[2] == b and old[3] == c and old[4] == d then return end
+    local ok, res = pcall(wum.postfx.setTransient, fx.id, name, a, b, c, d)
+    if not ok or res == false then return end
+    if not old then
+        old = {}
+        fx.cache[name] = old
+    end
+    old[1], old[2], old[3], old[4] = a, b, c, d
+end
+
+-- Keeps the effect in step with the splats: sends the live ones (the window's y runs down, the effect's up; the shape index
+-- runs 0..3), zeroes the rest, sends the clock they age by and switches the effect on while there are any.
+function LS.sync()
+    if not hasPostfx or LS.bad then return end
+    local on = nL > 0 and preset ~= nil and cfg.lens ~= false
+    if on or LS.fx.enabled then
+        for i = 1, LENS_MAX do
+            if on and i <= nL then
+                lensSend(LS.na[i], LS.x[i], 1 - LS.y[i], LS.size[i], LS.ti[i] - 1)
+                lensSend(LS.nb[i], LS.birth[i], LS.life[i], LS.seed[i], 0)
+            else
+                lensSend(LS.na[i], 0, 0, 0, 0)
+            end
+        end
+        if on then
+            local c = palette.lens
+            lensSend("blood", c[1], c[2], c[3], 0)
+            lensSend("clock", os.clock(), 0, 0, 0)
+        end
+    end
+    if LS.fx.enabled ~= on then
+        local ok, res = pcall(wum.postfx.enable, LS.fx.id, on)
+        if ok and res == false then
+            LS.bad = true           -- this Melange does not know the effect
+        elseif ok then
+            LS.fx.enabled = on
+        end
+    end
+end
+
+function LS.setBlood(c)
+    lensSend("blood", c[1], c[2], c[3], 0)
 end
 
 local function ageSplats(dt)
     for i = nL, 1, -1 do
         local age = LS.age[i] + dt
         if age >= LS.life[i] then
-            for _, arr in pairs(LS) do arr[i] = arr[nL] end
+            for _, k in ipairs(LS.fields) do LS[k][i] = LS[k][nL] end
             nL = nL - 1
         else
             LS.age[i] = age
         end
     end
+    LS.sync()
 end
 
+-- The fallback: flat textures over everything, the HUD included.
 local function drawSplats()
     if nL == 0 or not preset or not cfg.lens then return end
+    if hasPostfx and not LS.bad then return end
     local w, h = wum.render.windowSize()
     if not (w and h) or w <= 0 or h <= 0 then return end
     local c = palette.lens
@@ -1033,7 +1268,7 @@ local function drawSplats()
         tint.a = a
         local half = LS.size[i] * h * 0.5
         local cx, cy = LS.x[i] * w, LS.y[i] * h + LS.age[i] * LENS_CREEP
-        wum.draw.hudImage(cx - half, cy - half, cx + half, cy + half, LS.tex[i], tint)
+        if LS.tex[i] then wum.draw.hudImage(cx - half, cy - half, cx + half, cy + half, LS.tex[i], tint) end
     end
 end
 
@@ -1077,6 +1312,7 @@ local function resetSlot(s)
     s.stainRadius, s.restSince = nil, nil
     s.vomitAt, s.vomitUntil, s.vomitAcc = nil, 0, 0
     s.gutLive = false
+    s.dead = false
 end
 
 local function requestStain(s, radius)
@@ -1093,7 +1329,7 @@ local function requestStain(s, radius)
 end
 
 local function addLens(s, damage, death)
-    if not (cfg.lens and CAM.ok and preset and #lensTex > 0) then return end
+    if not (cfg.lens and CAM.ok and preset and LS.can()) then return end
     local dx, dy, dz = s.px - CAM.px, s.py + CENTRE_Y - CAM.py, s.pz - CAM.pz
     local dist = sqrt(dx * dx + dy * dy + dz * dz)
     if death then
@@ -1124,6 +1360,7 @@ for k, v in pairs({
     STEAM = 3, CHAR = 4, CLOT = 5,                  -- particle kinds after DROPLET and MIST
     KG = {}, KD = {}, KP = {}, KGROW = {}, KFADE = {},  -- per kind: gravity multiple, drag per second, puff, growth, fade-in
     SIG = {},                   -- weapon id -> signature
+    far = 0, sizeMul = 1,       -- how far from the camera the burst being sprayed is (0..1) and the droplet size factor that goes with it
     JOB_MAX = 24,
     -- the context of the hit being sprayed: set by the classification (or the preview) just before burst()
     vslot = nil, hasA = false, ax = 0, ay = 0, az = 0, expl = false,
@@ -1138,7 +1375,7 @@ do
     local KIND = {
         [DROPLET] = { g = 1, drag = DRAG, puff = false },
         [MIST] = { g = MIST_GRAVITY, drag = MIST_DRAG, puff = true, grow = 1, fade = 0 },
-        [STEAM] = { g = -0.4, drag = 1.3, puff = true, grow = 3.4, fade = 5 },
+        [STEAM] = { g = -0.4, drag = 1.3, puff = true, grow = 2.8, fade = 5 },
         [CHAR] = { g = 1, drag = 0.9, puff = false },
         [CLOT] = { g = 1.5, drag = 0.25, puff = false },
     }
@@ -1154,15 +1391,21 @@ do
             local k = rnd(0.65, 1.15)
             r, g, b = c[1] * k, c[2] * k, c[3] * k
         elseif mode == 2 then
-            local k = rnd(0.5, 1.2)
-            r, g, b = (0.045 + c[1] * 0.18) * k, (0.045 + c[2] * 0.18) * k, (0.045 + c[3] * 0.18) * k
+            -- Charred: mostly brown-black, some dark blood. Nothing bright.
+            local k = rnd(0.6, 1.4)
+            if random() < 0.65 then
+                r, g, b = 0.075 * k, 0.05 * k, 0.04 * k
+            else
+                k = k * 0.36
+                r, g, b = c[1] * k, c[2] * k, c[3] * k
+            end
         elseif mode == 3 then
             local k = rnd(0.7, 1.1)
             r, g, b = (c[1] * 0.3 + 0.16) * k, (c[2] * 0.3 + 0.22) * k, (c[3] * 0.3 + 0.02) * k
         elseif mode == 4 then
-            r, g, b = 1, rnd(0.35, 0.6), 0.08
+            r, g, b = rnd(0.55, 0.75), rnd(0.1, 0.2), 0.03      -- a dull ember, not a bright spark
         elseif mode == 5 then
-            local k = rnd(0.62, 0.84)
+            local k = rnd(0.72, 0.9)
             r, g, b = k, k, k * 1.02
         elseif mode == 6 then
             local k = rnd(0.12, 0.26)
@@ -1176,12 +1419,12 @@ do
 
     local function dropv(kind, mode, x, y, z, vx, vy, vz, size, life, alpha)
         local r, g, b = colour(mode)
-        spawn(kind, x, y, z, vx, vy, vz, size, life, r, g, b, alpha or DROPLET_ALPHA)
+        spawn(kind, x, y, z, vx, vy, vz, size * MEL.sizeMul, life, r, g, b, alpha or DROPLET_ALPHA)
     end
 
-    local function drop(kind, mode, x, y, z, ex, ey, ez, speed, size, life)
+    local function drop(kind, mode, x, y, z, ex, ey, ez, speed, size, life, alpha)
         local r, g, b = colour(mode)
-        spawn(kind, x, y, z, ex * speed, ey * speed, ez * speed, size, life, r, g, b, DROPLET_ALPHA)
+        spawn(kind, x, y, z, ex * speed, ey * speed, ez * speed, size * MEL.sizeMul, life, r, g, b, alpha or DROPLET_ALPHA)
     end
 
     local function puff(kind, mode, x, y, z, vx, vy, vz, size, life, alpha)
@@ -1230,7 +1473,7 @@ do
             local ex, ey, ez = coneDir(dx, dy, dz, p.cone)
             local back = gap and floor(random() * 3) * gap or 0
             drop(kind, mode, ox - dx * back, oy - dy * back, oz - dz * back, ex, ey, ez, rnd(p.s0, p.s1), rnd(p.z0, p.z1),
-                 rnd(p.l0, p.l1))
+                 rnd(p.l0, p.l1), p.alpha)
         end
         return n
     end
@@ -1256,7 +1499,8 @@ do
     end
 
     local function mist(ox, oy, oz, dx, dy, dz, n, spread, speed, sizeMul)
-        n = min(n, poolRoom())
+        n = min(floor(n * (1 + MEL.far) + 0.5), poolRoom())
+        sizeMul = sizeMul * (1 + 0.5 * MEL.far)
         for _ = 1, n do
             local sp = rnd(0.4, 1) * speed
             puff(MIST, 7, ox + rnd(-4, 4), oy + rnd(-4, 4), oz + rnd(-3, 3),
@@ -1378,18 +1622,18 @@ do
                             basis(j.dx, j.dy, j.dz)
                             local ex, ey, ez = coneDir(j.dx, j.dy, j.dz, p.cone)
                             drop(p.kind or DROPLET, p.mode or 1, x, y, z, ex, ey, ez, rnd(p.s0, p.s1), rnd(p.z0, p.z1),
-                                 rnd(p.l0, p.l1))
+                                 rnd(p.l0, p.l1), p.alpha)
                         elseif jt == DRIB then
                             dropv(DROPLET, p.mode or 1, x + rnd(-1.5, 1.5), y + rnd(-1.5, 1.5), z + rnd(-1.5, 1.5),
                                   j.dx * rnd(6, 28) + rnd(-8, 8), rnd(-12, 8), j.dz * rnd(6, 28) + rnd(-8, 8),
                                   rnd(0.9, 1.7), rnd(0.6, 1.2))
                         else
-                            local smoke = random() < 0.3
+                            local smoke = random() < 0.15
                             puff(STEAM, smoke and 6 or 5, x + rnd(-5, 5), y + rnd(-6, 8), z + rnd(-4, 4),
-                                 rnd(-10, 10), rnd(30, 70), rnd(-10, 10), rnd(9, 16), rnd(0.9, 1.7), smoke and 0.5 or 0.4)
-                            if random() < 0.25 then
+                                 rnd(-10, 10), rnd(30, 70), rnd(-10, 10), rnd(9, 16), rnd(0.6, 1.1), smoke and 0.45 or 0.55)
+                            if random() < 0.15 then
                                 drop(CHAR, 2, x + rnd(-4, 4), y + rnd(-4, 4), z + rnd(-3, 3), rnd(-0.5, 0.5), 1, rnd(-0.5, 0.5),
-                                     rnd(40, 100), rnd(1.1, 2.0), rnd(0.5, 1.0))
+                                     rnd(40, 100), rnd(1.1, 2.0), rnd(0.4, 0.8))
                             end
                         end
                     end
@@ -1442,9 +1686,10 @@ do
         return first + rest + 8
     end
 
-    PR.FP_CHAR = { cone = 0.5, s0 = 150, s1 = 360, z0 = 1.1, z1 = 2.6, l0 = 0.8, l1 = 1.5, mode = 2, kind = CHAR }
-    PR.FP_BLOOD = { cone = 0.5, s0 = 130, s1 = 300, z0 = 1.1, z1 = 2.2, l0 = 0.8, l1 = 1.4 }
-    PR.FP_EMBER = { cone = 0.9, s0 = 60, s1 = 200, z0 = 1.2, z1 = 2.0, l0 = 0.4, l1 = 0.9, mode = 4, kind = CHAR }
+    PR.FP_CHAR = { cone = 0.5, s0 = 130, s1 = 320, z0 = 1.1, z1 = 2.4, l0 = 0.6, l1 = 1.1, mode = 2, kind = CHAR }
+    PR.FP_BLOOD = { cone = 0.5, s0 = 130, s1 = 300, z0 = 1.1, z1 = 2.2, l0 = 0.7, l1 = 1.2 }
+    -- A few faint embers, gone within about a third of a second.
+    PR.FP_EMBER = { cone = 0.9, s0 = 50, s1 = 150, z0 = 0.9, z1 = 1.5, l0 = 0.15, l1 = 0.32, mode = 4, kind = CHAR, alpha = 0.5 }
 
     function F.sprayFire(s, damage, n, dx, dy, dz, cx, cy, cz)
         -- An uppercut: everything goes up, a little away from the attacker.
@@ -1452,13 +1697,13 @@ do
         local nChar, nBlood = floor(n * 0.6), floor(n * 0.2)
         jet(PR.FP_CHAR, cx, cy - 2, cz, ux, uy, uz, nChar)
         jet(PR.FP_BLOOD, cx, cy - 2, cz, ux, uy, uz, nBlood)
-        local embers = 4 + floor(n / 14)
+        local embers = 2 + floor(n / 40)
         jet(PR.FP_EMBER, cx, cy, cz, ux, uy, uz, embers)
-        for _ = 1, min(3, poolRoom()) do
-            puff(STEAM, 6, cx + rnd(-4, 4), cy + rnd(-4, 6), cz + rnd(-3, 3), rnd(-12, 12), rnd(40, 80), rnd(-12, 12),
-                 rnd(12, 18), rnd(1.0, 1.6), 0.5)
+        for _ = 1, min(2, poolRoom()) do
+            puff(STEAM, 5, cx + rnd(-4, 4), cy + rnd(-4, 6), cz + rnd(-3, 3), rnd(-12, 12), rnd(40, 80), rnd(-12, 12),
+                 rnd(12, 18), rnd(0.7, 1.2), 0.55)
         end
-        addJob(STEAMJ, s, 0.05, 1.9, 11 * preset.bleed, cx, cy, cz, 0, 1, 0, nil)
+        addJob(STEAMJ, s, 0.05, 0.9, 8 * preset.bleed, cx, cy, cz, 0, 1, 0, nil)
         MEL.scorch(MEL.vslot, 1)
         return nChar + nBlood + embers
     end
@@ -1488,11 +1733,11 @@ do
         pancake(cx, gy, cz, ring, PR.PAN)
         local clots = 4 + floor(n / 25)
         pancake(cx, gy, cz, clots, PR.PAN_CLOT)
-        for _ = 1, min(preset.mist + 4, poolRoom()) do
+        for _ = 1, min(floor((preset.mist + 4) * (1 + MEL.far) + 0.5), poolRoom()) do
             local a = random() * 2 * pi
             local sp = rnd(30, 70)
             puff(MIST, 7, cx + cos(a) * 4, gy + 3, cz + sin(a) * 4, cos(a) * sp, rnd(0, 15), sin(a) * sp,
-                 rnd(MIST_SIZE[1], MIST_SIZE[2]) * 1.4, rnd(MIST_LIFE[1], MIST_LIFE[2]), MIST_ALPHA)
+                 rnd(MIST_SIZE[1], MIST_SIZE[2]) * 1.4 * (1 + 0.5 * MEL.far), rnd(MIST_LIFE[1], MIST_LIFE[2]), MIST_ALPHA)
         end
         MEL.pool(cx, gy, cz, 34, nx, ny, nz)
         return ring + clots
@@ -1596,7 +1841,7 @@ end
 
 -- One more lens splat for a hit close to the camera (the burst's own lens test has already run or will run).
 function MEL.lens(s, damage, near)
-    if not (cfg.lens and CAM.ok and preset and #lensTex > 0) then return end
+    if not (cfg.lens and CAM.ok and preset and LS.can()) then return end
     local dx, dy, dz = s.px - CAM.px, s.py + CENTRE_Y - CAM.py, s.pz - CAM.pz
     if dx * dx + dy * dy + dz * dz < near * near then addSplat() end
 end
@@ -1609,15 +1854,37 @@ local BQ = { n = 0, head = 1, s = {}, dmg = {}, dx = {}, dy = {}, dz = {}, death
 -- The droplets, mist and weapon spray of one burst: the part that costs. The direction is a unit vector. The caller has
 -- checked that the pool has room and the frame's spawn budget is not spent.
 local function emitBurst(s, damage, dx, dy, dz, death, sig)
+    if death then
+        -- A full pool gives way to a death: particles go (at most DEATH_ROOM a frame, so a blast of deaths does not clear it).
+        for _ = 1, min(BUDGET.DEATH_ROOM - poolRoom(), BUDGET.DEATH_ROOM - BUDGET.evicted) do
+            if nP > 0 then
+                removeParticle(1)
+                BUDGET.evicted = BUDGET.evicted + 1
+            end
+        end
+    end
     local room = poolRoom()
     if room <= 0 then return end
     local cx, cy, cz = s.px, s.py + CENTRE_Y, s.pz
     local strength = min(damage, DEATH_DAMAGE) / DEATH_DAMAGE
     local spread = death and 1.1 or 0.55
-    local count = min(BURST_MAX, floor((damage + BURST_BASE) * preset.perDamage + 0.5))
+    -- Far from the camera a burst throws bigger droplets and more mist, to read at the usual distance of play.
+    local far = 0
+    if CAM.ok then
+        local ex, ey, ez = cx - CAM.px, cy - CAM.py, cz - CAM.pz
+        far = min(1, max(0, (sqrt(ex * ex + ey * ey + ez * ez) - FAR_START) / FAR_SPAN))
+    end
+    local sizeMul = 1 + 0.45 * far
+    MEL.far, MEL.sizeMul = far, sizeMul
+    local count = min(BURST_MAX, floor((damage + BURST_BASE) * preset.perDamage * (1 + 0.35 * far) + 0.5))
     -- No more than the frame has left to spawn, and no more than half of the room in the pool (FAIR_MIN at least), so the
-    -- worms of one blast, which burst one after another, each get a share.
-    count = min(count, BUDGET.SPAWN - BUDGET.spawned, max(BUDGET.FAIR_MIN, floor(room * 0.5)))
+    -- worms of one blast, which burst one after another, each get a share. A death may overspend the frame (DEATH_EXTRA) and
+    -- takes what it needs of the pool.
+    if death then
+        count = min(count, max(BUDGET.SPAWN + BUDGET.DEATH_EXTRA - BUDGET.spawned, 40), room)
+    else
+        count = min(count, BUDGET.SPAWN - BUDGET.spawned, max(BUDGET.FAIR_MIN, floor(room * 0.5)))
+    end
     local gen = 1
     if sig then
         gen = sig.generic or 0
@@ -1633,22 +1900,27 @@ local function emitBurst(s, damage, dx, dy, dz, death, sig)
         local speed = rnd(DROPLET_SPEED[1], DROPLET_SPEED[2]) * (0.7 + 0.6 * strength) / el
         local shade = rnd(0.65, 1.15)
         spawn(DROPLET, cx + rnd(-4, 4), cy + rnd(-5, 5), cz + rnd(-2, 2), ex * speed, ey * speed, ez * speed,
-              rnd(DROPLET_SIZE[1], DROPLET_SIZE[2]), rnd(DROPLET_LIFE[1], DROPLET_LIFE[2]),
+              rnd(DROPLET_SIZE[1], DROPLET_SIZE[2]) * sizeMul, rnd(DROPLET_LIFE[1], DROPLET_LIFE[2]),
               min(1, c[1] * shade), min(1, c[2] * shade), min(1, c[3] * shade), DROPLET_ALPHA)
     end
     local m = palette.mist
-    for _ = 1, min(floor((death and preset.mist * 2 or preset.mist) * gen + 0.5), poolRoom()) do
+    for _ = 1, min(floor((death and preset.mist * 2 or preset.mist) * gen * (1 + far) + 0.5), poolRoom()) do
         local shade = rnd(0.8, 1.2)
         local speed = rnd(DROPLET_SPEED[1], DROPLET_SPEED[2]) * 0.25
         spawn(MIST, cx + rnd(-4, 4), cy + rnd(-4, 4), cz + rnd(-2, 2),
               (dx + rnd(-0.5, 0.5)) * speed, (dy + rnd(-0.5, 0.5)) * speed, (dz + rnd(-0.5, 0.5)) * speed,
-              rnd(MIST_SIZE[1], MIST_SIZE[2]), rnd(MIST_LIFE[1], MIST_LIFE[2]),
+              rnd(MIST_SIZE[1], MIST_SIZE[2]) * (1 + 0.5 * far), rnd(MIST_LIFE[1], MIST_LIFE[2]),
               min(1, m[1] * shade), min(1, m[2] * shade), min(1, m[3] * shade), MIST_ALPHA)
     end
 end
 
 local function enqueueBurst(s, damage, dx, dy, dz, death, sig)
-    if BQ.n >= BUDGET.QUEUE then return end        -- a storm of hits: the rest only bleed and stain
+    if BQ.n >= BUDGET.QUEUE then
+        if not death then return end    -- a storm of hits: the rest only bleed and stain
+        BQ.s[BQ.head], BQ.sig[BQ.head] = nil, nil       -- ...but a death takes the place of the oldest entry
+        BQ.head = BQ.head % BUDGET.QUEUE + 1
+        BQ.n = BQ.n - 1
+    end
     local i = (BQ.head + BQ.n - 1) % BUDGET.QUEUE + 1
     BQ.n = BQ.n + 1
     BQ.s[i], BQ.dmg[i], BQ.dx[i], BQ.dy[i], BQ.dz[i], BQ.death[i], BQ.sig[i], BQ.at[i] = s, damage, dx, dy, dz, death, sig, now
@@ -1659,9 +1931,11 @@ end
 local function drainBursts()
     while BQ.n > 0 do
         local i = BQ.head
-        local stale = now - BQ.at[i] > BUDGET.QUEUE_SECS
+        local isDeath = BQ.death[i]
+        local stale = now - BQ.at[i] > (isDeath and BUDGET.DEATH_QUEUE_SECS or BUDGET.QUEUE_SECS)
         if not stale then
-            if BUDGET.SPAWN - BUDGET.spawned < BUDGET.MIN_LEFT or poolRoom() <= 0 then break end
+            if BUDGET.SPAWN + (isDeath and BUDGET.DEATH_EXTRA or 0) - BUDGET.spawned < BUDGET.MIN_LEFT
+                or (poolRoom() <= 0 and not isDeath) then break end
             MEL.vslot, MEL.hasA, MEL.ax, MEL.ay, MEL.az, MEL.expl = BQ.vslot[i], BQ.hasA[i], BQ.ax[i], BQ.ay[i], BQ.az[i], BQ.expl[i]
             emitBurst(BQ.s[i], BQ.dmg[i], BQ.dx[i], BQ.dy[i], BQ.dz[i], BQ.death[i], BQ.sig[i])
         end
@@ -1682,7 +1956,14 @@ local function burst(s, damage, dx, dy, dz, death, sig)
         dx, dy, dz, len = 0, 1, 0, 1
     end
     dx, dy, dz = dx / len, dy / len, dz / len
-    if poolRoom() > 0 then
+    if death then
+        -- Straight away while the frame can bear it (a death overspends the budget by DEATH_EXTRA), else first in the queue.
+        if BUDGET.SPAWN + BUDGET.DEATH_EXTRA - BUDGET.spawned < BUDGET.MIN_LEFT + 20 then
+            enqueueBurst(s, damage, dx, dy, dz, death, sig)
+        else
+            emitBurst(s, damage, dx, dy, dz, death, sig)
+        end
+    elseif poolRoom() > 0 then
         if BQ.n > 0 or BUDGET.SPAWN - BUDGET.spawned < BUDGET.MIN_LEFT then
             enqueueBurst(s, damage, dx, dy, dz, death, sig)
         else
@@ -2752,13 +3033,15 @@ local function checkGutsFx()
     if not (hasPostfx and wum.postfx.list) then return end
     local ok, list = pcall(wum.postfx.list)
     if not ok or type(list) ~= "table" then return end
-    local found = false
+    local found, lensFound, lensFailed = false, false, false
     for i = 1, #list do
         local e = list[i]
         if type(e) == "table" then
             if e.id == GUTS.id then
                 found = true
                 gutsMissing = e.failed == true
+            elseif e.id == LS.fx.id then
+                lensFound, lensFailed = true, e.failed == true
             elseif e.id == SKIN.id or e.id == STAINS.id then
                 local fx = e.id == SKIN.id and SKIN or STAINS
                 fx.failed = e.failed == true
@@ -2772,6 +3055,12 @@ local function checkGutsFx()
         end
     end
     if not found then gutsMissing = true end
+    local lensBad = not lensFound or lensFailed
+    if lensBad and lensFound and not LS.warned and wum.log and wum.log.warn then
+        LS.warned = true
+        wum.log.warn("Bloodsand: the effect " .. LS.fx.id .. " failed to draw on this graphics driver, so the lens splatter is drawn flat")
+    end
+    LS.bad = lensBad
 end
 
 -- The flat ribbons: two camera-facing rectangles per segment, laid like the droplet kite but with square ends, each a
@@ -2924,6 +3213,17 @@ local function updateVomit(s, dt)
     if s.vomitAcc > 2 then s.vomitAcc = 0 end
 end
 
+-- A worm's death: the big burst, a pool and the lens, once per death (s.dead). A worm is seen to die in three ways, whichever comes
+-- first: its health reaching zero (the game takes a hit off at the end of the turn, when the worm blows up), its state
+-- flipping to dead (which for a worm killed that way happens only once the body is gone) and the worm disappearing from the
+-- list. The first two come in trackWorms, the last at its end.
+local function deathBurst(s)
+    s.dead = true
+    s.credited = 0
+    local dx, dy, dz = hitDirection(s)
+    burst(s, DEATH_DAMAGE, dx, dy, dz, true)
+end
+
 local function trackWorms(worms, dt)
     for i = 1, #worms do
         local w = worms[i]
@@ -2946,20 +3246,29 @@ local function trackWorms(worms, dt)
                 updateGut(s, dt)
             else
                 s.seen = frameId
+                s.gone = nil
+                local ox, oy, oz = s.px, s.py, s.pz
                 VIS.noteEngineVel(s, w.vel)
                 updateMotion(s, x, y, z)
                 MEL.track(s, slot, w)
                 if s.alive and not alive then
-                    local dx, dy, dz = hitDirection(s)
-                    s.credited = 0
-                    burst(s, DEATH_DAMAGE, dx, dy, dz, true)
+                    if not s.dead then
+                        -- A dead worm may be reported somewhere else (or nowhere): burst where it was last seen alive.
+                        local jx, jy, jz = s.px - ox, s.py - oy, s.pz - oz
+                        if jx * jx + jy * jy + jz * jz > 14400 then s.px, s.py, s.pz = ox, oy, oz end
+                        deathBurst(s)
+                    end
                 elseif alive and not s.alive then
                     resetSlot(s)
                 elseif alive then
                     if health > s.health then
                         resetSlot(s)
                     elseif health < s.health then
-                        settleHealth(s, s.health - health)
+                        if health <= 0 then
+                            if not s.dead then deathBurst(s) end
+                        else
+                            settleHealth(s, s.health - health)
+                        end
                     end
                 end
                 s.health, s.alive = health, alive
@@ -3034,7 +3343,19 @@ local function trackWorms(worms, dt)
     end
 
     for slot, s in pairs(slots) do
-        if s.seen ~= frameId then slots[slot] = nil end
+        if s.seen ~= frameId then
+            if s.alive and not s.dead and #worms > 0 and preset then
+                -- A worm that was alive and is no longer in the list has died without anyone seeing its state change, unless
+                -- it is only missing for a moment: it is given GONE_SECS to come back.
+                s.gone = s.gone or now
+                if now - s.gone >= BUDGET.GONE_SECS then
+                    deathBurst(s)
+                    slots[slot] = nil
+                end
+            else
+                slots[slot] = nil
+            end
+        end
     end
 end
 
@@ -3112,6 +3433,7 @@ end
 
 local function clearParticles()
     nP, nL, nExp = 0, 0, 0
+    LS.sync()
     BQ.n, BQ.head = 0, 1
     hurtOpen = false
     MEL.clear()
@@ -3146,7 +3468,7 @@ local function onWorld()
     end
     live = true
     frameId = frameId + 1
-    BUDGET.spawned = 0
+    BUDGET.spawned, BUDGET.evicted = 0, 0
     DECALS.rayUsed = 0
     DECALS.now = t
     if not DECALS.rayOK and DECALS.hasFn and t >= DECALS.rayRetryAt then DECALS.rayOK = true end
@@ -3204,6 +3526,7 @@ local function applySettings()
     if lens ~= cfg.lens then
         cfg.lens = lens
         if not lens then nL = 0 end
+        LS.sync()
     end
     if colour ~= cfg.colour then
         cfg.colour = colour
@@ -3212,6 +3535,7 @@ local function applySettings()
         sendParam(STAINS, "blood", c[1], c[2], c[3])
         sendParam(SKIN, "blood", c[1], c[2], c[3])
         VIS.setBlood(c)
+        LS.setBlood(palette.lens)
     end
     if not preset then
         clearStains()
