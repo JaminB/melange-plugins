@@ -161,10 +161,10 @@ shown. Where the face and the belly are comes from the worm's position and its f
 `"kind": "client-only"` in `spice.json`, with no permissions (`unsafe` is false, `filesystem` is `none`). The mod only
 reads game state and draws, so it cannot change the simulation.
 
-The Post-FX values (the decals' positions and shapes, each living worm's position for the stains pass, each bloodied worm's position, facing, blood, wound, eye, gut and
-scorch levels, and the points of each hanging gut) are fed with
-`wum.postfx.setTransient`, which Melange neither writes to `Melange.ini` nor logs. The only thing Melange saves is
-an effect being switched on or off, which happens when the first blood appears and when it is cleared.
+The Post-FX values (the decals' positions and shapes, each living worm's position for the stains pass, each bloodied
+worm's position, facing, blood, wound, eye, gut and scorch levels, the points of each hanging gut, and the lens splats)
+are fed with `wum.postfx.setTransient`, which Melange neither writes to `Melange.ini` nor logs. The only thing Melange
+saves is an effect being switched on or off, which happens when the first blood appears and when it is cleared.
 
 ## Cost
 
@@ -173,18 +173,20 @@ a desktop Radeon RX 7800 XT at 1920x1080 (GL timer queries), not from the game; 
 game, which leaves out the real cost of drawing the quads and of the terrain rays. Version 1.1 was measured in a live
 four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0.1 ms.
 
-- **Skin pass**: about 0.10 ms (1.1: about 0.09), only while a worm wears blood, a wound or a burn.
+- **Skin pass**: about 0.10 ms (1.1: about 0.09), only while a worm wears blood, a wound or a burn. The per-pixel normal
+  and soft silhouette cost nothing measurable; a burn on a worm that fills the screen is about 9% more.
 - **Guts pass**: only on while a gutted worm is in view. About 0.16 to 0.18 ms at the usual zoom, and up to 0.4 ms with
   the camera right on top of the guts. A pass that only copies the screen takes about 0.05 ms of that.
 - **Lens pass**: about 0.02 ms (a copy of the screen) with no splat in the way, 0.04 ms with a few and 0.055 ms with six large
   ones on top of each other (the same harness, 1920x1080), only while there is a splat on the lens.
-- **Decals pass**: about 0.03 ms with nothing on the ground, 0.1 ms with a handful of decals and a large pool, and
-  about 0.2 ms for a deliberately dense pile of 32 covering a sixth of the screen. It is switched off while there are none.
+- **Decals pass**: about 0.075 ms in the harness with nothing on the ground, 0.15 ms with four decals and about 0.35 ms for
+  a deliberately dense pile of 32 (0.13 to 0.165 ms was measured in the game with the version before the worm and
+  near-camera checks). It is switched off while there are none.
   Measured on the same card against the pass as it was before the decals were made one fluid and kept off the worms
   (interleaved runs, 1080p): 6% more with four decals, and the same (1% less) with 32 covering a third of the screen,
   because a pixel now combines three decals and shades once instead of shading each of four.
 - **Script**: in a stress test with six worms and explosions, weapon sprays and previews back to back, an average of
-  about 0.3 ms a frame on Heavy and 0.4 ms on Absurd. A gutted worm takes under 0.1 ms and six take about 0.3 ms. With
+  about 0.4 ms a frame on Heavy and 0.45 ms on Absurd. A gutted worm takes under 0.1 ms and six take about 0.3 ms. With
   Blood set to Off it takes under 0.01 ms. A Lua callback may run 500000 VM instructions and Melange stops it for the
   session after three faults, so the script keeps clear of that: one frame spawns about 200 particles for bursts (the rest of
   a big blast waits a few frames in a queue, and a burst takes at most half of what the pool has left, so the worms of one
@@ -231,8 +233,9 @@ Re-measure with the *Mirage/Post-FX* panel on your own machine.
   to the camera) are drawn at once. They are lit by a fixed key light and the camera, not the level's lights. Where the
   opening sits on the belly was set by eye and may need adjusting.
 - Decals are projected from the depth buffer: there are 32 of them, and a pixel combines at most three. Where more than
-  four overlap, the ones that hold the pixel least deeply are dropped (a pool with many splats on it can still show a
-  hard edge here and there), and a decal vanishes where the terrain under it is destroyed. Blood is kept off a volume
+  three overlap, the ones that hold the pixel least deeply are dropped (a pool with many splats on it can still show a
+  hard edge here and there), and a decal vanishes where the terrain under it is destroyed. The surface has to lie on the
+  decal's plane closely, so a pool on strongly curved ground may be trimmed at its edge. Blood is kept off a volume
   about 19 units wide and 22 high around each worm (so a worm lying down is covered too), and the floor right under it
   is exempt; a hat or an arm that sticks out of the volume can still be painted if it is on the decal's plane. Droplets are tested against the terrain only, not
   against worms, crates or water.

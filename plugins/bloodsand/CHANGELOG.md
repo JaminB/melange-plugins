@@ -28,8 +28,8 @@ with a clotted rim over 30 to 60 seconds (settings in the Post-FX panel). There 
 walls and overhangs. Overlapping decals are one body of blood with one outline, rim and shoulder (no decal's border shows
 inside another, and a speck beside a blot runs into it); splats vary in size (a long tail from specks to big blots,
 finer when the hit was fast), outline, stretch and number of satellite drops; and blood no longer lands on worms, smoke,
-silhouettes or the wall behind a pool, and fades out as the camera comes up to a stained surface. Droplets are layered, lighter-edged and stretch as they fly. On Melange 0.6 and later, plugins can
-ask where the terrain is (`wum.game.landRay`) and see how fast a worm moves: Bloodsand uses these for the droplets'
+silhouettes or the wall behind a pool, and fades out as the camera comes up to a stained surface. Droplets are
+layered, lighter-edged and stretch as they fly. On Melange 0.6 and later, plugins can ask where the terrain is (`wum.game.landRay`) and see how fast a worm moves: Bloodsand uses these for the droplets'
 collision, for the guts to lie on slopes and for sharper knock and fall detection. On older Melange the droplets fly
 through the ground, the guts lie on a flat ground and everything else works as before. Needs Melange 0.3.5 or later.
 
