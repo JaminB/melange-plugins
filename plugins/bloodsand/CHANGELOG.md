@@ -9,7 +9,16 @@ flying out around them, and they stay: up to 16 on Absurd (14 on Heavy, 8 on Lig
 signed distance fields drawn by a new Post-FX pass, `bloodsand/gibs` (PostWorld, order 53, after the guts): flesh is dark red with
 lighter fibres, cream marbling, silverskin and fibrous tear faces, bone ivory with a jagged, hollow, porous break, the eye
 bloodshot with an iris and a pupil; all wet and glossy with light through the thin flesh at first, drying over about a minute to
-a dark, brown, matte finish. They fly with spin, bounce, roll and slide on the terrain (`wum.game.landRay`; on the plane at the
+a dark, brown, matte finish. The organs and bones were reworked after the first in-game look (they read as glossy pills, cigarette
+butts and a tomato): the liver is a dark maroon lobed wedge with a thin sharp edge, a cleft, a vessel stub and torn raw faces; the
+kidney a bean with a hilum, fat and the cut stubs of its vein, artery and ureter; the heart a leaning cone with a groove, a lumpy
+cap of fat and the hollow, obliquely torn ends of its great vessels; new lung lobes and loops of intestine; bones are ivory, matte
+and porous, a long bone with a knobbed joint end, a shaft snapped at both ends, a curved rib or a shard, each with splintered
+breaks round a hollow marrow cavity and on some a rag of red meat still clinging; some meat chunks are fatty or dark. The wet
+sheen is a thin, patchy, weak film (no glassy glint), with dark clotted blood in the crevices. A gib (and its bits) fades out
+between 60 and 25 units from the camera and is gone nearer, one that would fill much of the screen fades too, and in the aim
+view (the camera within 40 units of the active worm) the ones near the camera or the worm are hidden so they never block the
+aim. They fly with spin, bounce, roll and slide on the terrain (`wum.game.landRay`; on the plane at the
 worm's feet without it), come to rest lying on their flattest face and sleep (no rays, nothing sent to the effect), and leave
 a splat where they land hard, a streak where they slide and a pool where they lie. An explosion near them throws them again, and
 flesh in the middle of its crater is blown into bits; ground dug out from under one lets it fall. A new setting, Gibs (on),

@@ -4763,7 +4763,7 @@ local function build()
 local exp = math.exp
 local N, BMAX = 16, 96
 local FLY, SETTLE, SLEEP = 1, 2, 3
-local MEAT, BONE, KIDNEY, LIVER, HEART, EYE = 0, 1, 2, 3, 4, 5
+local MEAT, BONE, KIDNEY, LIVER, HEART, EYE, LUNG, GUT = 0, 1, 2, 3, 4, 5, 6, 7
 local FX = { id = "bloodsand/gibs", cache = {}, enabled = nil, failed = false, missing = false }
 -- Per "Blood" setting: the pool (never more than the effect's 16 slots), gibs thrown by a death and by a very big hit, and the
 -- bits of meat that fly out with them.
@@ -4777,7 +4777,11 @@ local T = {
     COOLDOWN = 0.6,                     -- a worm throws gibs for hits no closer together than this
     FRAME_THROWS = 20,                  -- gibs thrown between two frames, all worms together (more only recycle the ones just thrown)
     SPEED = { 55, 150 }, UP = { 0.35, 1.1 },
-    REST = { [0] = 0.22, 0.38, 0.24, 0.2, 0.26, 0.5 },      -- restitution by kind (bounce)
+    REST = { [0] = 0.22, 0.38, 0.24, 0.2, 0.26, 0.5, 0.22, 0.16 },      -- restitution by kind (bounce)
+    -- A gib or a bit of meat nearer the camera than NEAR[2] starts to fade and is gone by NEAR[1] (the effect does the same, see
+    -- Fade in tools/gibs.frag.in). In the aim view (the camera within AIM_DETECT of the active worm) the ones near the camera
+    -- (AIM_CAM) and near the worm (AIM_WORM) are hidden too, so that they never block the aim.
+    NEAR = { 25, 60 }, AIM_DETECT = 40, AIM_CAM = { 50, 90 }, AIM_WORM = { 26, 52 },
     MU = 330,                           -- sliding friction: deceleration on a flat floor, units/s^2
     SETTLE_SPEED = 28, SLEEP_SPEED = 6, SLEEP_SECS = 0.25,
     DRAG = 0.12,                        -- fraction of speed lost per second in the air
@@ -4933,6 +4937,7 @@ local function settleTurn(i, nx, ny, nz, step)
     end
     local hk = bh
     if kind == BONE then hk = (h2 + h3) * 0.5 end
+    if kind == GUT then hk = h2 * 1.22 end
     F.axis[i], F.hrT[i] = bk, hk * 0.86
     return turnAxis(i, bk, bsign, nx, ny, nz, step)
 end
@@ -4944,8 +4949,8 @@ local function stainsOn()
     return hasPostfx and preset ~= nil and cfg.stains ~= false and not STAINS.failed
 end
 
-local SPLAT_SIZE = { [0] = 3.6, 1.6, 3.0, 3.4, 3.2, 2.0 }
-local POOL_SIZE = { [0] = 6.5, 2.6, 5.2, 6.0, 5.4, 2.6 }
+local SPLAT_SIZE = { [0] = 3.6, 1.6, 3.0, 3.4, 3.2, 2.0, 3.4, 3.0 }
+local POOL_SIZE = { [0] = 6.5, 2.6, 5.2, 6.0, 5.4, 2.6, 5.6, 5.0 }
 
 local function splatAt(i, px, py, pz, nx, ny, nz, vx, vy, vz, size)
     if not stainsOn() then return end
@@ -4982,6 +4987,8 @@ local function dims(kind, sm)
     if kind == KIDNEY then return 2.8 * sm * rnd(0.9, 1.1), 1.8 * sm * rnd(0.9, 1.1), 1.9 * sm * rnd(0.9, 1.1) end
     if kind == LIVER then return 5.0 * sm * rnd(0.85, 1.1), 1.5 * sm * rnd(0.9, 1.1), 3.3 * sm * rnd(0.85, 1.1) end
     if kind == HEART then return 2.6 * sm * rnd(0.9, 1.1), 3.0 * sm * rnd(0.9, 1.1), 2.4 * sm * rnd(0.9, 1.1) end
+    if kind == LUNG then return 4.4 * sm * rnd(0.9, 1.1), 3.0 * sm * rnd(0.9, 1.1), 2.2 * sm * rnd(0.9, 1.1) end
+    if kind == GUT then return 3.6 * sm * rnd(0.9, 1.1), 1.35 * sm * rnd(0.9, 1.1), 3.6 * sm * rnd(0.9, 1.1) end
     local r = 1.8 * sm * rnd(0.92, 1.08)
     return r, r, r
 end
@@ -5056,15 +5063,17 @@ end
 local function pickKind(k, death, n)
     if death and k == 1 then
         local r = random()
-        return r < 0.45 and HEART or (r < 0.7 and EYE or (r < 0.85 and LIVER or KIDNEY))
+        return r < 0.3 and HEART or (r < 0.48 and EYE or (r < 0.63 and LIVER or (r < 0.75 and KIDNEY or (r < 0.88 and LUNG or GUT))))
     end
     if k == 2 and n >= 6 then return BONE end
     local r = random()
-    if r < 0.5 then return MEAT end
-    if r < 0.7 then return BONE end
-    if r < 0.78 then return KIDNEY end
-    if r < 0.86 then return LIVER end
-    if r < 0.94 then return HEART end
+    if r < 0.44 then return MEAT end
+    if r < 0.66 then return BONE end
+    if r < 0.72 then return KIDNEY end
+    if r < 0.79 then return LIVER end
+    if r < 0.85 then return HEART end
+    if r < 0.91 then return LUNG end
+    if r < 0.96 then return GUT end
     return EYE
 end
 
@@ -5272,6 +5281,42 @@ local function wakeCheck()
     end
 end
 
+-- ---------------------------------------------------------------- near the camera
+local function sstep(a, b, x)
+    if x <= a then return 0 end
+    if x >= b then return 1 end
+    local t = (x - a) / (b - a)
+    return t * t * (3 - 2 * t)
+end
+
+-- Is the camera in the aim view (close to the active worm)? Then the effect is told where the worm is.
+local function updateAim()
+    local on, ax, ay, az = false, 0, 0, 0
+    if CAM.ok and MEL.active then
+        local s = slots[MEL.active]
+        if s and not s.dead then
+            ax, ay, az = s.px, s.py + CENTRE_Y, s.pz
+            local dx, dy, dz = ax - CAM.px, ay - CAM.py, az - CAM.pz
+            on = dx * dx + dy * dy + dz * dz < T.AIM_DETECT * T.AIM_DETECT
+        end
+    end
+    G.aimOn, G.aimX, G.aimY, G.aimZ = on, ax, ay, az
+    if on then sendV4("aim", r05(ax), r05(ay), r05(az), 1) else sendV4("aim", 0, 0, 0, 0) end
+end
+
+-- How much of something at (x, y, z) is left after fading it for being near the camera (1 whole, 0 gone).
+local function nearFade(x, y, z)
+    if not CAM.ok then return 1 end
+    local dx, dy, dz = x - CAM.px, y - CAM.py, z - CAM.pz
+    local f = sstep(T.NEAR[1], T.NEAR[2], sqrt(dx * dx + dy * dy + dz * dz))
+    if G.aimOn then
+        f = min(f, sstep(T.AIM_CAM[1], T.AIM_CAM[2], sqrt(dx * dx + dy * dy + dz * dz)))
+        dx, dy, dz = x - G.aimX, y - G.aimY, z - G.aimZ
+        f = min(f, sstep(T.AIM_WORM[1], T.AIM_WORM[2], sqrt(dx * dx + dy * dy + dz * dz)))
+    end
+    return f
+end
+
 -- ---------------------------------------------------------------- the bits
 local function loadTex()
     G.texChecked = true
@@ -5314,12 +5359,14 @@ local function stepBits(dt)
             B.x[i], B.y[i], B.z[i], B.vx[i], B.vy[i], B.vz[i], B.age[i] = x, y, z, vx, vy, vz, age
             if ok then
                 local t = age / life
-                local a = t > 0.7 and (1 - t) / 0.3 or 1
-                local sp = sqrt(vx * vx + vy * vy + vz * vz)
-                col.r, col.g, col.b, col.a = min(1, B.r[i] * 1.25), min(1, B.g[i] * 1.25), min(1, B.b[i] * 1.25), a
-                local hw = B.size[i] * 0.6
-                local k = sp > 1 and 1 / sp or 0
-                spr(tex[B.tex[i]], x, y, z, hw, hw * (1 + min(0.8, sp * 0.003)), vx * k, vy * k, vz * k, col, "alpha")
+                local a = (t > 0.7 and (1 - t) / 0.3 or 1) * nearFade(x, y, z)
+                if a > 0.01 then
+                    local sp = sqrt(vx * vx + vy * vy + vz * vz)
+                    col.r, col.g, col.b, col.a = min(1, B.r[i] * 1.25), min(1, B.g[i] * 1.25), min(1, B.b[i] * 1.25), a
+                    local hw = B.size[i] * 0.6
+                    local k = sp > 1 and 1 / sp or 0
+                    spr(tex[B.tex[i]], x, y, z, hw, hw * (1 + min(0.8, sp * 0.003)), vx * k, vy * k, vz * k, col, "alpha")
+                end
             end
             i = i + 1
         end
@@ -5334,17 +5381,18 @@ local function drawFallback()
     if not (G.spriteOK and G.tex) then return end
     local spr = wum.draw.sprite
     for i = 1, N do
-        if st[i] ~= 0 then
+        local fd = st[i] ~= 0 and nearFade(X[i], Y[i], Z[i]) or 0
+        if fd > 0.01 then
             local kind = KIND[i]
             if kind == BONE then
                 local ax, ay, az = localAxis(i, 1)
-                col.r, col.g, col.b, col.a = 1, 0.95, 0.82, 1
+                col.r, col.g, col.b, col.a = 1, 0.95, 0.82, fd
                 spr(G.tex[1], X[i], Y[i], Z[i], H2[i] * 1.2, H1[i], ax, ay, az, col, "alpha")
             else
                 if kind == EYE then col.r, col.g, col.b = 1, 0.92, 0.9
                 elseif kind == MEAT then col.r, col.g, col.b = 0.9, 0.15, 0.12
                 else col.r, col.g, col.b = 0.75, 0.1, 0.1 end
-                col.a = 1
+                col.a = fd
                 local hw = (H1[i] + H2[i] + H3[i]) / 3
                 spr(G.tex[(i % 3) + 1], X[i], Y[i], Z[i], hw, hw, 0, 0, 0, col, "alpha")
             end
@@ -5383,6 +5431,7 @@ function GIBS.tick(dt)
     end
     G.clock = G.clock + dt
     G.rays = 0
+    updateAim()
     if CAM.ok then
         G.fwdx, G.fwdy, G.fwdz = CAM.uy * CAM.rz - CAM.uz * CAM.ry, CAM.uz * CAM.rx - CAM.ux * CAM.rz, CAM.ux * CAM.ry - CAM.uy * CAM.rx
     end
@@ -5472,6 +5521,8 @@ function GIBS.clear()
     G.n, G.top, G.bitsN, G.anyVis = 0, 0, 0, false
     G.countSent = -1
     sendParam(FX, "count", 0)
+    sendV4("aim", 0, 0, 0, 0)
+    G.aimOn = false
     fxEnable(false)
 end
 
@@ -5501,7 +5552,7 @@ function GIBS.resendStep(k)
         FX.cache[PA[k]], FX.cache[PB[k]], FX.cache[PC[k]], FX.cache[PD[k]] = nil, nil, nil, nil
         sendSlot(k)
     else
-        FX.cache.clock, FX.cache.count, FX.cache.blood, FX.cache.dryTime = nil, nil, nil, nil
+        FX.cache.clock, FX.cache.count, FX.cache.blood, FX.cache.dryTime, FX.cache.aim = nil, nil, nil, nil, nil
         G.clockSent, G.countSent = -1, -1
         GIBS.setBlood(palette.stain)
     end
@@ -5509,6 +5560,7 @@ end
 
 function GIBS.zero()
     for i = 1, N do sendSlot(i) end
+    sendV4("aim", 0, 0, 0, 0)
     sendParam(FX, "count", 0)
     sendParam(FX, "clock", 0)
     GIBS.setBlood(palette.stain)

@@ -142,7 +142,7 @@ shipped — no game file, or anything derived from one.
   one there are only pools, as before. Droplets of every weapon spray and the heavy clots collide; steam and smoke do
   not. The Post-FX panel has two settings for the pass: drying time and wet gloss.
 - **Gibs**: a worm that dies, and a worm that takes a very big hit (45 damage or more; 30 on Absurd), throws meat chunks,
-  bone shards and a few organs (a kidney, a liver lobe, a heart, an eyeball on its stump of nerve) with a few dozen small
+  bone shards and a few organs (a kidney, a liver lobe, a heart, a lung, a loop of intestine, an eyeball on its stump of nerve) with a few dozen small
   bits of meat (soft sprites) flying out around them. They are not particles: each is a signed distance field ray-marched
   by the Post-FX pass `bloodsand/gibs` (PostWorld, order 53, after the guts). A meat chunk is a bent, rounded box eaten
   away by noise and sliced by up to two ragged planes, dark red with lighter fibres, cream fat marbling, silverskin and
@@ -311,7 +311,8 @@ four-team match: the stains pass about 0.04 ms and the skin pass about 0.07 to 0
 - **Gibs pass**: only on while a gib may be on the screen (checked every frame, against the camera; with none the pass costs
   nothing). In the same harness (1920x1080, native OpenGL, best of four runs; its scene and depth are RGBA32F, which makes the
   fixed cost of any pass that reads them larger than in the game): about 0.18 ms with 16 gibs spread over the screen at the
-  usual zoom, 0.24 to 0.28 ms with the camera close enough that they fill it, 0.09 ms at 1280x720 at the usual zoom. Of that
+  usual zoom (1.3 after the organ and bone rework: about 0.21 ms, the organs and the broken bones being dearer to march than a
+  chunk of meat; with the camera that close gibs fade out under 60 units, so the "fill the screen" case no longer arises), 0.24 to 0.28 ms with the camera close enough that they fill it, 0.09 ms at 1280x720 at the usual zoom. Of that
   about 0.058 ms is a pass that only copies the screen (the figure with the pass on and nothing to draw, `count` 0), and about
   0.015 ms the sphere tests of the sixteen slots; a pixel reads the depth only if its view ray meets a gib's bounding sphere,
   and marches only inside a box that holds the gib. The rest is the pixels that are a gib: a 26-step march, four taps for the
