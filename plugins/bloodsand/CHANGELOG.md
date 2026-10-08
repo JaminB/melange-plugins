@@ -1,3 +1,21 @@
+## 1.2.0 (unreleased)
+
+Viscera that look real.
+
+- Intestines are a new Post-FX pass, `bloodsand/guts`, that ray-marches a sixteen-point chain as smooth tubes: ridged and
+  segmented, pale pink-grey to deep purple-red with veins and a film of blood, lit with a key light, a fill, light
+  through the thin wall, wet highlights, a rim and shadow where the guts touch the worm and the ground. The chain is
+  simulated: it sags, drags and piles up on the ground, stays out of the worm's body, stretches when the worm is
+  knocked, and slides further out every time the worm is hit. It follows the terrain when Melange has
+  `wum.game.landRay` (0.6 and later) and a flat ground otherwise. The flat ribbons of 1.1 are only drawn if the new pass
+  cannot run.
+- The torn belly and the gashes are layered: a rolled, lit lip of skin, yellow fat, dark red muscle and a cavity that
+  darkens with depth and shows parallax as the camera moves; the belly holds coils in the guts' colours. Blood on the skin
+  has a wet sheen, pools darker and runs in beads.
+- A worm's scorch level (a charred patch with glowing embers that fades over four seconds) is plumbed through the skin
+  pass for the melee code to set with `setScorch(slot, amount)`; `woundSites(slot)` gives where each wound is, in the world,
+  for blood that spurts from it.
+
 ## 1.1.3
 
 Runs on Melange 0.5. No other change.

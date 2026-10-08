@@ -1,0 +1,444 @@
+#version 120
+// Intestines, ray-marched. Bloodsand's Lua simulates a chain of 16 points per gutted worm (up to four worms at a time:
+// slots 0..3) and sends them as vec4 uniforms. Here the chain is a signed distance field: 15 capsules, smooth-unioned so
+// coils that touch merge, with a radius that swells and pinches along the length like a gut's segmentation. A pixel first
+// finds which slot's bounding sphere the view ray crosses first (a short test per slot), copies that slot's chain into a
+// local array and marches it once, so the long code is never expanded per slot. The hit is lit with a key light from
+// above, a camera-relative fill, wrap lighting with reddish subsurface at the terminator, a wet specular lobe, fresnel
+// reflection and rim, ambient taken from the scene around the pixel, and ambient occlusion from the field itself, from
+// the ground under the guts and from the worm's body. Pixels that miss but sit close to a tube get a contact shadow and a
+// smear of blood. Nothing is written over the scene except where a tube is in front of the scene's depth.
+//
+// Per slot k (0..3), all hidden and set by Bloodsand: gka = bounding sphere (centre xyz, radius; radius 0 = slot unused),
+// gkb = the worm's body centre and a wetness 0..1, gkc = the ground plane under the guts (unit normal xyz and offset w, so
+// the height above ground is dot(n, p) + w), gkd = seed, freshness 0..1, and gk_i (i = 0..15) = a chain point (xyz) and the
+// tube's radius there (0 for the length still inside the worm). Everything is in world units.
+//
+// The loops below have constant bounds and the field is called from one place per stage (march, normal, occlusion,
+// shadow, contact), so the compiler has to expand it only a handful of times.
+uniform sampler2D mg_scene;
+uniform sampler2D mg_depth;
+uniform mat4 mg_invProj;
+uniform mat4 mg_proj;
+uniform mat4 mg_view;
+uniform vec4 mg_resolution;
+uniform float mg_time;
+uniform vec4 p_g0a, p_g0b, p_g0c, p_g0d, p_g0_0, p_g0_1, p_g0_2, p_g0_3, p_g0_4, p_g0_5, p_g0_6, p_g0_7, p_g0_8, p_g0_9, p_g0_10, p_g0_11, p_g0_12, p_g0_13, p_g0_14, p_g0_15;
+uniform vec4 p_g1a, p_g1b, p_g1c, p_g1d, p_g1_0, p_g1_1, p_g1_2, p_g1_3, p_g1_4, p_g1_5, p_g1_6, p_g1_7, p_g1_8, p_g1_9, p_g1_10, p_g1_11, p_g1_12, p_g1_13, p_g1_14, p_g1_15;
+uniform vec4 p_g2a, p_g2b, p_g2c, p_g2d, p_g2_0, p_g2_1, p_g2_2, p_g2_3, p_g2_4, p_g2_5, p_g2_6, p_g2_7, p_g2_8, p_g2_9, p_g2_10, p_g2_11, p_g2_12, p_g2_13, p_g2_14, p_g2_15;
+uniform vec4 p_g3a, p_g3b, p_g3c, p_g3d, p_g3_0, p_g3_1, p_g3_2, p_g3_3, p_g3_4, p_g3_5, p_g3_6, p_g3_7, p_g3_8, p_g3_9, p_g3_10, p_g3_11, p_g3_12, p_g3_13, p_g3_14, p_g3_15;
+uniform vec3 p_blood;
+uniform float p_strength;
+varying vec2 mg_uv;
+
+const float SEG = 2.5;          // arc length of one segment at rest: the along-the-gut coordinate of a point is index * SEG
+const float KS = 0.45;          // smooth-union width
+const float RECV = 2.2;         // how far from a tube it still darkens and stains what it touches
+
+// The chain of the slot this pixel belongs to, and its header.
+vec4 PT[16];
+vec4 HB;
+vec4 HC;
+vec4 HD;
+
+float Hash3(vec3 p) {
+    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+}
+
+float Noise3(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = mix(Hash3(i), Hash3(i + vec3(1.0, 0.0, 0.0)), f.x);
+    float b = mix(Hash3(i + vec3(0.0, 1.0, 0.0)), Hash3(i + vec3(1.0, 1.0, 0.0)), f.x);
+    float c = mix(Hash3(i + vec3(0.0, 0.0, 1.0)), Hash3(i + vec3(1.0, 0.0, 1.0)), f.x);
+    float d = mix(Hash3(i + vec3(0.0, 1.0, 1.0)), Hash3(i + vec3(1.0, 1.0, 1.0)), f.x);
+    return mix(mix(a, b, f.y), mix(c, d, f.y), f.z);
+}
+
+// The gut's colour from 0 (pale pink-grey) through a dusky red to 1 (deep purple-red). The same ramp is in skin.frag, for
+// the coils seen inside the belly.
+vec3 GutRamp(float m) {
+    vec3 pale = vec3(0.88, 0.68, 0.63);
+    vec3 mid = vec3(0.70, 0.34, 0.38);
+    vec3 deep = vec3(0.38, 0.10, 0.19);
+    return mix(mix(pale, mid, smoothstep(0.0, 0.5, m)), deep, smoothstep(0.45, 1.0, m));
+}
+
+// Which segments a query can be near: 1 for those that count, set by the ray test and by MaskPoint. Most of the chain is
+// far from any one pixel, so the field skips it.
+float SEGM[15];
+
+// The distance to the guts (x) and the arc-length coordinate of the nearest point of the chain (y), over the segments that
+// count.
+vec2 Map(vec3 p) {
+    float d = 1e5;
+    float u = 0.0;
+    float ph = HD.x * 1.7;
+    for (int i = 0; i < 15; i++) {
+        vec4 a = PT[i];
+        vec4 b = PT[i + 1];
+        if (SEGM[i] > 0.5) {
+            vec3 ba = b.xyz - a.xyz;
+            vec3 pa = p - a.xyz;
+            float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
+            float ui = (float(i) + h) * SEG;
+            // Segmentation: round bulges between pinched nodes, on top of a slow swell.
+            float s = abs(sin(ui * 1.25 + ph));
+            float r = mix(a.w, b.w, h) * (0.86 + 0.18 * sqrt(s)) * (1.0 + 0.12 * sin(ui * 0.37 + ph * 2.3));
+            float di = length(pa - ba * h) - r;
+            float k = clamp(0.5 + 0.5 * (d - di) / KS, 0.0, 1.0);
+            if (k > 0.5) u = ui;
+            d = mix(d, di, k) - KS * k * (1.0 - k);
+        }
+    }
+    return vec2(d, u);
+}
+
+// Marks the segments within reach of the point p, which is all the field needs there: those whose own sphere is within
+// range of it.
+void MaskPoint(vec3 p, float range) {
+    for (int i = 0; i < 15; i++) {
+        vec4 a = PT[i];
+        vec4 b = PT[i + 1];
+        float rr = 0.5 * length(b.xyz - a.xyz) + max(a.w, b.w) * 1.3 + KS + 0.2 + range;
+        vec3 d = p - (a.xyz + b.xyz) * 0.5;
+        SEGM[i] = (a.w + b.w > 0.2 && dot(d, d) < rr * rr) ? 1.0 : 0.0;
+    }
+}
+
+// Copies slot sel's chain and header out of the uniforms.
+void Load(float sel) {
+    if (sel < 0.5) {
+        HB = p_g0b; HC = p_g0c; HD = p_g0d;
+        PT[0] = p_g0_0;
+        PT[1] = p_g0_1;
+        PT[2] = p_g0_2;
+        PT[3] = p_g0_3;
+        PT[4] = p_g0_4;
+        PT[5] = p_g0_5;
+        PT[6] = p_g0_6;
+        PT[7] = p_g0_7;
+        PT[8] = p_g0_8;
+        PT[9] = p_g0_9;
+        PT[10] = p_g0_10;
+        PT[11] = p_g0_11;
+        PT[12] = p_g0_12;
+        PT[13] = p_g0_13;
+        PT[14] = p_g0_14;
+        PT[15] = p_g0_15;
+    } else if (sel < 1.5) {
+        HB = p_g1b; HC = p_g1c; HD = p_g1d;
+        PT[0] = p_g1_0;
+        PT[1] = p_g1_1;
+        PT[2] = p_g1_2;
+        PT[3] = p_g1_3;
+        PT[4] = p_g1_4;
+        PT[5] = p_g1_5;
+        PT[6] = p_g1_6;
+        PT[7] = p_g1_7;
+        PT[8] = p_g1_8;
+        PT[9] = p_g1_9;
+        PT[10] = p_g1_10;
+        PT[11] = p_g1_11;
+        PT[12] = p_g1_12;
+        PT[13] = p_g1_13;
+        PT[14] = p_g1_14;
+        PT[15] = p_g1_15;
+    } else if (sel < 2.5) {
+        HB = p_g2b; HC = p_g2c; HD = p_g2d;
+        PT[0] = p_g2_0;
+        PT[1] = p_g2_1;
+        PT[2] = p_g2_2;
+        PT[3] = p_g2_3;
+        PT[4] = p_g2_4;
+        PT[5] = p_g2_5;
+        PT[6] = p_g2_6;
+        PT[7] = p_g2_7;
+        PT[8] = p_g2_8;
+        PT[9] = p_g2_9;
+        PT[10] = p_g2_10;
+        PT[11] = p_g2_11;
+        PT[12] = p_g2_12;
+        PT[13] = p_g2_13;
+        PT[14] = p_g2_14;
+        PT[15] = p_g2_15;
+    } else {
+        HB = p_g3b; HC = p_g3c; HD = p_g3d;
+        PT[0] = p_g3_0;
+        PT[1] = p_g3_1;
+        PT[2] = p_g3_2;
+        PT[3] = p_g3_3;
+        PT[4] = p_g3_4;
+        PT[5] = p_g3_5;
+        PT[6] = p_g3_6;
+        PT[7] = p_g3_7;
+        PT[8] = p_g3_8;
+        PT[9] = p_g3_9;
+        PT[10] = p_g3_10;
+        PT[11] = p_g3_11;
+        PT[12] = p_g3_12;
+        PT[13] = p_g3_13;
+        PT[14] = p_g3_14;
+        PT[15] = p_g3_15;
+    }
+}
+
+// Where the ray (ro, rd) first enters the capsule from pa to pb of radius r, or -1 for a miss.
+float CapT(vec3 ro, vec3 rd, vec3 pa, vec3 pb, float r) {
+    vec3 ba = pb - pa;
+    vec3 oa = ro - pa;
+    float baba = dot(ba, ba);
+    float bard = dot(ba, rd);
+    float baoa = dot(ba, oa);
+    float rdoa = dot(rd, oa);
+    float oaoa = dot(oa, oa);
+    float a = baba - bard * bard;
+    if (a > 1e-5) {
+        float b = baba * rdoa - baoa * bard;
+        float c = baba * oaoa - baoa * baoa - r * r * baba;
+        float h = b * b - a * c;
+        if (h < 0.0) return -1.0;
+        float t = (-b - sqrt(h)) / a;
+        float y = baoa + t * bard;
+        if (y > 0.0 && y < baba) return t;
+    }
+    // The caps, and a segment too short or too straight along the ray to have a side.
+    vec3 oc = (baoa <= 0.0 || baba < 1e-6) ? oa : ro - pb;
+    float bq = dot(rd, oc);
+    float hq = bq * bq - (dot(oc, oc) - r * r);
+    if (hq > 0.0) return -bq - sqrt(hq);
+    return -1.0;
+}
+
+// Tests the view ray against slot k's bounding sphere and keeps the sphere that is entered first, with where the ray
+// leaves it.
+void Bound(vec4 s, float k, vec3 ro, vec3 rd, float tScene, inout float tIn, inout float tOut, inout float sel) {
+    if (s.w <= 0.0) return;
+    vec3 oc = ro - s.xyz;
+    float b = dot(oc, rd);
+    float h = b * b - (dot(oc, oc) - s.w * s.w);
+    if (h < 0.0) return;
+    h = sqrt(h);
+    float t0 = -b - h;
+    float t1 = -b + h;
+    if (t1 < 0.0 || t0 > tScene + 1.0) return;
+    if (t0 < tIn) {
+        tIn = t0;
+        tOut = t1;
+        sel = k;
+    }
+}
+
+void main() {
+    vec4 scene = texture2D(mg_scene, mg_uv);
+    gl_FragColor = scene;
+    if (p_strength <= 0.0) return;
+    float depth = texture2D(mg_depth, mg_uv).r;
+
+    // The view ray in world space.
+    vec4 pf = mg_invProj * vec4(mg_uv * 2.0 - 1.0, 0.0, 1.0);
+    vec3 dirW = normalize(pf.xyz / pf.w) * mat3(mg_view);
+    vec3 camW = -(mg_view[3].xyz * mat3(mg_view));
+    float tScene = 1e5;
+    if (depth < 1.0) {
+        vec4 vp = mg_invProj * vec4(vec3(mg_uv, depth) * 2.0 - 1.0, 1.0);
+        tScene = length(vp.xyz / vp.w);
+    }
+
+    float tIn = 1e5;
+    float tOut = 0.0;
+    float sel = -1.0;
+    Bound(p_g0a, 0.0, camW, dirW, tScene, tIn, tOut, sel);
+    Bound(p_g1a, 1.0, camW, dirW, tScene, tIn, tOut, sel);
+    Bound(p_g2a, 2.0, camW, dirW, tScene, tIn, tOut, sel);
+    Bound(p_g3a, 3.0, camW, dirW, tScene, tIn, tOut, sel);
+    if (sel < 0.0) return;
+    Load(sel);
+
+    // A cheap test per segment before any marching: the ray against a capsule a little fatter than the segment's tube (nothing
+    // the smooth union or the swell does reaches outside it) and against a sphere that reaches RECV beyond that. A ray that
+    // touches no sphere has nothing to do here. One that touches a capsule marches from the first it reaches, over the
+    // segments whose capsules it touched; one that touches only spheres can still land on ground near a tube.
+    float pix = 2.0 / (mg_proj[1][1] * mg_resolution.y);
+    float margin = 0.2 + 1.5 * pix * max(tIn, 0.0);
+    float sA = 1e5;
+    float reach = 0.0;
+    for (int i = 0; i < 15; i++) {
+        vec4 a = PT[i];
+        vec4 b = PT[i + 1];
+        SEGM[i] = 0.0;
+        if (a.w + b.w > 0.2) {
+            float rm = max(a.w, b.w) * 1.2 + margin;
+            vec3 oc = camW - (a.xyz + b.xyz) * 0.5;
+            float rr = 0.5 * length(b.xyz - a.xyz) + rm + RECV;
+            float bq = dot(oc, dirW);
+            if (bq * bq - (dot(oc, oc) - rr * rr) > 0.0) {
+                reach = 1.0;
+                float tc = CapT(camW, dirW, a.xyz, b.xyz, rm);
+                if (tc > 0.0) {
+                    SEGM[i] = 1.0;
+                    sA = min(sA, tc);
+                }
+            }
+        }
+    }
+    if (reach < 0.5) return;
+
+    // March from the first capsule. A step is 0.85 of the distance, and a hit is within a third of a pixel; a ray that gets
+    // within a pixel of a tube without touching it keeps that closest point for the soft edge.
+    float t = max(sA - 0.3, 0.0);
+    float tEnd = min(tOut, tScene + 0.5);
+    float tBest = t;
+    float dBest = 1e5;
+    float uBest = 0.0;
+    float hit = 0.0;
+    if (sA < 1e4) {
+        for (int i = 0; i < 28; i++) {
+            vec2 m = Map(camW + dirW * t);
+            float d = m.x;
+            if (d < dBest) {
+                dBest = d;
+                tBest = t;
+                uBest = m.y;
+            }
+            if (d < 0.33 * pix * t + 0.004) {
+                hit = 1.0;
+                break;
+            }
+            t += d * 0.85;
+            if (t > tEnd) break;
+        }
+    }
+    float cover = hit;
+    if (hit < 0.5) cover = 1.0 - smoothstep(0.0, pix * tBest + 1e-4, dBest);
+    if (tBest > tScene + 0.4) cover = 0.0;
+
+    vec3 tint = p_blood / max(max(p_blood.r, p_blood.g), max(p_blood.b, 1e-3));
+    vec3 lumW = vec3(0.299, 0.587, 0.114);
+    vec3 Lk = normalize(vec3(0.35, 0.85, 0.25));
+
+    // Not covered: the guts still darken and stain what is touching them.
+    vec3 base = scene.rgb;
+    if (cover < 1.0 && depth < 1.0) {
+        vec3 Pw = camW + dirW * tScene;
+        MaskPoint(Pw + Lk * 1.2, RECV);
+        float dg = Map(Pw + Lk * 1.2).x;
+        float contact = exp(-max(dg, 0.0) * 0.9);
+        float smear = 1.0 - smoothstep(0.1, 1.1, dg);
+        base = scene.rgb * (1.0 - 0.5 * contact);
+        base = mix(base, base * tint * 0.6, 0.4 * smear);
+    }
+    if (cover <= 0.0) {
+        gl_FragColor = vec4(mix(scene.rgb, base, p_strength), scene.a);
+        return;
+    }
+
+    // ---- shading -----------------------------------------------------------------------------------------------
+    vec3 p = camW + dirW * tBest;
+    MaskPoint(p, 6.0);
+    vec3 V = -dirW;
+    float u = uBest;
+    float seed = HD.x;
+    float fresh = HD.y;
+
+    // The normal from four taps of the field, then a fine bump from noise, along the surface only.
+    vec3 n = vec3(0.0);
+    for (int k = 0; k < 4; k++) {
+        vec3 e = vec3((k == 0 || k == 3) ? 1.0 : -1.0, (k == 2 || k == 3) ? 1.0 : -1.0, (k == 1 || k == 3) ? 1.0 : -1.0);
+        n += e * Map(p + e * 0.02).x;
+    }
+    float nlen = length(n);
+    n = nlen > 1e-8 ? n / nlen : vec3(0.0, 1.0, 0.0);
+    vec3 q = p * 2.4 + seed;
+    float b0 = Noise3(q);
+    vec3 g = vec3(Noise3(q + vec3(0.4, 0.0, 0.0)), Noise3(q + vec3(0.0, 0.4, 0.0)), Noise3(q + vec3(0.0, 0.0, 0.4))) - b0;
+    vec3 q2 = p * 7.0 + seed * 2.0;
+    float c0 = Noise3(q2);
+    vec3 g2 = vec3(Noise3(q2 + vec3(0.5, 0.0, 0.0)), Noise3(q2 + vec3(0.0, 0.5, 0.0)), Noise3(q2 + vec3(0.0, 0.0, 0.5))) - c0;
+    g = g * 0.9 + g2 * 0.55;
+    n = normalize(n + 0.9 * (g - dot(g, n) * n));
+    float nv = clamp(dot(n, V), 0.0, 1.0);
+
+    // Ambient occlusion from the field along the normal, from the ground and from the body.
+    float occ = 0.0;
+    for (int k = 0; k < 2; k++) {
+        float hk = 0.2 + 0.55 * float(k);
+        occ += (hk - Map(p + n * hk).x) * (1.0 - 0.3 * float(k));
+    }
+    float ao = clamp(1.0 - 1.0 * occ, 0.0, 1.0);
+    float height = dot(HC.xyz, p) + HC.w;
+    ao *= mix(0.4, 1.0, smoothstep(0.0, 2.4, height));
+    vec3 rel = p - HB.xyz;
+    vec3 isc = vec3(1.0 / 6.4, 1.0 / 15.5, 1.0 / 6.4);
+    float bodyD = (length(rel * isc) - 1.0) * 6.4;
+    ao *= mix(0.5, 1.0, smoothstep(0.0, 3.0, bodyD));
+
+    // Shadows from the key light: the worm's body (an ellipsoid, softly) and the guts themselves (a short march).
+    vec3 so = rel * isc;
+    vec3 sd = normalize(Lk * isc);
+    float sc = -dot(so, sd);
+    float bodyShadow = smoothstep(0.8, 1.3, length(so + sd * max(sc, 0.0)));
+    float shade = 1.0;
+    float st = 0.2;
+    for (int k = 0; k < 3; k++) {
+        float hs = Map(p + n * 0.05 + Lk * st).x;
+        shade = min(shade, 6.0 * hs / st);
+        st += clamp(hs, 0.3, 1.4);
+    }
+    shade = clamp(shade, 0.0, 1.0) * bodyShadow;
+
+    // Colour: pale pink-grey to deep purple-red with the length, mottling and fine veins, darker in the creases between
+    // the bulges, and a film of blood that settles in the creases and low spots.
+    float sw = abs(sin(u * 1.25 + seed * 1.7));
+    float crease = 1.0 - sqrt(sw);
+    float mott = Noise3(p * 0.7 + seed * 3.1);
+    float mott2 = Noise3(p * 2.3 + seed * 1.3);
+    float mix01 = clamp(0.02 + 0.62 * mott * mott + 0.22 * sin(u * 0.17 + seed) + 0.35 * crease * crease - 0.2 * (mott2 - 0.5), 0.0, 1.0);
+    vec3 albedo = GutRamp(mix01);
+    float vein = 1.0 - smoothstep(0.0, 0.07, abs(Noise3(p * 1.5 + seed) - 0.5));
+    albedo = mix(albedo, vec3(0.55, 0.10, 0.13), 0.55 * vein * (1.0 - mix01));
+    albedo = mix(albedo, tint * dot(albedo, lumW) * 1.8, 0.10);
+    float wet = clamp(HB.w, 0.0, 1.0);
+    float film = smoothstep(0.55, 0.9, Noise3(p * 0.9 + seed * 5.0) + 0.3 * (1.0 - n.y) + 0.3 * crease + 0.3 * fresh) * (0.35 + 0.65 * wet);
+    albedo = mix(albedo, p_blood * 1.3, 0.42 * film);
+
+    // Scene light around the pixel: the same for the whole gut, so it dims in shadow and warms in sun.
+    vec2 px = mg_resolution.zw * 7.0;
+    vec3 around = (texture2D(mg_scene, mg_uv + vec2(px.x, 0.0)).rgb + texture2D(mg_scene, mg_uv - vec2(px.x, 0.0)).rgb
+                 + texture2D(mg_scene, mg_uv + vec2(0.0, px.y)).rgb + texture2D(mg_scene, mg_uv - vec2(0.0, px.y)).rgb) * 0.25;
+    float expo = clamp(0.55 + 1.0 * dot(around, lumW), 0.5, 1.35);
+
+    // The fill comes from the side of the camera, a little above it.
+    vec3 Lf = normalize(vec3(-0.55, 0.25, 0.8) * mat3(mg_view));
+    float ndl = dot(n, Lk);
+    float wrap = clamp((ndl + 0.45) / 1.45, 0.0, 1.0);
+    vec3 keyCol = vec3(1.0, 0.95, 0.88) * 1.1;
+    vec3 fillCol = vec3(0.45, 0.5, 0.62) * 0.5;
+    vec3 sssCol = vec3(1.0, 0.22, 0.12);
+    float dfill = clamp(dot(n, Lf) * 0.5 + 0.5, 0.0, 1.0);
+    vec3 col = albedo * (keyCol * wrap * wrap * shade + fillCol * dfill * ao + around * 0.9 * ao) * expo;
+    // Light through the thin wall: red at the terminator on the lit side, and glowing at the edge against the light.
+    float sss = clamp(1.0 - abs(ndl) * 1.7, 0.0, 1.0) * clamp(ndl + 0.6, 0.0, 1.0);
+    float back = pow(clamp(dot(V, -Lk), 0.0, 1.0), 2.0) * (0.3 + 0.7 * (1.0 - nv));
+    col += albedo * sssCol * (0.34 * sss * (0.4 + 0.6 * shade) + 0.3 * back * shade) * expo * (0.5 + 0.5 * ao);
+
+    // Wet: a tight glint and a broader sheen from the key, a small glint from the fill, fresnel reflection of a dull sky
+    // and a rim. The blood film is slicker than bare tissue.
+    float gloss = clamp((0.55 + 0.4 * film + 0.2 * wet) * (0.65 + 0.7 * Noise3(p * 0.45 + seed)), 0.0, 1.0);
+    vec3 H = normalize(Lk + V);
+    float nh = max(dot(n, H), 0.0);
+    float fres = pow(1.0 - nv, 5.0);
+    float spec = pow(nh, 220.0) * 2.4 + pow(nh, 38.0) * 0.28;
+    vec3 H2 = normalize(Lf + V);
+    float spec2 = pow(max(dot(n, H2), 0.0), 90.0) * 0.5;
+    col += keyCol * spec * gloss * (0.4 + 0.6 * fres) * shade * (0.5 + 0.5 * ao);
+    col += fillCol * 2.0 * spec2 * gloss * ao;
+    vec3 R = reflect(-V, n);
+    vec3 sky = mix(vec3(0.16, 0.14, 0.15), vec3(0.72, 0.8, 0.95), clamp(R.y * 0.5 + 0.5, 0.0, 1.0));
+    col += sky * (0.05 + 0.5 * fres) * gloss * ao * expo;
+    col += pow(1.0 - nv, 3.0) * 0.22 * vec3(0.95, 0.42, 0.42) * gloss * (0.4 + 0.6 * shade) * expo;
+
+    vec3 outc = mix(base, col, cover);
+    gl_FragColor = vec4(mix(scene.rgb, outc, p_strength), scene.a);
+}

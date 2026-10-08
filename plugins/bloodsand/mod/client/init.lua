@@ -4,10 +4,11 @@
 -- It only reads game state (worm health, positions and facing, damage and explosion messages, the camera) and draws. It
 -- never changes the simulation, sends anything or asks for a permission, so every player sees their own blood.
 --
--- Droplets, mist and the dangling loop of intestines are world quads drawn from one "world" callback. The ground
--- stains are the bloodsand/stains post-FX effect (eight slots) and the blood, wounds, black eyes and the intestines
--- painted on a wound are bloodsand/skin (sixteen slots that follow the worms); both are fed with
--- wum.postfx.setTransient, which writes nothing to Melange.ini. The lens splats are textures drawn at the "hud" stage.
+-- Droplets and mist are world quads drawn from one "world" callback. The ground stains are the bloodsand/stains post-FX
+-- effect (eight slots), the blood, wounds, black eyes, scorching and the torn belly painted on a worm are bloodsand/skin
+-- (sixteen slots that follow the worms) and the intestines that hang out of a torn belly are bloodsand/guts (up to four
+-- worms), a chain simulated here and ray-marched there; all three are fed with wum.postfx.setTransient, which writes
+-- nothing to Melange.ini. The lens splats are textures drawn at the "hud" stage.
 
 if not (wum.draw and wum.draw.on and wum.game and wum.game.worms) then return end
 
@@ -103,27 +104,58 @@ local EYE = {
     RESEND = 0.02,
 }
 
--- Intestines: a worm with a wound level above GUT.START may have a loop hanging from its belly, painted by the shader
--- and drawn as a chain of ribbons here. All to be tuned in game.
+-- Intestines: a worm with a wound level above GUT.START may have its guts out: a torn belly painted by bloodsand/skin and a
+-- chain of tubes coming out of it, which this file simulates and bloodsand/guts ray-marches. All to be tuned in game.
 local GUT = {
     RESEND = 0.02,
     CHANCE = 0.4,                   -- the share of worms that can show guts at all
     START = 0.6,                    -- the wound level where the gut starts to show; the level is 1 at wound level 1
     AZ = 0.9,                       -- the gut's side is random within this many radians of the facing
-    Y = 5.5,                        -- height of the belly above the feet
-    OUT = 5.6,                      -- distance of the anchors from the worm's vertical axis
-    SPREAD = 0.6,                   -- radians between the two anchors
-    DROP = 1.5,                     -- the second anchor sits this much lower
-    POINTS = 7,
-    SEG = { 1.3, 2.6 },             -- segment rest length at gut level 0 and 1
-    WIDTH = 2.2,
-    CORE = 0.6,                     -- the light core's width as a fraction of the width
-    EXTEND = 1.15,                  -- each ribbon runs this much beyond its segment so neighbours overlap
-    GRAVITY = -260,
-    DAMP = 0.92,                    -- velocity kept per step at 60 Hz
+    Y = 5.5,                        -- height of the belly opening above the feet
+    IN = 2.0,                       -- the pinned root sits this far from the worm's vertical axis, inside the body...
+    LIP = 4.2,                      -- ...and the pinned lip (where the gut comes out) this far, just inside its surface
+    SLOTS = 4,                      -- worms the guts effect draws at once, the closest to the camera
+    POINTS = 16,                    -- chain points; guts.frag takes sixteen
+    SEG = 2.5,                      -- segment rest length; guts.frag's SEG is the same
+    RADIUS = 1.5,                   -- tube radius at the belly
+    TAPER = 0.3,                    -- how much thinner the loose end is
+    CORE = 0.6,                     -- (flat ribbons only) the light core's width as a fraction of the width
+    OUT_BASE = 4,                   -- segments out of the belly at gut level 0...
+    OUT_LEVEL = 7,                  -- ...and this many more at level 1
+    EXTRA_MAX = 3,                  -- the most more that hits and knocks can pull out
+    SPILL = 0.9,                    -- segments pulled out by a hit, and per point of damage on top
+    SPILL_PER_DAMAGE = 0.05,
+    FEED = 18,                      -- units per second the gut slides out of the belly
+    GRAVITY = -700,
+    DAMP = 0.985,                   -- velocity kept per step
+    STEP = 1 / 72,                  -- the simulation's fixed step, and the most steps in one frame
+    MAX_STEPS = 2,
     ITER = 4,
-    JUMP = 60,                      -- the worm moving further than this in a frame was teleported: the loop starts over
+    FRICTION = 0.3,                 -- share of its sideways speed a point on the ground loses per step
+    BODY_R = 6.3,                   -- the worm's body for the chain to stay out of: a capsule of this radius...
+    BODY_Y0 = 6.5,                  -- ...from this height above the feet...
+    BODY_Y1 = 20,                   -- ...to this one
+    SELF = 2.5,                     -- points of different coils stay this far apart
+    BEND = 3.0,                     -- points two apart stay this far apart, which is the tightest bend a gut makes
+    KICK = 120,                     -- speed (units per second) a hit shakes the chain with
+    WRITHE = 900,                   -- how hard a shaken gut on the ground squirms
+    TWITCH_SECS = 2.5,
+    IMPACT_MIN = 180,               -- a change of the worm's velocity (units per second) above this stretches the gut...
+    IMPACT_FULL = 500,              -- ...fully at this one
+    STRETCH = 0.45,
+    STRETCH_DECAY = 6,
+    IMPACT_SPILL = 1.2,
+    WET_SECS = 8,                   -- blood on the gut counts as fresh for this long after a hit
+    PROBE_BUDGET = 8,               -- wum.game.landRay calls per frame
+    PROBE_UP = 8,
+    PROBE_DOWN = 40,
+    JUMP = 60,                      -- the worm moving further than this in a frame was teleported: the chain starts over
 }
+
+-- The viscera code (a do-block further down, see "== Viscera ==") is local to it, so the file's top level, which is limited to 200
+-- locals, pays for five names only: VIS, a table holding what the rest of the file calls, setScorch(slot, amount),
+-- woundSites(slot[, out]), updateGut and drawGuts.
+local VIS, setScorch, woundSites, updateGut, drawGuts = {}, nil, nil, nil, nil
 
 -- Vomiting blood: a worm at or below VOMIT.FRAC of its health heaves now and then while at rest.
 local VOMIT = {
@@ -502,12 +534,9 @@ local function newSlot(x, y, z, health, alive)
         -- The gut is rolled once per slot, so once per match: whether this worm can show one and on which side.
         hasGut = random() < GUT.CHANCE, gutAz = rnd(-GUT.AZ, GUT.AZ), gut = 0, previewGut = 0,
         gutLive = false, gutPx = x, gutPy = y, gutPz = z,
-        gx = {}, gy = {}, gz = {}, hx = {}, hy = {}, hz = {},       -- the chain's points and their previous positions
         vomitAt = nil, vomitStart = 0, vomitUntil = 0, vomitAcc = 0, -- vomitUntil is 0 when no heave is going on
     }
-    for i = 1, GUT.POINTS do
-        s.gx[i], s.gy[i], s.gz[i], s.hx[i], s.hy[i], s.hz[i] = 0, 0, 0, 0, 0, 0
-    end
+    VIS.initGut(s)
     return s
 end
 
@@ -596,6 +625,7 @@ local function burst(s, damage, dx, dy, dz, death)
     if death or damage >= STAIN_MIN_DAMAGE then
         requestStain(s, death and STAIN_DEATH or min(STAIN_MAX, STAIN_BASE + damage * STAIN_PER_DAMAGE))
     end
+    VIS.spillGut(s, damage)
     addLens(s, damage, death)
 end
 
@@ -749,9 +779,279 @@ local function updateEyes(s, dt)
     s.eye = level * s.eyeShow
 end
 
--- The gut level, and the loop of intestines that hangs from the belly: a Verlet chain pinned at both ends to anchors on
--- the worm, kept outside the worm's body and above the ground.
-local function updateGut(s, dt)
+-- ---------------------------------------------------------------- viscera
+-- == Viscera: intestines, scorch and wound sites ==
+-- The whole of it is one function, called once at load, so that its locals are its own (a function may have 200 of them, and
+-- the file's main function is nearly full) and only what is assigned to VIS and the four names above is visible outside.
+do
+local function build()
+-- The intestines are a chain of GUT.POINTS points pinned at a root inside the belly. The chain is simulated here with
+-- Verlet integration (it sags, drags on the ground, piles up in coils, slides out further when the worm is hit again
+-- and stretches when it is knocked) and drawn by the bloodsand/guts post-FX effect, which ray-marches it as tubes. Only
+-- when that effect is missing or failed are the old flat ribbons drawn instead (drawGuts).
+local ceil, exp = math.ceil, math.exp
+local landRay = wum.game.landRay    -- nil on a Melange without it: the ground is then a flat plane at the worm's feet
+local hasLand = landRay ~= nil
+local VEL_SCALE = 1                 -- engine velocity (wum.game.worms() vel) to units per second, to be confirmed
+
+local GUTS = { id = "bloodsand/guts", cache = {}, enabled = nil }
+local gutsMissing = false           -- the effect is not there (the old Melange cannot load it) or its shader failed
+
+-- Sends up to four floats to a vec4 parameter, rounded so that a chain at rest sends nothing, and only when changed.
+local function sendParam4(fx, name, a, b, c, d)
+    if not hasPostfx then return end
+    a, b, c, d = floor(a * 64 + 0.5) / 64, floor(b * 64 + 0.5) / 64, floor(c * 64 + 0.5) / 64, floor(d * 64 + 0.5) / 64
+    local old = fx.cache[name]
+    if old and old[1] == a and old[2] == b and old[3] == c and old[4] == d then return end
+    local ok, res = pcall(wum.postfx.setTransient, fx.id, name, a, b, c, d)
+    if not ok or res == false then return end
+    if not old then
+        old = {}
+        fx.cache[name] = old
+    end
+    old[1], old[2], old[3], old[4] = a, b, c, d
+end
+
+local GUT_A, GUT_B, GUT_C, GUT_D, GUT_P = {}, {}, {}, {}, {}
+for k = 1, GUT.SLOTS do
+    GUT_A[k], GUT_B[k], GUT_C[k], GUT_D[k] = "g" .. (k - 1) .. "a", "g" .. (k - 1) .. "b", "g" .. (k - 1) .. "c", "g" .. (k - 1) .. "d"
+    local list = {}
+    for i = 1, GUT.POINTS do list[i] = "g" .. (k - 1) .. "_" .. (i - 1) end
+    GUT_P[k] = list
+end
+
+-- Scorch: a charred patch with glowing embers on a worm's skin, 0..1, fading to nothing over SCORCH_SECS. The melee
+-- code calls setScorch(slot, amount) when a hit sets a worm alight; calling it again only raises the level.
+local SCORCH_SECS = 4
+local scAmt, scT0 = {}, {}
+for i = 1, SKIN_SLOTS do scAmt[i], scT0[i] = 0, 0 end
+
+local function scorchLevel(i)
+    local a = scAmt[i]
+    if not a or a <= 0 then return 0 end
+    local l = a * (1 - (now - scT0[i]) / SCORCH_SECS)
+    if l > 0 then return l end
+    scAmt[i] = 0
+    return 0
+end
+
+-- setScorch(slot, amount): amount 0..1 (1 is a fresh, full burn); it fades over SCORCH_SECS and a lower amount never shortens a
+-- burn that is still stronger.
+local function scorchSet(slot, amount)
+    local i = (tonumber(slot) or -1) + 1
+    amount = tonumber(amount)
+    if not amount or i < 1 or i > SKIN_SLOTS then return end
+    if amount > 1 then amount = 1 end
+    if amount <= 0 then
+        scAmt[i] = 0
+    elseif amount > scorchLevel(i) then
+        scAmt[i], scT0[i] = amount, now
+    end
+end
+
+-- The wound sites. skin.frag places gash k of a worm at a direction on its body from the match seed and the slot (SiteDir
+-- there); this is the same arithmetic, so a spurt can start where a wound is drawn. A float32 GPU and Lua's doubles agree on it
+-- to about 1e-3 because each term is one product and one fract.
+local function fract(x) return x - floor(x) end
+
+local function siteDir(seed, k)
+    local a0, b0 = fract(seed * 0.7548777), fract(seed * 0.5698403)
+    local sa = 0.55 + 0.2 * fract(seed * 0.1234567 + 0.3)
+    local sb = 0.30 + 0.2 * fract(seed * 0.2718282 + 0.6)
+    return 6.2831853 * fract(a0 + k * sa), -0.35 + 1.1 * fract(b0 + k * sb)
+end
+
+local BODY_RX, BODY_RY = 5.6, 12.5  -- the body's radius and half-height, for a point on its surface from a direction
+
+-- woundSites(slot[, out]): fills out (a table the caller keeps and reuses; one is made when nil) with the open wound sites
+-- of the worm in this slot, in world units: out[i] = { x, y, z, nx, ny, nz, open, gut }, where (x, y, z) is on the body,
+-- (nx, ny, nz) is the outward unit normal, open is how open the wound is (0..1) and gut is true for the belly opening.
+-- Returns n, out: the count (entries past n are stale) and the table. Returns 0, out for a slot that is not tracked or dead.
+-- Cheap, and nothing calls it yet.
+local function sitesOf(slot, out)
+    out = out or {}
+    local s = slots[slot]
+    if not s or not s.alive then return 0, out end
+    local n = 0
+    local seed = VIS.seed + slot * 37
+    local H = s.heading
+    local ch, sh = cos(H), sin(H)
+    local px, py, pz = s.px, s.py + CENTRE_Y, s.pz
+    local function put(lx, ly, lz, open, gut)
+        -- A local direction (the worm faces +Z) to the world: the inverse of the shader's rotation about Y.
+        n = n + 1
+        local e = out[n]
+        if not e then
+            e = {}
+            out[n] = e
+        end
+        local wx, wz = lx * ch + lz * sh, -lx * sh + lz * ch
+        local nx, ny, nz = lx / BODY_RX, ly / BODY_RY, lz / BODY_RX
+        local nl = sqrt(nx * nx + ny * ny + nz * nz)
+        if nl < 1e-6 then nl = 1 end
+        local nwx, nwz = (nx * ch + nz * sh) / nl, (-nx * sh + nz * ch) / nl
+        e.x, e.y, e.z = px + wx * BODY_RX, py + ly * BODY_RY, pz + wz * BODY_RX
+        e.nx, e.ny, e.nz = nwx, ny / nl, nwz
+        e.open, e.gut = open, gut
+    end
+    for k = 0, 4 do
+        local o = (s.wound - k / 5) * 5
+        if o > 0 then
+            if o > 1 then o = 1 end
+            local az, elev = siteDir(seed, k)
+            local ce = cos(elev)
+            put(cos(az) * ce, sin(elev), sin(az) * ce, o, false)
+        end
+    end
+    if s.gut > 0 then
+        local a = s.gutAz
+        put(sin(a) * 0.917, -0.4, cos(a) * 0.917, min(1, 0.4 + s.gut * 0.6), true)
+    end
+    return n, out
+end
+
+-- Per-slot gut state. The arrays are made once and reused.
+local function initGut(s)
+    local n = GUT.POINTS
+    s.gx, s.gy, s.gz, s.hx, s.hy, s.hz, s.gr = {}, {}, {}, {}, {}, {}, {}
+    for i = 1, n do
+        s.gx[i], s.gy[i], s.gz[i], s.hx[i], s.hy[i], s.hz[i], s.gr[i] = 0, 0, 0, 0, 0, 0, 0
+    end
+    s.gutLive, s.gutLen, s.gutExtra, s.gutStretch, s.gutTwitch, s.gutAcc = false, 0, 0, 0, 0, 0
+    s.gutNa, s.gutHitAt = 0, -100
+    s.gvx, s.gvy, s.gvz = 0, 0, 0
+    s.pax, s.pay, s.paz, s.plx, s.ply, s.plz = 0, 0, 0, 0, 0, 0
+    s.evx, s.evy, s.evz, s.evFrame = 0, 0, 0, -1
+    s.gutSeed = random() * 100
+    -- Ground probes: a plane (a point on the ground and its unit normal) at the worm, the middle of the chain and its end.
+    s.gpx, s.gpy, s.gpz, s.gpnx, s.gpny, s.gpnz, s.gpok = { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }, { 1, 1, 1 },
+        { 0, 0, 0 }, { false, false, false }
+    s.gpNext = 1
+    s.gzone = {}
+    s.gcontact = {}
+    for i = 1, n do s.gzone[i], s.gcontact[i] = 1, false end
+end
+
+-- The engine's own velocity of a worm, when Melange reports it; otherwise the velocity worked out from its movement.
+local function noteEngineVel(s, vel)
+    if type(vel) ~= "table" then return end
+    local x, y, z = vec(vel)
+    if not x then return end
+    s.evx, s.evy, s.evz, s.evFrame = x * VEL_SCALE, y * VEL_SCALE, z * VEL_SCALE, frameId
+end
+
+local function wormVel(s)
+    if s.evFrame == frameId then return s.evx, s.evy, s.evz end
+    return s.vx, s.vy, s.vz
+end
+
+-- A hit on a worm whose guts are out: more of them slides out, they jerk, and the blood on them is fresh. Called from
+-- burst(); a no-op for a worm without out guts.
+local function spillGut(s, damage)
+    if not s.gutLive then return end
+    s.gutExtra = min(GUT.EXTRA_MAX, s.gutExtra + GUT.SPILL + (damage or 0) * GUT.SPILL_PER_DAMAGE)
+    s.gutTwitch = 1
+    s.gutHitAt = now
+    local kick = 1 + min(damage or 0, 60) * 0.03
+    local hx, hy, hz = s.hx, s.hy, s.hz
+    for i = 4, s.gutNa do
+        -- A velocity is the difference to the previous position, so moving that is a kick.
+        hx[i] = hx[i] + rnd(-1, 1) * GUT.KICK * kick * GUT.STEP
+        hz[i] = hz[i] + rnd(-1, 1) * GUT.KICK * kick * GUT.STEP
+        hy[i] = hy[i] - rnd(0, 1) * GUT.KICK * kick * GUT.STEP
+    end
+end
+
+-- The chain's two pinned points: the root, inside the belly, and the lip, where it comes out through the opening.
+local function gutRoot(s)
+    local h = s.heading + s.gutAz
+    local sh, ch = sin(h), cos(h)
+    local y = s.py + GUT.Y
+    return s.px + GUT.IN * sh, y, s.pz + GUT.IN * ch, s.px + GUT.LIP * sh, y - 0.3, s.pz + GUT.LIP * ch, sh, ch
+end
+
+-- One ground probe, from the point (x, y, z) down through the terrain. The result is a plane; a miss means no ground there.
+local probesThisFrame = 0
+
+local function probeGround(s, k, x, y, z)
+    if not hasLand or probesThisFrame >= GUT.PROBE_BUDGET then return end
+    probesThisFrame = probesThisFrame + 1
+    local ok, t, nx, ny, nz = pcall(landRay, x, y + GUT.PROBE_UP, z, x, y - GUT.PROBE_DOWN, z)
+    if not ok then return end
+    if t == nil then
+        if nx == "unavailable" then
+            hasLand = false
+        elseif k ~= 1 then
+            s.gpok[k] = false   -- no ground under that part of the chain: it hangs there. Under the worm it keeps its plane.
+        end
+        return
+    end
+    nx, ny, nz = tonumber(nx), tonumber(ny), tonumber(nz)
+    if not (nx and ny and nz) or ny < 0.2 then return end   -- a wall: keep the old plane
+    s.gpx[k], s.gpy[k], s.gpz[k] = x, y + GUT.PROBE_UP - t * (GUT.PROBE_UP + GUT.PROBE_DOWN), z
+    s.gpnx[k], s.gpny[k], s.gpnz[k] = nx, ny, nz
+    s.gpok[k] = true
+end
+
+-- Resets the chain: a short stub going out of the belly. It then slides out to its length.
+local function startGut(s, rx, ry, rz, lx, ly, lz, sh, ch)
+    local gx, gy, gz, hx, hy, hz = s.gx, s.gy, s.gz, s.hx, s.hy, s.hz
+    local vx, vy, vz = wormVel(s)
+    local back = GUT.STEP
+    s.gutLen, s.gutAcc, s.gutStretch, s.gutTwitch, s.gutExtra = 1.2, 0, 0, 0, 0
+    s.gutNa = 4
+    for i = 1, GUT.POINTS do
+        -- The root and the lip, a point just outside the lip and one a segment further, falling away from the belly; the
+        -- rest wait on the last.
+        local x, y, z
+        if i == 1 then
+            x, y, z = rx, ry, rz
+        elseif i == 2 then
+            x, y, z = lx, ly, lz
+        elseif i == 3 then
+            x, y, z = lx + sh * 0.5, ly - 0.1, lz + ch * 0.5
+        else
+            x, y, z = lx + sh * (0.5 + GUT.SEG * 0.9), ly - GUT.SEG * 0.4, lz + ch * (0.5 + GUT.SEG * 0.9)
+        end
+        if i > 4 then x, y, z = gx[4], gy[4], gz[4] end
+        gx[i], gy[i], gz[i] = x, y, z
+        hx[i], hy[i], hz[i] = x - vx * back, y - vy * back, z - vz * back
+        s.gcontact[i] = false
+    end
+    s.pax, s.pay, s.paz, s.plx, s.ply, s.plz = rx, ry, rz, lx, ly, lz
+    s.gvx, s.gvy, s.gvz = vx, vy, vz
+    s.gutLive = true
+    -- Until a probe says otherwise the ground is a plane at the worm's feet.
+    for k = 1, 3 do
+        s.gpok[k] = true
+        s.gpx[k], s.gpy[k], s.gpz[k], s.gpnx[k], s.gpny[k], s.gpnz[k] = s.px, s.py + FEET_Y, s.pz, 0, 1, 0
+    end
+    if hasLand then probeGround(s, 1, s.px, s.py + 6, s.pz) end
+end
+
+-- Adds a point just outside the lip (index 3) or takes it away, so the chain's length grows and shrinks at the belly.
+local function insertPoint(s, na)
+    local gx, gy, gz, hx, hy, hz = s.gx, s.gy, s.gz, s.hx, s.hy, s.hz
+    for i = na, 4, -1 do
+        gx[i], gy[i], gz[i], hx[i], hy[i], hz[i] = gx[i - 1], gy[i - 1], gz[i - 1], hx[i - 1], hy[i - 1], hz[i - 1]
+    end
+    -- The new point starts at the lip with a little sideways noise, so a gut pushed out against friction buckles in random
+    -- directions instead of folding back on itself.
+    gx[3], gy[3], gz[3] = gx[2] + rnd(-0.4, 0.4), gy[2] + rnd(0, 0.3), gz[2] + rnd(-0.4, 0.4)
+    hx[3], hy[3], hz[3] = hx[2], hy[2], hz[2]
+end
+
+local function removePoint(s, na)
+    local gx, gy, gz, hx, hy, hz = s.gx, s.gy, s.gz, s.hx, s.hy, s.hz
+    for i = 3, na - 1 do
+        gx[i], gy[i], gz[i], hx[i], hy[i], hz[i] = gx[i + 1], gy[i + 1], gz[i + 1], hx[i + 1], hy[i + 1], hz[i + 1]
+    end
+end
+
+-- The gut level, and the chain. Points 1 and 2 are pinned to the worm (the root inside the belly and the lip of the opening);
+-- gutLen is the number of segments out beyond the lip: it follows what the wound level and the hits give, sliding out at
+-- GUT.FEED units per second.
+local function gutUpdate(s, dt)
     local level = 0
     if s.alive and cfg.guts then
         if s.hasGut and s.wound > GUT.START then level = min(1, (s.wound - GUT.START) / (1 - GUT.START)) end
@@ -759,70 +1059,426 @@ local function updateGut(s, dt)
     end
     s.gut = level
     if level <= 0 then
-        s.gutLive = false
+        s.gutLive, s.gutExtra = false, 0
         return
     end
     local px, py, pz = s.px, s.py, s.pz
-    local h = s.heading + s.gutAz
-    local ha, hb = h - GUT.SPREAD * 0.5, h + GUT.SPREAD * 0.5
-    local ax, ay, az = px + GUT.OUT * sin(ha), py + GUT.Y, pz + GUT.OUT * cos(ha)
-    local bx, by, bz = px + GUT.OUT * sin(hb), py + GUT.Y - GUT.DROP, pz + GUT.OUT * cos(hb)
-    local gx, gy, gz, hx, hy, hz = s.gx, s.gy, s.gz, s.hx, s.hy, s.hz
-    local n = GUT.POINTS
+    local rx, ry, rz, lx, ly, lz, sh, ch = gutRoot(s)
     local jx, jy, jz = px - s.gutPx, py - s.gutPy, pz - s.gutPz
     s.gutPx, s.gutPy, s.gutPz = px, py, pz
     if not s.gutLive or jx * jx + jy * jy + jz * jz > GUT.JUMP * GUT.JUMP then
-        -- Starts as a straight line between the anchors, at rest.
-        for i = 1, n do
-            local f = (i - 1) / (n - 1)
-            local x, y, z = ax + (bx - ax) * f, ay + (by - ay) * f, az + (bz - az) * f
-            gx[i], gy[i], gz[i], hx[i], hy[i], hz[i] = x, y, z, x, y, z
-        end
-        s.gutLive = true
+        startGut(s, rx, ry, rz, lx, ly, lz, sh, ch)
         return
     end
-    gx[1], gy[1], gz[1], gx[n], gy[n], gz[n] = ax, ay, az, bx, by, bz
-    local damp = GUT.DAMP ^ (dt * 60)
-    local fall = GUT.GRAVITY * dt * dt
-    for i = 2, n - 1 do
-        local x, y, z = gx[i], gy[i], gz[i]
-        gx[i], gy[i], gz[i] = x + (x - hx[i]) * damp, y + (y - hy[i]) * damp + fall, z + (z - hz[i]) * damp
-        hx[i], hy[i], hz[i] = x, y, z
+
+    -- A big change of the worm's velocity (a hit, a landing) stretches the gut and shakes it.
+    local vx, vy, vz = wormVel(s)
+    local dvx, dvy, dvz = vx - s.gvx, vy - s.gvy, vz - s.gvz
+    s.gvx, s.gvy, s.gvz = vx, vy, vz
+    local dv = sqrt(dvx * dvx + dvy * dvy + dvz * dvz)
+    if dv > GUT.IMPACT_MIN then
+        local k = min(1, (dv - GUT.IMPACT_MIN) / GUT.IMPACT_FULL)
+        s.gutStretch = max(s.gutStretch, GUT.STRETCH * k)
+        s.gutExtra = min(GUT.EXTRA_MAX, s.gutExtra + GUT.IMPACT_SPILL * k)
+        s.gutTwitch = max(s.gutTwitch, k)
     end
-    local rest = GUT.SEG[1] + (GUT.SEG[2] - GUT.SEG[1]) * level
-    for _ = 1, GUT.ITER do
-        for i = 1, n - 1 do
-            local j = i + 1
-            local dx, dy, dz = gx[j] - gx[i], gy[j] - gy[i], gz[j] - gz[i]
-            local d = sqrt(dx * dx + dy * dy + dz * dz)
-            if d > 1e-6 then
-                -- The pinned end points do not move, so the free neighbour takes the whole correction.
-                local wa, wb = i == 1 and 0 or 1, j == n and 0 or 1
-                local tot = wa + wb
-                if tot > 0 then
-                    local k = (d - rest) / d / tot
-                    gx[i], gy[i], gz[i] = gx[i] + dx * k * wa, gy[i] + dy * k * wa, gz[i] + dz * k * wa
-                    gx[j], gy[j], gz[j] = gx[j] - dx * k * wb, gy[j] - dy * k * wb, gz[j] - dz * k * wb
+    s.gutStretch = s.gutStretch * exp(-GUT.STRETCH_DECAY * dt)
+    s.gutTwitch = max(0, s.gutTwitch - dt / GUT.TWITCH_SECS)
+
+    -- Length: the segments out follow the target, sliding.
+    local want = min(GUT.POINTS - 2, GUT.OUT_BASE + GUT.OUT_LEVEL * level + s.gutExtra)
+    local feed = GUT.FEED * dt / GUT.SEG
+    if s.gutLen < want then
+        s.gutLen = min(want, s.gutLen + feed)
+    elseif s.gutLen > want + 0.02 then
+        s.gutLen = max(want, s.gutLen - feed * 0.5)
+    end
+    local na = s.gutNa
+    local wantNa = min(GUT.POINTS, ceil(s.gutLen) + 2)
+    if wantNa < 3 then wantNa = 3 end
+    while na < wantNa do
+        na = na + 1
+        insertPoint(s, na)
+    end
+    while na > wantNa do
+        removePoint(s, na)
+        na = na - 1
+    end
+    s.gutNa = na
+    local seg = GUT.SEG * (1 + s.gutStretch)
+    local restFeed = seg * (s.gutLen - (na - 3))      -- the segment from the lip to the first free point is the one growing
+
+    -- Ground: one probe per frame in turn (the worm, the middle of the chain, its end) when Melange can say where it is.
+    local gx, gy, gz, hx, hy, hz, gr = s.gx, s.gy, s.gz, s.hx, s.hy, s.hz, s.gr
+    if hasLand then
+        local k = s.gpNext
+        s.gpNext = k % 3 + 1
+        if k == 1 then
+            probeGround(s, 1, px, py + 6, pz)
+        else
+            local i = k == 2 and max(3, floor(na * 0.55)) or na
+            probeGround(s, k, gx[i], gy[i], gz[i])
+        end
+    else
+        s.gpx[1], s.gpy[1], s.gpz[1] = px, py + FEET_Y, pz
+    end
+    local gzone, gcontact = s.gzone, s.gcontact
+    for i = 3, na do
+        -- The nearest probe's plane is the ground for this point; if that probe found none, there is no ground there.
+        local best, bd = 0, 1e18
+        for k = 1, 3 do
+            local dx, dz = gx[i] - s.gpx[k], gz[i] - s.gpz[k]
+            local d = dx * dx + dz * dz
+            if d < bd then best, bd = k, d end
+        end
+        if not s.gpok[best] then best = 0 end
+        gzone[i] = best
+    end
+
+    -- The simulation in fixed steps; the pinned points move from where they were last frame to where they are now.
+    s.gutAcc = s.gutAcc + dt
+    local steps = floor(s.gutAcc / GUT.STEP)
+    if steps > GUT.MAX_STEPS then
+        steps = GUT.MAX_STEPS
+        s.gutAcc = 0
+    else
+        s.gutAcc = s.gutAcc - steps * GUT.STEP
+    end
+    local damp = GUT.DAMP
+    local fall = GUT.GRAVITY * GUT.STEP * GUT.STEP
+    local rad = GUT.RADIUS
+    local twitch = s.gutTwitch * GUT.WRITHE * GUT.STEP * GUT.STEP
+    local clock = now * 2.3 + s.gutSeed
+    local ax0, ay0, az0, bx0, by0, bz0 = s.pax, s.pay, s.paz, s.plx, s.ply, s.plz
+    for st = 1, steps do
+        local f = st / steps
+        local ax, ay, az = ax0 + (rx - ax0) * f, ay0 + (ry - ay0) * f, az0 + (rz - az0) * f
+        local bx, by, bz = bx0 + (lx - bx0) * f, by0 + (ly - by0) * f, bz0 + (lz - bz0) * f
+        gx[1], gy[1], gz[1], hx[1], hy[1], hz[1] = ax, ay, az, ax, ay, az
+        gx[2], gy[2], gz[2], hx[2], hy[2], hz[2] = bx, by, bz, bx, by, bz
+        for i = 3, na do
+            local x, y, z = gx[i], gy[i], gz[i]
+            local wx, wy, wz = (x - hx[i]) * damp, (y - hy[i]) * damp, (z - hz[i]) * damp
+            hx[i], hy[i], hz[i] = x, y, z
+            local sx, sz = 0, 0
+            if twitch > 0 and gcontact[i] then
+                -- A grounded gut writhes: a nudge across the chain, in a wave along it.
+                local j, l = min(i + 1, na), i - 1
+                local tx, tz = gx[j] - gx[l], gz[j] - gz[l]
+                local tl = sqrt(tx * tx + tz * tz)
+                if tl > 1e-4 then
+                    local w = sin(clock + i * 1.3) * twitch / tl
+                    sx, sz = -tz * w, tx * w
+                end
+            end
+            gx[i], gy[i], gz[i] = x + wx + sx, y + wy + fall, z + wz + sz
+        end
+        for _ = 1, GUT.ITER do
+            for i = 2, na - 1 do
+                local j = i + 1
+                local dx, dy, dz = gx[j] - gx[i], gy[j] - gy[i], gz[j] - gz[i]
+                local d = sqrt(dx * dx + dy * dy + dz * dz)
+                if d > 1e-6 then
+                    local k = (d - (i == 2 and restFeed or seg)) / d
+                    if i == 2 then
+                        gx[j], gy[j], gz[j] = gx[j] - dx * k, gy[j] - dy * k, gz[j] - dz * k
+                    else
+                        k = k * 0.5
+                        gx[i], gy[i], gz[i] = gx[i] + dx * k, gy[i] + dy * k, gz[i] + dz * k
+                        gx[j], gy[j], gz[j] = gx[j] - dx * k, gy[j] - dy * k, gz[j] - dz * k
+                    end
+                end
+            end
+            for i = 3, na do
+                -- The ground: a plane under the chain, its normal pushing the tube up off it.
+                local z = gzone[i]
+                if z > 0 then
+                    local nx, ny, nz = s.gpnx[z], s.gpny[z], s.gpnz[z]
+                    local d = nx * (gx[i] - s.gpx[z]) + ny * (gy[i] - s.gpy[z]) + nz * (gz[i] - s.gpz[z]) - rad * 0.85
+                    if d < 0 then
+                        gx[i], gy[i], gz[i] = gx[i] - nx * d, gy[i] - ny * d, gz[i] - nz * d
+                        gcontact[i] = true
+                    else
+                        gcontact[i] = d < 0.05
+                    end
+                else
+                    gcontact[i] = false
+                end
+                -- The worm's body, a vertical capsule, except where the chain comes out of it.
+                if i > 3 then
+                    local x, y, z2 = gx[i] - px, gy[i], gz[i] - pz
+                    local cy = y
+                    local y0, y1 = py + GUT.BODY_Y0, py + GUT.BODY_Y1
+                    if cy < y0 then cy = y0 elseif cy > y1 then cy = y1 end
+                    local dy = y - cy
+                    local d2 = x * x + dy * dy + z2 * z2
+                    local lim = GUT.BODY_R + rad * 0.8
+                    if d2 < lim * lim then
+                        local d = sqrt(d2)
+                        if d > 1e-4 then
+                            local k = lim / d
+                            gx[i], gy[i], gz[i] = px + x * k, cy + dy * k, pz + z2 * k
+                        else
+                            gx[i], gz[i] = px + sh * lim, pz + ch * lim
+                        end
+                    end
                 end
             end
         end
-    end
-    local floorY = py + FEET_Y + 0.4
-    local sh, ch = sin(h), cos(h)
-    for i = 2, n - 1 do
-        local dx, dz = gx[i] - px, gz[i] - pz
-        local r2 = dx * dx + dz * dz
-        if r2 < GUT.OUT * GUT.OUT then
-            local r = sqrt(r2)
-            if r > 1e-4 then
-                gx[i], gz[i] = px + dx / r * GUT.OUT, pz + dz / r * GUT.OUT
-            else
-                gx[i], gz[i] = px + sh * GUT.OUT, pz + ch * GUT.OUT
+        -- Coils lie on one another instead of passing through: points of different loops keep a tube's width apart.
+        for i = 3, na - 2 do
+            local x, y, z = gx[i], gy[i], gz[i]
+            for j = i + 2, na do
+                local dx, dy, dz = gx[j] - x, gy[j] - y, gz[j] - z
+                local d2 = dx * dx + dy * dy + dz * dz
+                -- Two points apart the limit is the tightest bend; further apart it is a tube's width.
+                local lim = j == i + 2 and GUT.BEND or GUT.SELF
+                if d2 < lim * lim then
+                    local d = sqrt(d2)
+                    local k
+                    if d > 1e-4 then
+                        k = (lim - d) / d * 0.5
+                    else
+                        dx, dy, dz, k = rnd(-0.5, 0.5), 1, rnd(-0.5, 0.5), lim * 0.5
+                    end
+                    gx[i], gy[i], gz[i] = gx[i] - dx * k, gy[i] - dy * k, gz[i] - dz * k
+                    gx[j], gy[j], gz[j] = gx[j] + dx * k, gy[j] + dy * k, gz[j] + dz * k
+                end
             end
         end
-        if gy[i] < floorY then gy[i] = floorY end
+        -- Friction: a point on the ground loses most of its sideways speed, and all of its speed into the ground.
+        for i = 3, na do
+            if gcontact[i] then
+                hx[i], hz[i] = hx[i] + (gx[i] - hx[i]) * GUT.FRICTION, hz[i] + (gz[i] - hz[i]) * GUT.FRICTION
+                if gzone[i] > 0 and gy[i] - hy[i] < 0 then hy[i] = gy[i] end
+            end
+        end
+    end
+    s.pax, s.pay, s.paz, s.plx, s.ply, s.plz = rx, ry, rz, lx, ly, lz
+    gx[1], gy[1], gz[1], gx[2], gy[2], gz[2] = rx, ry, rz, lx, ly, lz
+
+    -- Radii for the shader (0 beyond the end of the chain, where the points sit on the tip) and the tip's taper.
+    for i = 1, na do
+        local f = max(0, i - 2) / max(1, na - 2)
+        gr[i] = rad * (1 - GUT.TAPER * f * f)
+    end
+    for i = na + 1, GUT.POINTS do
+        gx[i], gy[i], gz[i], gr[i] = gx[na], gy[na], gz[na], 0
     end
 end
+
+-- Which worms' guts the effect draws, in which of its slots. A worm keeps its slot while it stays among the closest.
+local gutSlotOf = {}                -- effect slot (1..GUT.SLOTS) -> worm slot, or nil
+local gutCand, gutCandD = {}, {}
+
+local function setGutsEnabled(on)
+    if gutsMissing or not hasPostfx or GUTS.enabled == on then return end
+    local ok, res = pcall(wum.postfx.enable, GUTS.id, on)
+    if not ok then return end
+    if res == false then
+        gutsMissing = true
+        return
+    end
+    GUTS.enabled = on
+end
+
+local function sendGutSlot(k, s)
+    local gx, gy, gz, gr, na = s.gx, s.gy, s.gz, s.gr, s.gutNa
+    local cx, cy, cz = 0, 0, 0
+    for i = 1, na do cx, cy, cz = cx + gx[i], cy + gy[i], cz + gz[i] end
+    cx, cy, cz = cx / na, cy / na, cz / na
+    local r = 0
+    for i = 1, na do
+        local dx, dy, dz = gx[i] - cx, gy[i] - cy, gz[i] - cz
+        local d = dx * dx + dy * dy + dz * dz
+        if d > r then r = d end
+    end
+    sendParam4(GUTS, GUT_A[k], cx, cy, cz, sqrt(r) + GUT.RADIUS * 1.4 + 3)
+    sendParam4(GUTS, GUT_B[k], s.px, s.py + CENTRE_Y, s.pz, min(1, 0.7 + 0.3 * s.gore))
+    local g = 1
+    sendParam4(GUTS, GUT_C[k], s.gpnx[g], s.gpny[g], s.gpnz[g],
+               -(s.gpnx[g] * s.gpx[g] + s.gpny[g] * s.gpy[g] + s.gpnz[g] * s.gpz[g]))
+    sendParam4(GUTS, GUT_D[k], VIS.seed % 37 + s.gutSeed % 63, max(0, 1 - (now - s.gutHitAt) / GUT.WET_SECS), 0, 0)
+    local names = GUT_P[k]
+    for i = 1, GUT.POINTS do sendParam4(GUTS, names[i], gx[i], gy[i], gz[i], gr[i]) end
+end
+
+local function clearGutSlot(k)
+    sendParam4(GUTS, GUT_A[k], 0, 0, 0, 0)
+    gutSlotOf[k] = nil
+end
+
+-- Runs once per frame after the worms were tracked: gives the (up to four) closest gutted worms a slot of the effect and
+-- sends their chains, and keeps the effect on only while one is drawn.
+local function updateGuts()
+    local want = hasPostfx and preset ~= nil and cfg.guts ~= false and not gutsMissing
+    local n = 0
+    if want then
+        for slot, s in pairs(slots) do
+            if s.gutLive and s.alive and s.seen == frameId and s.gutNa >= 2 then
+                n = n + 1
+                gutCand[n] = slot
+                local dx, dy, dz = s.px - CAM.px, s.py - CAM.py, s.pz - CAM.pz
+                gutCandD[n] = CAM.ok and dx * dx + dy * dy + dz * dz or slot
+            end
+        end
+        -- Closest GUT.SLOTS: drop the farthest until few enough remain.
+        while n > GUT.SLOTS do
+            local far = 1
+            for i = 2, n do
+                if gutCandD[i] > gutCandD[far] then far = i end
+            end
+            gutCand[far], gutCandD[far] = gutCand[n], gutCandD[n]
+            n = n - 1
+        end
+    end
+    -- Keep each worm in the slot it had; give the rest the free ones.
+    for k = 1, GUT.SLOTS do
+        local w = gutSlotOf[k]
+        local keep = false
+        if w ~= nil then
+            for i = 1, n do
+                if gutCand[i] == w then
+                    gutCand[i] = -1
+                    keep = true
+                    break
+                end
+            end
+        end
+        if not keep and w ~= nil then clearGutSlot(k) end
+    end
+    local drawn = 0
+    for k = 1, GUT.SLOTS do
+        if gutSlotOf[k] == nil then
+            for i = 1, n do
+                if gutCand[i] ~= -1 then
+                    gutSlotOf[k] = gutCand[i]
+                    gutCand[i] = -1
+                    break
+                end
+            end
+        end
+        local w = gutSlotOf[k]
+        if w ~= nil then
+            drawn = drawn + 1
+            sendGutSlot(k, slots[w])
+        end
+    end
+    setGutsEnabled(drawn > 0)
+    probesThisFrame = 0
+end
+
+-- Is the guts effect usable? Melange lists effects with a failed flag, which a shader that does not compile or does not
+-- draw sets. The old ribbons are drawn while it is not.
+local function checkGutsFx()
+    if not (hasPostfx and wum.postfx.list) then return end
+    local ok, list = pcall(wum.postfx.list)
+    if not ok or type(list) ~= "table" then return end
+    local found = false
+    for i = 1, #list do
+        local e = list[i]
+        if type(e) == "table" and e.id == GUTS.id then
+            found = true
+            gutsMissing = e.failed == true
+            break
+        end
+    end
+    if not found then gutsMissing = true end
+end
+
+-- The flat ribbons: two camera-facing rectangles per segment, laid like the droplet kite but with square ends, each a
+-- little longer than its segment so neighbours overlap. Only drawn when the guts effect cannot draw them.
+local function drawRibbons(s, scale, col)
+    local gx, gy, gz, gr = s.gx, s.gy, s.gz, s.gr
+    local r, g, b = col[1], col[2], col[3]
+    for i = 1, s.gutNa - 1 do
+        local x1, y1, z1, x2, y2, z2 = gx[i], gy[i], gz[i], gx[i + 1], gy[i + 1], gz[i + 1]
+        local mx, my, mz = (x1 + x2) * 0.5, (y1 + y2) * 0.5, (z1 + z2) * 0.5
+        local k = 0.5 * 1.15
+        local ax, ay, az = (x2 - x1) * k, (y2 - y1) * k, (z2 - z1) * k
+        local tx, ty, tz = CAM.px - mx, CAM.py - my, CAM.pz - mz
+        local sx, sy, sz = ay * tz - az * ty, az * tx - ax * tz, ax * ty - ay * tx
+        local sl = sqrt(sx * sx + sy * sy + sz * sz)
+        if sl > 1e-6 then
+            local w = (gr[i] + gr[i + 1]) * 0.5 * scale / sl
+            sx, sy, sz = sx * w, sy * w, sz * w
+            corner(q1, mx - ax - sx, my - ay - sy, mz - az - sz)
+            corner(q2, mx - ax + sx, my - ay + sy, mz - az + sz)
+            corner(q3, mx + ax + sx, my + ay + sy, mz + az + sz)
+            corner(q4, mx + ax - sx, my + ay - sy, mz + az - sz)
+            emitQuad(r, g, b, 1)
+        end
+    end
+end
+
+local function gutDraw()
+    if not CAM.ok or not (gutsMissing or not hasPostfx) then return end
+    for _, s in pairs(slots) do
+        if s.gutLive and s.seen == frameId and s.alive and s.gutNa >= 2 then
+            drawRibbons(s, 1.0, palette.gutDark)
+            drawRibbons(s, GUT.CORE, palette.gut)
+        end
+    end
+end
+
+local function clearGuts()
+    for k = 1, GUT.SLOTS do clearGutSlot(k) end
+    setGutsEnabled(false)
+    probesThisFrame = 0
+    for i = 1, SKIN_SLOTS do scAmt[i] = 0 end
+end
+
+local SCORCH_NAMES = {}
+for g = 1, 4 do SCORCH_NAMES[g] = "scorch" .. (g - 1) end
+
+-- What the rest of the file uses.
+VIS.seed = 0                        -- the match seed, kept up to date by sendSeed
+VIS.scorchLevel = scorchLevel
+VIS.setScorch = scorchSet
+VIS.woundSites = sitesOf
+VIS.initGut = initGut
+VIS.noteEngineVel = noteEngineVel
+VIS.spillGut = spillGut
+VIS.updateGuts = updateGuts
+VIS.checkFx = checkGutsFx
+VIS.reset = clearGuts
+setScorch, woundSites, updateGut, drawGuts = scorchSet, sitesOf, gutUpdate, gutDraw
+
+-- The blood colour, to the guts effect.
+function VIS.setBlood(c)
+    sendParam(GUTS, "blood", c[1], c[2], c[3])
+end
+
+function VIS.clearCache()
+    GUTS.cache = {}
+end
+
+-- The insurance resend and the start-up zeroing (see resend and zeroAll).
+function VIS.resend()
+    for k = 1, GUT.SLOTS do
+        if gutSlotOf[k] == nil then sendParam4(GUTS, GUT_A[k], 0, 0, 0, 0) end
+    end
+end
+
+function VIS.zero()
+    for k = 1, GUT.SLOTS do sendParam4(GUTS, GUT_A[k], 0, 0, 0, 0) end
+end
+
+-- The skin effect's four scorch parameters, each holding the levels of four worm slots.
+function VIS.sendScorch()
+    for g = 1, 4 do
+        local b = (g - 1) * 4
+        sendParam4(SKIN, SCORCH_NAMES[g], scorchLevel(b + 1), scorchLevel(b + 2), scorchLevel(b + 3), scorchLevel(b + 4))
+    end
+end
+
+function VIS.zeroScorch()
+    for g = 1, 4 do sendParam4(SKIN, SCORCH_NAMES[g], 0, 0, 0, 0) end
+end
+end
+build()
+end
+
 
 -- A heave of vomiting: droplets from the mouth for VOMIT.SECS, then a stain in front of the worm.
 local function startHeave(s)
@@ -876,44 +1532,6 @@ local function updateVomit(s, dt)
     if s.vomitAcc > 2 then s.vomitAcc = 0 end
 end
 
--- The gut ribbons: two camera-facing rectangles per segment, laid like the droplet kite but with square ends. Each is
--- drawn a little longer than its segment so neighbours overlap.
-local function drawRibbons(s, width, col)
-    local gx, gy, gz = s.gx, s.gy, s.gz
-    local r, g, b = col[1], col[2], col[3]
-    local half = width * 0.5
-    for i = 1, GUT.POINTS - 1 do
-        local x1, y1, z1, x2, y2, z2 = gx[i], gy[i], gz[i], gx[i + 1], gy[i + 1], gz[i + 1]
-        local mx, my, mz = (x1 + x2) * 0.5, (y1 + y2) * 0.5, (z1 + z2) * 0.5
-        local k = 0.5 * GUT.EXTEND
-        local ax, ay, az = (x2 - x1) * k, (y2 - y1) * k, (z2 - z1) * k
-        local tx, ty, tz = CAM.px - mx, CAM.py - my, CAM.pz - mz
-        local sx, sy, sz = ay * tz - az * ty, az * tx - ax * tz, ax * ty - ay * tx
-        local sl = sqrt(sx * sx + sy * sy + sz * sz)
-        if sl > 1e-6 then
-            local w = half / sl
-            sx, sy, sz = sx * w, sy * w, sz * w
-            corner(q1, mx - ax - sx, my - ay - sy, mz - az - sz)
-            corner(q2, mx - ax + sx, my - ay + sy, mz - az + sz)
-            corner(q3, mx + ax + sx, my + ay + sy, mz + az + sz)
-            corner(q4, mx + ax - sx, my + ay - sy, mz + az - sz)
-            emitQuad(r, g, b, 1)
-        end
-    end
-end
-
--- Draws every dangling gut. A worm's dark edges all go down before its light cores, so no core is covered by the edge
--- of the next segment.
-local function drawGuts()
-    if not CAM.ok then return end
-    for _, s in pairs(slots) do
-        if s.gutLive and s.seen == frameId and s.alive then
-            drawRibbons(s, GUT.WIDTH, palette.gutDark)
-            drawRibbons(s, GUT.WIDTH * GUT.CORE, palette.gut)
-        end
-    end
-end
-
 local function trackWorms(worms, dt)
     for i = 1, #worms do
         local w = worms[i]
@@ -936,6 +1554,7 @@ local function trackWorms(worms, dt)
                 updateGut(s, dt)
             else
                 s.seen = frameId
+                VIS.noteEngineVel(s, w.vel)
                 updateMotion(s, x, y, z)
                 if s.alive and not alive then
                     local dx, dy, dz = hitDirection(s)
@@ -1034,6 +1653,7 @@ local skinCount = 0
 local matchSeed = random(0, 1000)
 
 local function sendSeed()
+    VIS.seed = matchSeed
     sendParam(SKIN, "seed", matchSeed)
 end
 
@@ -1044,6 +1664,7 @@ local function clearSkin()
         skSentGore[i], skSentWound[i], skSentHead[i], skSentEyes[i], skSentGut[i] = 0, 0, 0, 0, 0
     end
     skinCount = 0
+    VIS.zeroScorch()
     sendEnabled(SKIN, false)
 end
 
@@ -1074,11 +1695,12 @@ local function updateSkin()
     skinCount = 0
     if hasPostfx and preset and cfg.skin then
         for slot, s in pairs(slots) do
-            if s.seen == frameId and s.alive and (s.gore > 0 or s.wound > 0 or s.eye > 0 or s.gut > 0)
+            if s.seen == frameId and s.alive and (s.gore > 0 or s.wound > 0 or s.eye > 0 or s.gut > 0 or VIS.scorchLevel(slot + 1) > 0)
                 and slot >= 0 and slot < SKIN_SLOTS then
                 driveSkin(slot, s)
             end
         end
+        VIS.sendScorch()
     end
     for i = 1, SKIN_SLOTS do
         if skFrame[i] ~= frameId and (skSentGore[i] ~= 0 or skSentWound[i] ~= 0 or skSentEyes[i] ~= 0 or skSentGut[i] ~= 0) then
@@ -1101,6 +1723,7 @@ local function resetAll()
     clearParticles()
     clearStains()
     clearSkin()
+    VIS.reset()
     -- A new match seed, so the wounds are not in the same places every match.
     matchSeed = random(0, 1000)
     sendSeed()
@@ -1130,6 +1753,7 @@ local function onWorld()
         nExp = 0
     end
     updateSkin()
+    VIS.updateGuts()
     simulate(dt)
     drawGuts()
     ageSplats(dt)
@@ -1175,10 +1799,12 @@ local function applySettings()
         local c = palette.stain
         sendParam(STAINS, "blood", c[1], c[2], c[3])
         sendParam(SKIN, "blood", c[1], c[2], c[3])
+        VIS.setBlood(c)
     end
     if not preset then
         clearStains()
         clearSkin()
+        VIS.reset()
     end
     updateStainEnable()
     -- Outside a match nothing drives the skin effect, so settle a persisted enabled=1 here instead of waiting for a frame.
@@ -1230,6 +1856,8 @@ local function preview()
     s.previewWound = PREVIEW_WOUND
     s.wound = max(s.wound, PREVIEW_WOUND)
     s.previewEyes, s.previewGut = 1, 1
+    -- A scorch patch too, so it can be seen: it fades over a few seconds, so press Preview again to see it again.
+    setScorch(pick.slot, 1)
     if cfg.vomit then startHeave(s) end
 end
 
@@ -1240,6 +1868,7 @@ end
 local function resend()
     if not hasPostfx then return end
     STAINS.cache, SKIN.cache = {}, {}
+    VIS.clearCache()
     for i = 1, STAIN_SLOTS do
         if stLive[i] then
             sendParam(STAINS, NAME_A[i], stX[i], stY[i], stZ[i])
@@ -1262,6 +1891,8 @@ local function resend()
     local c = palette.stain
     sendParam(STAINS, "blood", c[1], c[2], c[3])
     sendParam(SKIN, "blood", c[1], c[2], c[3])
+    VIS.setBlood(c)
+    VIS.resend()
     sendSeed()
 end
 
@@ -1276,6 +1907,8 @@ local function zeroAll()
         sendParam(SKIN, WORM_B[i], 0, 0, 0)
         sendParam(SKIN, WORM_C[i], 0, 0, 0)
     end
+    VIS.zero()
+    VIS.zeroScorch()
 end
 
 loadLens()
@@ -1290,3 +1923,5 @@ if hasMenu then wum.ui.menu("Preview", preview) end
 if wum.events and wum.events.on then wum.events.on("mod.bloodsand.preview", preview) end
 wum.timers.every(0.5, applySettings)
 wum.timers.every(RESEND_SECS, resend)
+VIS.checkFx()
+wum.timers.every(2, VIS.checkFx)
