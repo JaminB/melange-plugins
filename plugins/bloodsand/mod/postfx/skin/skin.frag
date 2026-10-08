@@ -6,8 +6,8 @@
 // frame so it moves and turns with it. Wounds are up to five gashes at fixed places on the body (from the match seed and the
 // slot, by arithmetic that bloodsand's Lua repeats in woundSites), which open one after another as the wound
 // level rises. The eye level darkens the skin around the two eyes into purple-black bruises, one after the other. The gut
-// level tears a wide opening in the belly (at the azimuth from the facing direction). The order on the skin is bruise,
-// scorch, blood, then the openings. Sky is left alone and with every amount and level at 0 the output is the scene
+// level tears a wide opening in the belly (at the azimuth from the facing direction). The scorch level burns cracked, charred
+// patches into the skin, fading out as it falls. The order on the skin is bruise, scorch, blood, then the openings. Sky is left alone and with every amount and level at 0 the output is the scene
 // unchanged.
 //
 // An opening (a gash or the belly) is built in layers from the outside in: a rolled lip of torn skin that is lit from the
@@ -26,6 +26,7 @@ uniform sampler2D mg_depth;
 uniform mat4 mg_invProj;
 uniform mat4 mg_view;
 uniform vec2 mg_nearFar;
+uniform vec4 mg_resolution;
 uniform float mg_time;
 uniform vec3 p_worm0, p_worm1, p_worm2, p_worm3, p_worm4, p_worm5, p_worm6, p_worm7, p_worm8, p_worm9, p_worm10, p_worm11, p_worm12, p_worm13, p_worm14, p_worm15;
 uniform vec3 p_worm0b, p_worm1b, p_worm2b, p_worm3b, p_worm4b, p_worm5b, p_worm6b, p_worm7b, p_worm8b, p_worm9b, p_worm10b, p_worm11b, p_worm12b, p_worm13b, p_worm14b, p_worm15b;
@@ -162,16 +163,19 @@ void WoundTrail(vec3 dir, vec3 qu, float seed, float wound, float k, float mask,
 }
 
 // One eye's bruise. side is +1 or -1 (which eye) and strength 0..1 how far it has darkened. qu is the position in the
-// worm's frame, where the face looks along +Z, so the bruise is an oval laid on the front of the head as seen from
-// straight ahead, with its edge broken up by noise. Adds the bruise to bruise and its darkest part to socket: a ring
-// around the eye that is heavier underneath it, as a black eye is. mask is the worm-surface mask.
-void Eye(vec3 qu, float side, float strength, float mask, inout float bruise, inout float socket) {
-    if (strength <= 0.0 || qu.z <= 0.0) return;
+// worm's frame, where the face looks along +Z (the facing from the game is (sin yaw, 0, cos yaw), and qu.z is the offset
+// along it), so the bruise is an oval laid on the front of the head as seen from straight ahead, with its edge broken up by
+// noise. nf is the surface normal's component along the facing: a surface that does not face forward (the back or the
+// side of the head, when the head is turned or slumped away from the body's heading) never takes a bruise. Adds the bruise
+// to bruise and its darkest part to socket: a ring around the eye that is heavier underneath it, as a black eye is. mask is
+// the worm-surface mask.
+void Eye(vec3 qu, float nf, float side, float strength, float mask, inout float bruise, inout float socket) {
+    if (strength <= 0.0 || qu.z <= 0.0 || nf <= 0.0) return;
     float x = (qu.x - side * EYE_X) / EYE_RX;
     float y = (qu.y - EYE_Y) / EYE_RY;
     float r2 = x * x + y * y + (Noise3(qu * 0.6 + side * 5.0) - 0.5) * 0.35;
     float r = sqrt(max(r2, 0.0));
-    float front = smoothstep(0.0, 2.5, qu.z) * strength * mask;
+    float front = smoothstep(0.0, 2.5, qu.z) * smoothstep(0.0, 0.4, nf) * strength * mask;
     float ring = smoothstep(0.3, 0.6, r) * (1.0 - smoothstep(0.72, 1.0, r));
     bruise = max(bruise, (1.0 - smoothstep(0.65, 1.0, r)) * front);
     socket = max(socket, ring * mix(1.0, 0.6, smoothstep(-0.4, 0.3, y)) * front);
@@ -392,8 +396,10 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
             float first = clamp(eyeLevel / 0.5, 0.0, 1.0);
             float second = clamp((eyeLevel - 0.3) / 0.7, 0.0, 1.0);
             float lead = Hash(vec2(seed, 91.0)) < 0.5 ? 1.0 : -1.0;
-            Eye(qu, lead, first, mask, bruise, socket);
-            Eye(qu, -lead, second, mask, bruise, socket);
+            vec3 nWorld = n * mat3(mg_view);
+            float nf = nWorld.x * sh + nWorld.z * ch;
+            Eye(qu, nf, lead, first, mask, bruise, socket);
+            Eye(qu, nf, -lead, second, mask, bruise, socket);
         }
         if (gutLevel > 0.0) {
             // The belly opening lies on the body as on an upright cylinder: x is the distance round the body from the
@@ -437,23 +443,45 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
         col = mix(col, skin, bruise * (1.0 - 0.7 * white) * mix(0.2, 1.0, skinTone));
     }
 
-    // Scorching: soot-black patches with a heat-glow edge and glowing embers, fading out with the level. The patch is a
-    // noise field in the worm's frame whose threshold falls as the level rises.
+    // Scorching: burnt, charred flesh. Patches of blackened crust with a ragged edge, cracked into plates by fissures that
+    // show dull dark red underneath, a browned, cooked rim round each patch, blistered here and there and with a slight dry
+    // sheen. Nothing glows except, in the first half second (the level is still near 1), a faint ember flicker down in the
+    // fissures. The patch is a noise field in the worm's frame; as the level falls the whole mark fades out, not shrinks.
     if (scorch > 0.0) {
         vec3 qs = qu + vec3(Hash(vec2(seed, 5.1)), Hash(vec2(seed, 9.7)), Hash(vec2(seed, 13.3))) * 40.0;
-        float f = 0.6 * Noise3(qs / 3.6) + 0.4 * Noise3(qs / 1.6 + 3.0) + 0.1 * clamp(L.y / 16.0, -1.0, 1.0);
-        float thr = 0.84 - 0.5 * scorch;
-        float charAmt = smoothstep(thr, thr + 0.1, f) * mask;
-        float glowEdge = smoothstep(thr - 0.07, thr + 0.02, f) * (1.0 - smoothstep(thr + 0.02, thr + 0.1, f)) * mask;
-        vec3 cell = floor(qs * 1.7);
-        vec3 fc = fract(qs * 1.7) - 0.5;
-        float spark = step(0.7, Hash3(cell)) * (1.0 - smoothstep(0.12, 0.42, length(fc)));
-        float flick = 0.65 + 0.35 * sin(mg_time * 9.0 + Hash3(cell + 3.0) * 40.0);
-        float hot = smoothstep(0.2, 0.7, scorch);
-        vec3 soot = vec3(0.07, 0.06, 0.055) * (0.4 + 0.8 * lum) * (0.75 + 0.5 * Noise3(qs * 2.1));
-        col = mix(col, soot, 0.93 * charAmt);
-        col += vec3(1.0, 0.42, 0.08) * spark * charAmt * hot * flick * 1.5;
-        col += vec3(1.0, 0.25, 0.04) * glowEdge * hot * (0.6 + 0.4 * flick) * 0.55;
+        float grain = Noise3(qs * 2.3);
+        float f = 0.6 * Noise3(qs / 3.6) + 0.4 * Noise3(qs / 1.6 + 3.0) + 0.1 * clamp(L.y / 16.0, -1.0, 1.0) + 0.14 * (grain - 0.5);
+        float fade = smoothstep(0.0, 0.4, scorch);
+        float thr = 0.46 + 0.14 * (1.0 - scorch);
+        float charAmt = smoothstep(thr, thr + 0.05, f) * mask * fade;
+        float rim = smoothstep(thr - 0.08, thr - 0.01, f) * (1.0 - smoothstep(thr, thr + 0.03, f)) * mask * fade;
+        col = mix(col, col * vec3(0.6, 0.36, 0.27), 0.8 * rim);
+        if (charAmt > 0.0) {
+            // Fissures: where a noise field crosses its middle value there is a wandering line, and three such fields at
+            // different scales make a network of cracks that cuts the crust into plates. They stop short of the patch's edge.
+            float c1 = abs(Noise3(qs * 0.5 + 21.0) - 0.5);
+            float c2 = abs(Noise3(qs * 1.1 + 11.0) - 0.5);
+            float c3 = abs(Noise3(qs * 2.1 + 31.0) - 0.5);
+            float crack = max(1.0 - smoothstep(0.0, 0.05, c1), max(0.85 * (1.0 - smoothstep(0.0, 0.045, c2)), 0.6 * (1.0 - smoothstep(0.0, 0.04, c3))));
+            crack *= smoothstep(thr + 0.02, thr + 0.12, f);
+            // The crust: charcoal that keeps some of the skin's shading, uneven in how black it is, darker toward each
+            // fissure (the plates curl up at their edges), with a few ashen flecks.
+            float plate = smoothstep(0.0, 0.2, min(c1, min(c2 * 1.5, c3 * 2.0)));
+            float fleck = Noise3(qs * 3.1 + 5.0);
+            vec3 crust = vec3(0.058, 0.046, 0.04) * (0.45 + 1.0 * lum) * (0.7 + 0.6 * grain) * (0.55 + 0.6 * plate);
+            crust = mix(crust, vec3(0.2, 0.18, 0.165) * (0.4 + 0.8 * lum), 0.35 * smoothstep(0.66, 0.8, fleck));
+            vec3 fissure = vec3(0.26, 0.045, 0.03) * (0.4 + 0.9 * lum);
+            float heat = smoothstep(0.82, 0.97, scorch);
+            float flick = 0.6 + 0.4 * sin(mg_time * 11.0 + Hash3(floor(qs * 0.9)) * 40.0);
+            fissure += vec3(0.7, 0.16, 0.03) * heat * flick * 0.22;
+            // A dry sheen: a broad, weak highlight on a normal roughened by noise, so it breaks up across the plates.
+            vec3 Ks = normalize(mat3(mg_view) * vec3(0.35, 0.85, 0.25));
+            vec3 Nb = normalize(n + 0.5 * vec3(grain - 0.5, fleck - 0.5, 0.5 - c3));
+            float sheen = pow(max(dot(Nb, normalize(Ks - normalize(P))), 0.0), 22.0);
+            vec3 burnt = mix(crust, fissure, crack * 0.92);
+            burnt += vec3(0.8, 0.72, 0.68) * sheen * 0.14 * (1.0 - crack) * (0.4 + lum);
+            col = mix(col, burnt, 0.96 * charAmt);
+        }
     }
 
     // Blood: the soaked colour multiplies the skin, darker and thicker where the blood pools (core), plus a wet sheen from
@@ -510,16 +538,46 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
     }
 }
 
+// The view-space position of the pixel at uv, from the depth buffer.
+vec3 ViewPos(vec2 uv) {
+    vec4 v = mg_invProj * vec4(vec3(uv, texture2D(mg_depth, uv).r) * 2.0 - 1.0, 1.0);
+    return v.xyz / v.w;
+}
+
+// The surface normal at the pixel (view space, facing the camera) from the depth of its four neighbours. The screen-space
+// derivatives dFdx and dFdy would do for this, but a GPU takes them over blocks of 2 by 2 pixels: one normal for the whole
+// block, and a garbage one wherever the block straddles a silhouette. Here every pixel looks at its own neighbours and in
+// each direction takes the difference on the side where the depth changes less, so an edge of the worm is never differenced
+// across to the background. cover is 1 inside a surface and falls toward the silhouette, where a neighbour is much farther
+// away (the sky counts), by 0.45 for each such neighbour: about a pixel of anti-aliasing for what is painted on top.
+vec3 SurfaceNormal(vec3 P, out float cover) {
+    vec2 t = mg_resolution.zw;
+    vec3 Pr = ViewPos(mg_uv + vec2(t.x, 0.0));
+    vec3 Pl = ViewPos(mg_uv - vec2(t.x, 0.0));
+    vec3 Pu = ViewPos(mg_uv + vec2(0.0, t.y));
+    vec3 Pd = ViewPos(mg_uv - vec2(0.0, t.y));
+    // View space looks down -Z, so a farther neighbour has the smaller z. A jump of more than 2% of the distance (and a
+    // little) between neighbouring pixels is more than any surface at a grazing angle makes: it is an edge.
+    float jump = 0.02 * -P.z + 0.3;
+    vec4 dz = vec4(Pr.z, Pl.z, Pu.z, Pd.z) - P.z;
+    cover = clamp(1.0 - 0.45 * dot(vec4(1.0), step(jump, -dz)), 0.0, 1.0);
+    vec3 dx = abs(dz.x) < abs(dz.y) ? Pr - P : P - Pl;
+    vec3 dy = abs(dz.z) < abs(dz.w) ? Pu - P : P - Pd;
+    vec3 n = cross(dx, dy);
+    float nl = length(n);
+    // A sliver one pixel wide has no side to difference to: it takes the direction to the camera.
+    n = (nl < 1e-9 || min(abs(dz.x), abs(dz.y)) > jump || min(abs(dz.z), abs(dz.w)) > jump) ? -normalize(P) : n / nl;
+    return dot(n, P) > 0.0 ? -n : n;
+}
+
 // Chooses the worm a pixel belongs to. Worm() is long, and a shader that expands it once per slot is large enough that
 // some drivers link it without an error and then draw nothing with it, so only this short test runs for every slot and
 // Worm() runs once, for the slot it picks. best is the smallest value so far of the body ellipsoid's equation (below 1
-// is inside the body), and the other outputs are that slot's values. n is the pixel's surface normal.
-void Pick(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float sc, float slotIdx,
+// is inside the body), and the other outputs are that slot's values.
+void Pick(vec3 P, vec3 centre, vec3 b, vec3 ex, float sc, float slotIdx,
           inout float best, inout vec3 wc, inout vec3 wb, inout vec3 wex, inout float wsc, inout float wslot) {
     if (b.x <= 0.0 && b.y <= 0.0 && ex.x <= 0.0 && ex.y <= 0.0 && sc <= 0.0) return;
     vec3 d = P - (mg_view * vec4(centre, 1.0)).xyz;
-    // The same facing test as in Worm(): a surface that Worm() would reject must not win the pixel from another worm.
-    if (dot(n, d) <= 0.2 * length(d)) return;
     vec3 L = d * mat3(mg_view);
     float e = (L.x * L.x + L.z * L.z) / (9.5 * 9.5) + L.y * L.y / (16.0 * 16.0);
     if (e < best) {
@@ -537,55 +595,40 @@ void main() {
     float depth = texture2D(mg_depth, mg_uv).r;
     vec4 vp = mg_invProj * vec4(vec3(mg_uv, depth) * 2.0 - 1.0, 1.0);
     vec3 P = vp.xyz / vp.w;
-    // Derivatives are taken before any early return so that every pixel of a block takes part in them.
-    vec3 dPx = dFdx(P);
-    vec3 dPy = dFdy(P);
     if (p_strength <= 0.0 || depth >= 1.0 || length(P) > 0.5 * mg_nearFar.y) {
         gl_FragColor = scene;
         return;
     }
 
-    // Derivatives across a silhouette or a depth jump are garbage, so a pixel whose neighbours are implausibly far
-    // away for a surface at this distance (6% of the distance plus a little) is left alone.
-    if (length(dPx) + length(dPy) > 0.06 * length(P) + 0.5) {
-        gl_FragColor = scene;
-        return;
-    }
-    vec3 n = cross(dPx, dPy);
-    float nl = length(n);
-    if (nl < 1e-9) {
-        gl_FragColor = scene;
-        return;
-    }
-    n /= nl;
-    // Face the camera, which sits at the view-space origin.
-    if (dot(n, P) > 0.0) n = -n;
-
-    // One worm per pixel: the one whose body the pixel is deepest inside.
+    // One worm per pixel: the one whose body the pixel is deepest inside. Most pixels are inside none and stop here, before
+    // any normal is worked out. Whether the surface faces away from the worm is decided in Worm().
     float best = 1.0, wslot = 0.0, wsc = 0.0;
     vec3 wc = vec3(0.0), wb = vec3(0.0), wex = vec3(0.0);
-    Pick(P, n, p_worm0, p_worm0b, p_worm0c, p_scorch0.x, 0.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm1, p_worm1b, p_worm1c, p_scorch0.y, 1.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm2, p_worm2b, p_worm2c, p_scorch0.z, 2.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm3, p_worm3b, p_worm3c, p_scorch0.w, 3.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm4, p_worm4b, p_worm4c, p_scorch1.x, 4.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm5, p_worm5b, p_worm5c, p_scorch1.y, 5.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm6, p_worm6b, p_worm6c, p_scorch1.z, 6.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm7, p_worm7b, p_worm7c, p_scorch1.w, 7.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm8, p_worm8b, p_worm8c, p_scorch2.x, 8.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm9, p_worm9b, p_worm9c, p_scorch2.y, 9.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm10, p_worm10b, p_worm10c, p_scorch2.z, 10.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm11, p_worm11b, p_worm11c, p_scorch2.w, 11.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm12, p_worm12b, p_worm12c, p_scorch3.x, 12.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm13, p_worm13b, p_worm13c, p_scorch3.y, 13.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm14, p_worm14b, p_worm14c, p_scorch3.z, 14.0, best, wc, wb, wex, wsc, wslot);
-    Pick(P, n, p_worm15, p_worm15b, p_worm15c, p_scorch3.w, 15.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm0, p_worm0b, p_worm0c, p_scorch0.x, 0.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm1, p_worm1b, p_worm1c, p_scorch0.y, 1.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm2, p_worm2b, p_worm2c, p_scorch0.z, 2.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm3, p_worm3b, p_worm3c, p_scorch0.w, 3.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm4, p_worm4b, p_worm4c, p_scorch1.x, 4.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm5, p_worm5b, p_worm5c, p_scorch1.y, 5.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm6, p_worm6b, p_worm6c, p_scorch1.z, 6.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm7, p_worm7b, p_worm7c, p_scorch1.w, 7.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm8, p_worm8b, p_worm8c, p_scorch2.x, 8.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm9, p_worm9b, p_worm9c, p_scorch2.y, 9.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm10, p_worm10b, p_worm10c, p_scorch2.z, 10.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm11, p_worm11b, p_worm11c, p_scorch2.w, 11.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm12, p_worm12b, p_worm12c, p_scorch3.x, 12.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm13, p_worm13b, p_worm13c, p_scorch3.y, 13.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm14, p_worm14b, p_worm14c, p_scorch3.z, 14.0, best, wc, wb, wex, wsc, wslot);
+    Pick(P, p_worm15, p_worm15b, p_worm15c, p_scorch3.w, 15.0, best, wc, wb, wex, wsc, wslot);
     if (best >= 1.0) {
         gl_FragColor = scene;
         return;
     }
 
+    float cover;
+    vec3 n = SurfaceNormal(P, cover);
+
     vec3 col = scene.rgb;
     Worm(P, n, wc, wb, wex, wslot, wsc, col);
-    gl_FragColor = vec4(mix(scene.rgb, col, p_strength), scene.a);
+    gl_FragColor = vec4(mix(scene.rgb, col, p_strength * cover), scene.a);
 }

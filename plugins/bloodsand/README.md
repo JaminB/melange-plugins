@@ -47,8 +47,9 @@ shipped — no game file, or anything derived from one.
   highlights, light through the thin wall, and shadow where they meet the worm and the ground. It draws up to four
   gutted worms at once, the closest to the camera. If that pass cannot run, the old flat ribbons are drawn instead.
   Without `wum.game.landRay` the gut lies on a flat ground at the worm's feet.
-- **Scorching**: the skin pass can char a worm: soot-black patches with a glowing edge and flickering embers that fade
-  out over about four seconds. The fire punch sets it, and so does the preview.
+- **Scorching**: the skin pass can char a worm: burnt, cracked flesh, with blackened crust split into plates by dull
+  dark-red fissures, a browned rim and a slight dry sheen (nothing glows, except a faint ember flicker in the cracks for
+  the first half second), fading out over about three seconds. The fire punch sets it, and so does the preview.
 - **Ground decals**: blood that reaches the terrain stays there. A droplet that hits the ground or a wall leaves a
   splat shaped by the way it came in (a round splat with satellite specks when it came down steeply, a teardrop
   streak when it came in low, with drips that run down a wall), and a burst or a heave leaves a pool under the worm
@@ -89,7 +90,7 @@ The **Mods > Bloodsand > Preview** menu item throws a test burst at the active w
 settings without hurting anyone. Each press shows the next weapon's signature (bat, prod, fire punch, nails, donkey,
 old woman, rope knock, fall, shotgun, sniper, poison arrow, then an ordinary explosion burst, and round again), sprayed
 sideways across the screen, and writes its name to the log. It also gives that worm wounds, black eyes, intestines and a
-burn that fade away over about twelve seconds (the burn over four), and makes it throw up once. Press it again to see
+burn that fade away over about twelve seconds (the burn over three), and makes it throw up once. Press it again to see
 more of the intestine slide out.
 
 ## How it detects hits
@@ -195,7 +196,9 @@ Re-measure with the *Mirage/Post-FX* panel on your own machine.
   explosion takes the ordinary burst.
 - Everything on a worm's skin is painted from the depth buffer inside the worm's volume. It travels and turns with the
   worm, but it does not follow the mesh's animation: the game gives a worm's position and facing, not its bones.
-- Black eyes are placed where the eyes are on a worm standing upright. A worm's head bobs, slumps and looks around, so
+- Black eyes are placed where the eyes are on a worm standing upright, on the side the game's facing angle says is the
+  front (the facing is `(sin yaw, 0, cos yaw)`, the same one the blood and the belly use), and only on surfaces that
+  face that way, so never on the back of the head. A worm's head bobs, slumps and looks around, so
   a bruise can sit a little off the eye, and it is not drawn while a worm is thrown. Only skin-coloured pixels are
   darkened, which keeps most hats clean but also makes the bruise faint on a poisoned (green) worm or under strongly
   coloured light.
