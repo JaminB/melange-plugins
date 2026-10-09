@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 21,
+  "serial": 22,
   "plugins": [
     {
       "id": "bloodsand",
@@ -282,6 +282,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "2.0.3",
+          "released": "2026-10-09",
+          "melange": ">=0.3.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/sunstone-v2.0.3/sunstone-2.0.3.zip",
+          "sha256": "b4cef26df3470b662817ff18939f76cbab614dfa329a91ff5719d3f874e082d7",
+          "size": 382081,
+          "unpackedSize": 567927,
+          "files": 79,
+          "changelog": "Runs on Melange 0.7 and every later version: the plugin no longer names an upper Melange version, so a new\nMelange release no longer moves it to `Mods\\.incompatible`. No other change."
+        },
         {
           "version": "2.0.2",
           "released": "2026-10-09",
