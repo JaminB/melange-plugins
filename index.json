@@ -228,6 +228,24 @@
       "screenshots": [],
       "versions": [
         {
+          "version": "1.0.1",
+          "released": "2026-10-09",
+          "melange": ">=0.5.0 <0.7.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kanly-v1.0.1/kanly-1.0.1.zip",
+          "sha256": "e69ac26e2dcd95bc549c94c21043640395364bdc85515be4f7cfced97fbf81a5",
+          "size": 16262870,
+          "unpackedSize": 16342543,
+          "files": 11,
+          "changelog": "Runs on Melange 0.6. No other change."
+        },
+        {
           "version": "1.0.0",
           "released": "2026-10-06",
           "melange": ">=0.5.0 <0.6.0",
