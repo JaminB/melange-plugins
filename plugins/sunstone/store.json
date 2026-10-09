@@ -11,6 +11,24 @@
   "screenshots": [],
   "versions": [
     {
+      "version": "2.0.2",
+      "released": "2026-10-09",
+      "melange": ">=0.3.0 <0.7.0",
+      "kind": "client-only",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/sunstone-v2.0.2/sunstone-2.0.2.zip",
+      "sha256": "46e3b251ed1fe15f845a5d418d8a754760cabbe67b8c588d450837b031cffa89",
+      "size": 382089,
+      "unpackedSize": 567934,
+      "files": 79,
+      "changelog": "Runs on Melange 0.6. No other change."
+    },
+    {
       "version": "2.0.1",
       "released": "2026-10-07",
       "melange": ">=0.3.0 <0.6.0",
