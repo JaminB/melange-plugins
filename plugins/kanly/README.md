@@ -1,8 +1,9 @@
 # Kanly
 
-A client-side plugin for Worms Ultimate Mayhem that adds a game style and four Weapon Factory presets to the vanilla
-menus. Kanly is Dune's word for a formal vendetta fought under agreed rules. Only data is shipped: no code, no game
-file, and nothing derived from one.
+A client-side plugin for Worms Ultimate Mayhem that adds a game style, four Weapon Factory presets, control fixes and
+on-screen control hints to the vanilla game. Kanly is Dune's word for a formal vendetta fought under agreed rules.
+Besides data it ships one small Lua script (the controls and hints) and a few HUD sprites; no game file, and nothing
+derived from one.
 
 ## What it does
 
@@ -13,7 +14,7 @@ file, and nothing derived from one.
 
 ## How to use it
 
-1. Enable the plugin in Melange (needs Melange 0.5.0 or later) and start the game.
+1. Enable the plugin in Melange (needs Melange 0.8.0 or later) and start the game.
 2. Choose the style in **Local Game > Versus > Deathmatch > Game Style > Kanly**. The same list is used by the other
    local modes. The list is alphabetical, so Kanly sits between its neighbours.
 3. A team's custom weapon is chosen in **My Worms > Customise > Edit Team**. The Kanly presets are in the list of
@@ -99,6 +100,38 @@ Girder, Parachute) now have a finite count.
 
 All four are stock presets.
 
+## Controls
+
+Needs Melange 0.8.0 or later. All of these are in **Melange > Mods > Kanly**.
+
+| Setting | What it does |
+| --- | --- |
+| 3rd-person camera Y | `game` leaves the game's own direction, `standard` is mouse up looks up, `inverted` is the opposite. Default `standard`. |
+| Aim Y (first person) | The same choice for aiming and first-person view. Default `game`. |
+| Apply camera invert in Blimp view | The game skips the invert in Blimp view; on, the camera setting applies there too. Default on. |
+| Camera sensitivity | 0.25 to 3.0, scales the camera mouse movement (the 3rd-person and spectator cameras). Default 1.0. |
+| Aim sensitivity | 0.25 to 3.0, scales aiming with the mouse. Default 1.0. |
+| Control hints | `off`, `learning` or `always`. See below. Default `learning`. |
+| Controls legend key | `F1` or `Ctrl+H`. Default `F1`. |
+
+**Hints.** On your own turn, up to three small prompts (a key or mouse glyph and a short label, such as RMB Weapons)
+appear at the bottom centre. They fade in, fade out after about eight seconds without a change of context, and hide
+while a projectile is in flight. They follow what you are doing: walking, aiming a weapon, first-person aiming (which
+lasts while you hold the first-person key, Q by default), the ninja rope, the jetpack, placing a girder. The key names
+come from the game's own key bindings. In `learning` mode each prompt retires after you have used it three times
+(aiming and looking are counted by the time you spend in them); `always` never retires them. `off` draws nothing.
+Prompts only show on a human player's own turn on this machine, never on CPU or other players' turns or to spectators.
+
+**Legend.** Press the legend key at any time in a match to show the full list of controls, and press it again to hide
+it.
+
+**First match.** After installing, the first match shows a one-line note that the camera Y is set to standard and
+where to change it.
+
+**Other players and lockstep.** Control changes happen on your machine before the input is sent, so other players see
+the same result and lockstep is unaffected. Nobody else needs the plugin for these. Mouse smoothing is not a Kanly
+setting: it is a Melange setting, `SmoothMouse` under `[Controls]` in `Melange.ini`.
+
 ## Sudden-death music
 
 When sudden death starts, the game's sudden-death track is replaced by the four Kanly tracks, in a random order per
@@ -116,7 +149,7 @@ The music files are the author's own work.
 
 ## Client-only
 
-`"kind": "client-only"` in `spice.json`, with no permissions (`unsafe` is false, `filesystem` is `none`). The plugin
+`"kind": "client-only"` in `spice.json` (the script only reads game state, draws, and sets Melange's input options), with no permissions (`unsafe` is false, `filesystem` is `none`). The plugin
 declares a `schemes` entry and four `factoryWeapons` entries, which Melange adds to the game's own lists at the
 frontend. A host's style reaches the other players by the vanilla protocol, and a team stores only the preset's name,
 so peers do not need the plugin. A peer without it may see the raw key (`FETXT.Scheme.Kanly`) as the style name in the
@@ -124,9 +157,9 @@ lobby; this has not been verified.
 
 ## Limits
 
-- Needs Melange 0.5.0 or later and game build 1077.
+- Needs Melange 0.8.0 or later and game build 1077.
 - The style appears as a permanent built-in style: it cannot be edited or deleted in game.
-- The settings are fixed in the plugin's files; to change them edit `mod/schemes/kanly.json`.
+- The style's settings are fixed in the plugin's files; to change them edit `mod/schemes/kanly.json`.
 - The music is only heard by players with the plugin. Tracks are joined with a hard cut. Only the sudden-death slot
   exists.
 - That the presets are listed in the team editor is expected to work the same way as the style but has not been

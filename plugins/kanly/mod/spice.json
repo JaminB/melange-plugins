@@ -1,16 +1,17 @@
 {
   "spiceVersion": 1,
   "id": "kanly",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "name": "Kanly",
   "authors": ["Melange"],
-  "description": "Adds a Kanly game style (five-minute rounds, then fast-rising water, with a generous loadout) and four Kanly Weapon Factory presets to the vanilla menus, and replaces the sudden-death music with four Kanly tracks. Client-side: a host's style reaches the other players by the normal game protocol.",
+  "description": "Adds a Kanly game style (five-minute rounds, then fast-rising water, a generous loadout), four Kanly Weapon Factory presets and Kanly sudden-death music. Also fixes controls (camera and aim invert, mouse sensitivity) and shows short on-screen control hints and a controls legend. Client-side.",
   "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kanly",
   "kind": "client-only",
-  "melange": { "range": ">=0.5.0" },
+  "melange": { "range": ">=0.8.0" },
   "permissions": { "unsafe": false, "filesystem": "none" },
   "dependencies": [],
   "conflicts": [],
+  "entry": { "client": "client/init.lua" },
   "schemes": [{ "file": "schemes/kanly.json" }],
   "music": [
     { "slot": "suddenDeath", "file": "music/ash-ridge.mp3", "title": "Ash Ridge", "credit": "Slaughter at Ash Ridge" },
@@ -23,5 +24,14 @@
     { "file": "weapons/blue.json" },
     { "file": "weapons/green.json" },
     { "file": "weapons/yellow.json" }
+  ],
+  "settings": [
+    { "key": "cameraInvertY", "type": "enum", "options": ["game", "standard", "inverted"], "default": "standard", "label": "3rd-person camera Y" },
+    { "key": "aimInvertY", "type": "enum", "options": ["game", "standard", "inverted"], "default": "game", "label": "Aim Y (first person)" },
+    { "key": "blimpInvert", "type": "bool", "default": true, "label": "Apply camera invert in Blimp view" },
+    { "key": "cameraSensitivity", "type": "float", "min": 0.25, "max": 3.0, "default": 1.0, "label": "Camera sensitivity" },
+    { "key": "aimSensitivity", "type": "float", "min": 0.25, "max": 3.0, "default": 1.0, "label": "Aim sensitivity" },
+    { "key": "hints", "type": "enum", "options": ["off", "learning", "always"], "default": "learning", "label": "Control hints" },
+    { "key": "legendKey", "type": "enum", "options": ["F1", "Ctrl+H"], "default": "F1", "label": "Controls legend key" }
   ]
 }
