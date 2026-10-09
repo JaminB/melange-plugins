@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate Kanly's control-hint HUD sprites into mod/textures/.
 
-key.png, key_wide.png, mouse*.png, ring*.png, ring_00..16.png, card.png, chip.png. No text is baked in; the Lua
+key.png, key_wide.png, mouse_lmb/rmb/wheel/move.png, ring_00..16.png, card.png, chip.png. No text is baked in; the Lua
 side draws labels over the flat keycap centres. Every shape is a signed-distance function evaluated per pixel, with
 coverage = clamp(0.5 - d), which gives exact 1px anti-aliased edges. Layers are composited with premultiplied alpha.
 Fixed geometry and no randomness, so the output is deterministic. Original art, nothing from the game. Stdlib only.
@@ -201,12 +201,6 @@ def mouse(name, part=None, move=False):
 
 def rings():
     c = 32
-    cv = Canvas(64, 64)
-    cv.paint(ring(c, c, 16, 30), WHITE)
-    cv.save("ring.png", bleed=WHITE)
-    cv = Canvas(64, 64)
-    cv.paint(ring(c, c, 16, 30), NAVY, 0.72)
-    cv.save("ring_bg.png", bleed=NAVY)
     steps = 16
     band = ring(c, c, 18.5, 27.5)
     for n in range(steps + 1):
@@ -258,7 +252,6 @@ def panel(w, h, r, border, name, glow):
 def main():
     keycap(64, 64, "key.png")
     keycap(160, 64, "key_wide.png")
-    mouse("mouse.png")
     mouse("mouse_lmb.png", "l")
     mouse("mouse_rmb.png", "r")
     mouse("mouse_wheel.png", "wheel")

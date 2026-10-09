@@ -10,15 +10,14 @@
 -- Hints are never shown on other players' turns or to spectators.
 --
 -- Engine messages used (all exact strings from the game's message table):
---   Turn / weapon state:  GameLogic.Turn.Started, GameLogic.Turn.Ended, Weapon.Fired, Weapon.Selected,
---                         Weapon.NoneSelected, Explosion
+--   Turn / weapon state:  GameLogic.Turn.Started, GameLogic.Turn.Ended, Weapon.Fired, Explosion
 --   Learning counters:    Input.JumpPressed, Input.MoveLeftPressed, Input.MoveRightPressed, Input.OpenPanelPressed,
---                         Input.FirePressed, Input.FireReleased, Input.FirstPersonPressed, Input.BlimpViewPressed,
+--                         Input.FirePressed, Input.FireReleased, Input.FirstPersonPressed, Input.FirstPersonReleased,
 --                         Input.FireUtilPressed, Input.Jetpack.ForwardPressed, Input.Jetpack.BackPressed,
---                         Input.Jetpack.LeftPressed, Input.Jetpack.RightPressed,
---                         Input.Fuse1Pressed .. Input.Fuse5Pressed (legend only; fuse prompts are not shown because the
---                         game does not expose whether the weapon has a fuse)
---   Key labels (wum.input.binding): the "Pressed" names above, with the fallbacks in the PROMPTS table.
+--                         Input.Jetpack.LeftPressed, Input.Jetpack.RightPressed
+--   Key labels (wum.input.binding): the "Pressed" names above and Input.BlimpViewPressed (legend), with the fallbacks
+--                         in the PROMPTS and LEGEND_ROWS tables. Fuse prompts are not shown because the game does not
+--                         expose whether the weapon has a fuse.
 -- High-rate messages (Camera.MouseMoved, Input.AimMouse) are never subscribed to; "aim", "look" and "zoom" are
 -- learned from time spent in the context instead.
 
@@ -42,7 +41,7 @@ end
 -- 1. Control options
 -------------------------------------------------------------------------------------------------------------------
 
-local OPT = { sig = nil }
+local OPT = { sig = nil, ok = false }
 
 local function applyOptions()
     if not (wum.input and wum.input.setOptions) then return end
@@ -62,12 +61,8 @@ local function applyOptions()
     }, "|")
     if sig == OPT.sig then return end
     local ok, err = pcall(wum.input.setOptions, t)
-    if ok then
-        OPT.sig = sig
-    else
-        OPT.sig = sig   -- do not retry a rejected value every half second
-        log("kanly: wum.input.setOptions failed: " .. tostring(err))
-    end
+    OPT.sig, OPT.ok = sig, ok   -- a rejected value is not retried every half second
+    if not ok then log("kanly: wum.input.setOptions failed: " .. tostring(err)) end
 end
 
 -------------------------------------------------------------------------------------------------------------------
@@ -78,9 +73,10 @@ local COL = {
     outline = 0x2A1A0E, cream = 0xF6EAD0, gold = 0xFFCC33, accent = 0xFFB81C,
 }
 local L = {                       -- layout in pixels at 1080p; everything is scaled by window height / 1080
-    marginX = 24, marginBottom = 96, chipH = 44, glyphH = 32, pad = 8, gap = 8, labelSize = 19, charW = 0.52,
+    marginBottom = 96, chipH = 44, glyphH = 32, pad = 8, gap = 8, labelSize = 19, charW = 0.52,
     minScale = 0.85, maxAlpha = 0.85, fadeIn = 0.25, fadeOut = 0.6, holdSecs = 8, introSecs = 8,
-    retireAfter = 3, dwellSecs = 6, ringSecs = 3.0, flightFailsafe = 8, flightSettle = 1.5,
+    -- ringSecs: the bazooka reaches full power and fires itself 2.0 s after the press (measured in game).
+    retireAfter = 3, dwellSecs = 6, ringSecs = 2.0, flightFailsafe = 8, flightSettle = 1.5,
 }
 local MAX_PROMPTS = 3
 
@@ -131,7 +127,7 @@ local LEGEND_ROWS = {
 }
 
 local S = {
-    tex = {}, texFail = {}, faults = 0, disabled = false, scale = 1,
+    tex = {}, texFail = {}, faults = 0, disabled = false, scale = 1, mode = "learning",
     ctx = nil, prevCtx = nil, ctxAt = 0, shownAt = 0, lastNow = nil,
     gate = 0, lastPrompts = nil,
     inFlight = false, flightAt = 0, explodedAt = nil,
@@ -190,7 +186,7 @@ end
 
 local function image(x0, y0, x1, y1, name, a)
     local t = tex(name)
-    if t then pcall(wum.draw.hudImage, x0, y0, x1, y1, t, 0xFFFFFF00 + math.floor(clamp(a, 0, 1) * 255 + 0.5)) end
+    if t then pcall(wum.draw.hudImage, x0, y0, x1, y1, t, color(0xFFFFFF, a)) end
 end
 
 local function text(x, y, s, rgb, size, a)
@@ -263,10 +259,12 @@ local function drawChip(x, bottom, s, a, p, ringN)
     return w
 end
 
-local function drawLine(x, bottom, s, a, label)
+-- Draws a one-line note centred on cx (the bottom corners belong to the game's HUD).
+local function drawLine(cx, bottom, s, a, label)
     local h = L.chipH * s
     local size = L.labelSize * s
     local w = L.pad * 3 * s + textWidth(label, size)
+    local x = cx - w / 2
     image(x, bottom - h, x + w, bottom, "chip", a)
     text(x + L.pad * 1.5 * s, bottom - h / 2 - size * 0.55, label, COL.gold, size, a)
     return w
@@ -309,9 +307,9 @@ end
 
 local function contextNow()
     local g = S.groups
+    if not S.localTurn then return nil end
     if g then
-        if g.WormFirstPersonAiming and S.localTurn then return "fp" end
-        if not S.localTurn then return nil end
+        if g.WormFirstPersonAiming then return "fp" end
         if g.WormRoping then return "rope" end
         if g.Flying then return "fly" end
         if g.UtilityGirder then return "girder" end
@@ -319,7 +317,6 @@ local function contextNow()
         if g.InGame or g.WormMoving then return S.weapon and "aim" or "move" end
         return nil
     end
-    if not S.localTurn then return nil end
     return S.weapon and "aim" or "move"
 end
 
@@ -336,7 +333,7 @@ local function drawHints()
     local now = clock()
     local dt = S.lastNow and clamp(now - S.lastNow, 0, 0.1) or 0
     S.lastNow = now
-    local mode = cfg("hints", "learning")
+    local mode = S.mode
     local inMatch = now_inMatch()
     local w, h = 1920, 1080
     if wum.render and wum.render.windowSize then
@@ -344,8 +341,13 @@ local function drawHints()
         if ok and ww and hh and hh > 0 then w, h = ww, hh end
     end
     local s = math.max(h / 1080, L.minScale)  -- small windows: keep the text readable
-    local x0, bottom = L.marginX * s, h - L.marginBottom * s
+    local bottom = h - L.marginBottom * s
 
+    -- inMatch() is also true for the menu's attract demo, which is not a match for the hints, legend or first-match note.
+    if inMatch then
+        refreshGroups(now)
+        if S.groups and S.groups.AttractMode then inMatch = false end
+    end
     if not inMatch then
         S.legendOn, S.ctx, S.gate, S.lastPrompts, S.introChecked = false, nil, 0, nil, false
         resetFlight()
@@ -353,7 +355,6 @@ local function drawHints()
         return
     end
     refreshLocal(now)
-    refreshGroups(now)
 
     -- Flight gate: Weapon.Fired until the explosions have settled, the next turn, or a failsafe.
     if S.inFlight then
@@ -364,9 +365,16 @@ local function drawHints()
     -- Context and hold timer.
     local ctx = contextNow()
     if ctx ~= S.ctx then
-        S.prevCtx, S.ctx, S.ctxAt, S.shownAt = S.ctx, ctx, now, now
+        S.prevCtx, S.ctx, S.ctxAt = S.ctx, ctx, now
+        -- Leaving every context keeps the age, so the last prompts fade out through the gate instead of vanishing.
+        if ctx then S.shownAt = now end
     end
-    if S.fireDown and (ctx == "aim" or ctx == "fp") then S.shownAt = now end
+    if S.fireDown and (ctx == "aim" or ctx == "fp") then
+        -- Hold the prompts (and the power ring) at full age; resetting shownAt to now would make them invisible.
+        local age = now - S.shownAt
+        if age > L.holdSecs then S.shownAt = now
+        elseif age > L.fadeIn then S.shownAt = now - L.fadeIn end
+    end
 
     local list
     if mode ~= "off" and ctx then
@@ -380,7 +388,9 @@ local function drawHints()
         if #list == 0 then list = nil end
     end
 
-    local want = (list ~= nil and not S.inFlight) and 1 or 0
+    -- The rope, jetpack and girder are controlled after they are fired, so the flight gate does not hide their prompts.
+    local gated = S.inFlight and not (ctx == "rope" or ctx == "fly" or ctx == "girder")
+    local want = (list ~= nil and not gated) and 1 or 0
     if S.gate < want then S.gate = math.min(want, S.gate + dt / L.fadeIn)
     elseif S.gate > want then S.gate = math.max(want, S.gate - dt / L.fadeOut) end
     if list then S.lastPrompts = list end
@@ -409,13 +419,19 @@ local function drawHints()
             local ok, v = pcall(wum.storage.get, "introShown")
             shown = ok and v == true
         end
-        if not shown and wum.input and wum.input.setOptions and cfg("cameraInvertY", "standard") == "standard" then
+        -- Only claim the camera was set when setOptions took it and Melange's Controls module is on ([Controls]
+        -- Enabled=0 accepts setOptions but ignores it, and groups() then returns nil).
+        local active = false
+        if OPT.ok and wum.input and wum.input.groups then
+            local ok, v = pcall(wum.input.groups)
+            active = ok and v ~= nil
+        end
+        if not shown and active and cfg("cameraInvertY", "standard") == "standard" then
             S.introUntil = now + L.introSecs
             if wum.storage and wum.storage.set then pcall(wum.storage.set, "introShown", true) end
         end
     end
 
-    local drawn = false
     local row = bottom
     if S.lastPrompts and alpha > 0.01 then
         -- Centred: the game's own HUD fills the bottom corners (power gauge left, turn clock right).
@@ -431,14 +447,13 @@ local function drawHints()
             end
             x = x + drawChip(x, bottom, s, alpha, p, ringN) + L.gap * s
         end
-        drawn = true
+        row = bottom - (L.chipH + L.gap) * s
     end
-    if drawn then row = bottom - (L.chipH + L.gap) * s end
 
     if mode ~= "off" and now < S.introUntil then
         local left = S.introUntil - now
         local a = clamp((L.introSecs - left) / L.fadeIn, 0, 1) * clamp(left / L.fadeOut, 0, 1)
-        drawLine(x0, row, s, a * 0.75, "Camera Y set to standard - change in Melange > Mods > Kanly")
+        drawLine(w / 2, row, s, a * 0.75, "Camera Y set to standard - change in Melange > Mods > Kanly")
     end
 
     -- Legend card.
@@ -456,7 +471,6 @@ local function drawHints()
         for _, r in ipairs(LEGEND_ROWS) do
             local g = glyphOf(r)
             local gcy = y + rowH / 2
-            local gh = L.glyphH * s * 0.85
             drawGlyph(g, cx + pad, gcy, s * 0.85, 1)
             text(cx + pad + 82 * s, gcy - 9 * s, r.label, COL.cream, 18 * s, 1)
             y = y + rowH
@@ -481,7 +495,7 @@ end
 -------------------------------------------------------------------------------------------------------------------
 
 local function countMessage(msg)
-    if cfg("hints", "learning") ~= "learning" then return end
+    if S.mode ~= "learning" then return end
     if not now_inMatch() then return end
     local now = clock()
     refreshLocal(now)
@@ -558,6 +572,7 @@ local function applyLegendKey()
 end
 
 local function applySettings()
+    S.mode = cfg("hints", "learning")   -- read here, not every frame and input message
     pcall(applyOptions)
     pcall(applyLegendKey)
     pcall(saveLearned)
