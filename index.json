@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 23,
+  "serial": 24,
   "plugins": [
     {
       "id": "bloodsand",
@@ -263,6 +263,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.1.0",
+          "released": "2026-10-09",
+          "melange": ">=0.8.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kanly-v1.1.0/kanly-1.1.0.zip",
+          "sha256": "b71a7ea733673c709584dc2c8f1e8226cf4bbc3cfe4ea6b73995af31a6976d0a",
+          "size": 16316968,
+          "unpackedSize": 16412374,
+          "files": 37,
+          "changelog": "Adds control fixes and control hints. Needs Melange 0.8.0 or later.\n\n- Camera and aim: choose the 3rd-person camera Y direction (game, standard or inverted; standard is the new default),\n  the first-person aim Y direction, whether the camera invert also applies in Blimp view, and a camera and an aim\n  mouse sensitivity.\n- Control hints: short, faded key and mouse prompts at the bottom centre on your own turn (off, learning or always).\n  In learning mode a prompt disappears after you have used it three times.\n- Controls legend: press F1 (or Ctrl+H, a setting) during a match for the full control list.\n- A one-time note on the first match about the camera Y default."
+        },
         {
           "version": "1.0.2",
           "released": "2026-10-09",
