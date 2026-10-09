@@ -11,6 +11,24 @@
   "screenshots": [],
   "versions": [
     {
+      "version": "1.0.2",
+      "released": "2026-10-09",
+      "melange": ">=0.5.0",
+      "kind": "client-only",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/kanly-v1.0.2/kanly-1.0.2.zip",
+      "sha256": "bbec0aa997b8ec160e6a91ae66cae89c64739e223ba20bac9c6b75bc2fefd7ef",
+      "size": 16262862,
+      "unpackedSize": 16342536,
+      "files": 11,
+      "changelog": "Runs on Melange 0.7 and every later version: the plugin no longer names an upper Melange version, so a new\nMelange release no longer moves it to `Mods\\.incompatible`. No other change."
+    },
+    {
       "version": "1.0.1",
       "released": "2026-10-09",
       "melange": ">=0.5.0 <0.7.0",
