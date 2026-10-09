@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 21,
+  "serial": 22,
   "plugins": [
     {
       "id": "bloodsand",
@@ -146,6 +146,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.0.3",
+          "released": "2026-10-09",
+          "melange": ">=0.3.3",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/caravan-v1.0.3/caravan-1.0.3.zip",
+          "sha256": "68956a792ffb49b80f0d8941e29817d6b6d3c5a7ca2cfbbf3826c00706a727d1",
+          "size": 4367,
+          "unpackedSize": 8819,
+          "files": 3,
+          "changelog": "Runs on Melange 0.7 and every later version: the plugin no longer names an upper Melange version, so a new\nMelange release no longer moves it to `Mods\\.incompatible`. No other change."
+        },
         {
           "version": "1.0.2",
           "released": "2026-10-09",
