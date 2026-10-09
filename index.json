@@ -147,6 +147,24 @@
       "screenshots": [],
       "versions": [
         {
+          "version": "1.0.2",
+          "released": "2026-10-09",
+          "melange": ">=0.3.3 <0.7.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/caravan-v1.0.2/caravan-1.0.2.zip",
+          "sha256": "6c6568a08deafe6a1280e501a934de6d14fb932e0cc35cfaa030624aef74250f",
+          "size": 4374,
+          "unpackedSize": 8826,
+          "files": 3,
+          "changelog": "Runs on Melange 0.6. No other change."
+        },
+        {
           "version": "1.0.1",
           "released": "2026-10-07",
           "melange": ">=0.3.3 <0.6.0",
