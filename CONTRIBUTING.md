@@ -43,7 +43,9 @@ plugins/<id>/
 - `gameBuilds`: game builds you've tested on. Only `"1077"` exists today.
 - Don't add `versions[]` yourself — the release workflow writes it.
 
-Extra requirements the store puts on `spice.json`: `authors` needs at least one name, `description` is 1-400
+Extra requirements the store puts on `spice.json`: `melange.range` is a lower bound only (`">=0.3.0"`, never
+`<0.5.0`, `^` or `~`): Melange moves a plugin out of `Mods\` as soon as the running version leaves its range, so an
+upper limit would break every install on the next Melange release. `authors` needs at least one name, `description` is 1-400
 characters, `defaultEnabled` must be absent or `true`, every `settings[]` entry needs a `label`, and
 `permissions.network` must be absent or `false` (Melange plugins don't get direct network access).
 

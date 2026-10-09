@@ -72,6 +72,8 @@ MAX_CHANGELOG_CHARS = 2000
 MAX_DESCRIPTION_CHARS = 400
 MAX_NAME_CHARS = 80
 MAX_HOMEPAGE_CHARS = 200
+# A plugin's melange.range: a lower bound only, never an upper limit.
+LOWER_BOUND_RANGE = re.compile(r"^>=\s*\d+\.\d+\.\d+$")
 
 INDEX_MAX_BYTES = 1024 * 1024
 INDEX_MAX_PLUGINS = 500
@@ -735,6 +737,13 @@ class Validator:
         melange_range = spice.get("melange", {}).get("range")
         if not isinstance(melange_range, str) or not melange_range.strip():
             errors.append("mod/spice.json melange.range is required")
+        elif not LOWER_BOUND_RANGE.match(melange_range.strip()):
+            # Melange's compatibility sweep moves a plugin out of Mods\ as soon as the running version leaves its
+            # range, so an upper bound breaks every install on the next Melange release.
+            errors.append(
+                f"mod/spice.json melange.range {melange_range!r} must be a lower bound only, like '>=0.3.0' "
+                "(no upper limit: Melange would quarantine the plugin on its next release)"
+            )
         for setting in spice.get("settings", []) or []:
             if isinstance(setting, dict) and not setting.get("label"):
                 errors.append(f"mod/spice.json setting {setting.get('key')!r} is missing a label")

@@ -1,3 +1,8 @@
+## 2.0.3
+
+Runs on Melange 0.7 and every later version: the plugin no longer names an upper Melange version, so a new
+Melange release no longer moves it to `Mods\.incompatible`. No other change.
+
 ## 2.0.2
 
 Runs on Melange 0.6. No other change.

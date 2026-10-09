@@ -7,7 +7,7 @@
   "description": "A tiny sample plugin used as a store test fixture.",
   "website": "https://github.com/someone/sample-plugin",
   "kind": "client-only",
-  "melange": { "range": ">=0.2.0 <0.3.0" },
+  "melange": { "range": ">=0.2.0" },
   "permissions": { "unsafe": false, "filesystem": "none" },
   "dependencies": [],
   "conflicts": [],
