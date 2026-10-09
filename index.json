@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 21,
+  "serial": 22,
   "plugins": [
     {
       "id": "bloodsand",
@@ -19,6 +19,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.3.1",
+          "released": "2026-10-09",
+          "melange": ">=0.3.5",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/bloodsand-v1.3.1/bloodsand-1.3.1.zip",
+          "sha256": "b9a199621669e0386d1787d16d75be46f89d2b44849c3ad46a6a6ef564b7bb20",
+          "size": 453051,
+          "unpackedSize": 806710,
+          "files": 36,
+          "changelog": "Runs on Melange 0.7 and every later version: the plugin no longer names an upper Melange version, so a new\nMelange release no longer moves it to `Mods\\.incompatible`. No other change."
+        },
         {
           "version": "1.3.0",
           "released": "2026-10-08",
