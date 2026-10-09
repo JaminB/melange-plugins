@@ -64,6 +64,25 @@ class ValidateSpiceVersion(unittest.TestCase):
             self.assertTrue(any("spiceVersion" in e for e in errors), errors)
 
 
+class ValidateMelangeRange(unittest.TestCase):
+    def errors_for(self, melange_range: str) -> list[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), "sample-plugin")
+            spice_path = root / "plugins" / "sample-plugin" / "mod" / "spice.json"
+            spice = json.loads(spice_path.read_text(encoding="utf-8"))
+            spice["melange"]["range"] = melange_range
+            spice_path.write_text(json.dumps(spice), encoding="utf-8")
+            return store.Validator(root).validate_plugin("sample-plugin")
+
+    def test_lower_bound_passes(self):
+        self.assertEqual(self.errors_for(">=0.3.0"), [])
+
+    def test_upper_limit_fails(self):
+        for r in (">=0.3.0 <0.5.0", "<0.5.0", "^0.3.0", "~0.3.0", "0.3.0", ">=0.3.0 <=0.6.1"):
+            errors = self.errors_for(r)
+            self.assertTrue(any("lower bound only" in e for e in errors), (r, errors))
+
+
 class ValidateOversize(unittest.TestCase):
     def test_oversize_file_fails(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -5,7 +5,7 @@
   "authors": ["Someone"],
   "description": "Fixture: no LICENSE file.",
   "kind": "client-only",
-  "melange": { "range": ">=0.9.0 <0.10.0" },
+  "melange": { "range": ">=0.9.0" },
   "permissions": { "unsafe": false, "filesystem": "none" },
   "dependencies": [],
   "conflicts": [],
