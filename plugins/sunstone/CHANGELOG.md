@@ -1,3 +1,7 @@
+## 2.0.2
+
+Runs on Melange 0.6. No other change.
+
 ## 2.0.1
 
 Runs on Melange 0.5. No other change.
