@@ -15,7 +15,7 @@ STATS = {
     -- melee (MeleeWeaponPropertiesContainer)
     -- The held mesh is the plugin's own (assets/meshes/kindjal.NailBat.xom, declared in spice.json "meshes").
     kWeaponBaseballBat = { WormDamageMagnitude = 45, ImpulseMagnitude = 0.60, Radius = 24,
-                           WormCollisionFX = "WXP_ShotgunBlast", WeaponGraphicsResourceID = "kindjal.NailBat" },
+                           WormCollisionFX = "WXP_ShotgunBlast" },
     kWeaponFirePunch   = { WormDamageMagnitude = 40, ImpulseMagnitude = 0.50, Radius = 18,
                            WormCollisionFX = "WXP_Explosion_Small" },
     kWeaponProd        = { WormDamageMagnitude = 10, ImpulseMagnitude = 0.30, Radius = 6,
@@ -71,6 +71,45 @@ STATS = {
     kWeaponGasCanister     = { WormDamageMagnitude = 20, WormDamageRadius = 60, LandDamageRadius = 40,
                                ImpulseMagnitude = 0.30, ImpulseRadius = 90 },
 }
+
+-- Each re-skinned weapon's own models (assets/meshes/*.xom, declared in spice.json "meshes"): W = held,
+-- P = in flight, P2 = second payload, F = flying. Merged into STATS below, so they apply at Init like the numbers.
+MESHES = {
+    kWeaponBaseballBat     = { W = "kindjal.NailBat" },
+    kWeaponProd            = { W = "kindjal.Shiv" },
+    kWeaponFirePunch       = { W = "kindjal.Gauntlet" },
+    kWeaponNoMoreNails     = { W = "kindjal.Railspike" },
+    kWeaponBazooka         = { W = "kindjal.RipperLauncher", P = "kindjal.RipperRocket" },
+    kWeaponGrenade         = { W = "kindjal.PipeBomb", P = "kindjal.PipeBomb" },
+    kWeaponDynamite        = { W = "kindjal.BlastKeg", P = "kindjal.BlastKeg" },
+    kWeaponHolyHandGrenade = { W = "kindjal.ProfaneGrenade", P = "kindjal.ProfaneGrenade" },
+    kWeaponBananaBomb      = { W = "kindjal.Plantains", P = "kindjal.Plantains" },
+    kWeaponBananette       = { P = "kindjal.Plantains" },
+    kWeaponClusterGrenade  = { W = "kindjal.NailCluster", P = "kindjal.NailCluster" },
+    kWeaponClusterBomb     = { P = "kindjal.NailClusterPiece" },
+    kWeaponLandmine        = { W = "kindjal.BearTrap", P = "kindjal.BearTrap" },
+    kWeaponHomingMissile   = { W = "kindjal.HarpoonGun", P = "kindjal.Harpoon" },
+    kWeaponAirstrike       = { W = "kindjal.FieldRadio", P = "kindjal.CarpetShell" },
+    kWeaponSuperAirstrike  = { W = "kindjal.FieldRadio", P = "kindjal.Carcass" },
+    kWeaponConcreteDonkey  = { W = "kindjal.FieldRadio", P = "kindjal.StoneDonkey" },
+    kWeaponSheep           = { W = "kindjal.RabidSheep", P = "kindjal.RabidSheep" },
+    kWeaponSuperSheep      = { W = "kindjal.RabidSheep", P = "kindjal.RabidSheep", F = "kindjal.PlagueRam" },
+    kWeaponStarburst       = { W = "kindjal.RabidSheep", P = "kindjal.RabidSheep", F = "kindjal.DeadStar" },
+    kWeaponOldWoman        = { W = "kindjal.Hangwoman", P = "kindjal.Hangwoman" },
+    kWeaponScouser         = { W = "kindjal.Knifeman", P = "kindjal.Knifeman", P2 = "kindjal.InflatedKnifeman" },
+    kWeaponFatkins         = { W = "kindjal.FieldRadio", P = "kindjal.Gorger" },
+    kWeaponShotgun         = { W = "kindjal.SlugGun" },
+    kWeaponSniperRifle     = { W = "kindjal.ElephantGun" },
+    kWeaponSentryGun       = { W = "kindjal.GibbetTurret" },
+    kWeaponPoisonArrow     = { W = "kindjal.PlagueBow", P = "kindjal.PlagueArrow" },
+    kWeaponGasCanister     = { W = "kindjal.RustCanister", P = "kindjal.RustCanister" },
+}
+local MESH_FIELD = { W = "WeaponGraphicsResourceID", P = "PayloadGraphicsResourceID",
+                     P2 = "Payload2ndGraphicsResourceID", F = "FlyingGraphicsResourceID" }
+for name, m in pairs(MESHES) do
+    STATS[name] = STATS[name] or {}
+    for k, v in pairs(m) do STATS[name][MESH_FIELD[k]] = v end
+end
 
 -- Applies every entry; a refused field is logged and skipped so one bad name never takes the rest down with it.
 local applied, refused = 0, 0

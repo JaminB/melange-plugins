@@ -1,0 +1,136 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "kindjal make_meshes.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "RustCanister",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "RustCanister",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "RustCanister",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "images": [
+  {
+   "uri": "rust_canister.png"
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "rust_canister.bin",
+   "byteLength": 45564
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 13860,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 13860,
+   "byteLength": 13860,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 27720,
+   "byteLength": 9240,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 36960,
+   "byteLength": 8604,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 1155,
+   "type": "VEC3",
+   "min": [
+    -4.420000076293945,
+    -6.0,
+    -4.420000076293945
+   ],
+   "max": [
+    5.099999904632568,
+    6.569674015045166,
+    4.420000076293945
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 1155,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 1155,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 4302,
+   "type": "SCALAR"
+  }
+ ]
+}

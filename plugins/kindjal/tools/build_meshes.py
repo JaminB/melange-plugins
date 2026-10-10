@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build Kindjal's four mesh banks with `xomtool convert --bundle`.
+"""Build Kindjal's static mesh banks (19) with `xomtool convert --bundle`.
 
     python build_meshes.py            write ../mod/assets/meshes/kindjal.*.xom
     python build_meshes.py --check    rebuild into a temp folder, compare byte for byte with the files on disk
@@ -27,6 +27,21 @@ BANKS = [
     ("acid_flask", "kindjal.AcidFlask", 477, "GasCanister"),
     ("acid_round", "kindjal.AcidRound", 478, "Bazooka.Payload"),
     ("crucible", "kindjal.Crucible", 479, "HolyHandGrenade"),
+    ("shiv", "kindjal.Shiv", 480, "BaseballBat"),
+    ("gauntlet", "kindjal.Gauntlet", 481, "BaseballBat"),
+    ("railspike", "kindjal.Railspike", 482, "TailNail"),
+    ("ripper_launcher", "kindjal.RipperLauncher", 483, "Bazooka.Weapon"),
+    ("ripper_rocket", "kindjal.RipperRocket", 484, "Bazooka.Payload"),
+    ("pipe_bomb", "kindjal.PipeBomb", 485, "Grenade.Payload"),
+    ("blast_keg", "kindjal.BlastKeg", 486, "Dynamite"),
+    ("profane_grenade", "kindjal.ProfaneGrenade", 487, "HolyHandGrenade"),
+    ("plantain_bananas", "kindjal.Plantains", 488, "BananaBomb"),
+    ("elephant_gun", "kindjal.ElephantGun", 489, "SniperRifle"),
+    ("rust_canister", "kindjal.RustCanister", 490, "GasCanister"),
+    ("field_radio", "kindjal.FieldRadio", 491, "Radio"),
+    ("stone_donkey", "kindjal.StoneDonkey", 492, "Donkey"),
+    ("plague_arrow", "kindjal.PlagueArrow", 493, "Arrow"),
+    ("inflated_knifeman", "kindjal.InflatedKnifeman", 494, "InflatedScouser"),
 ]
 
 

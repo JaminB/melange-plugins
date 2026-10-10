@@ -1115,7 +1115,22 @@ MESHES = [
 ]
 
 
+# The other weapons' models live in one module per group (tools/meshes_*.py); each exports generate() -> (files, stats).
+GROUPS = ("meshes_held", "meshes_misc", "meshes_thrown")
+
+
 def generate():
+    files, stats = generate_originals()
+    import importlib
+    sys.path.insert(0, str(Path(__file__).resolve().parent))  # the group modules sit beside this file
+    for mod in GROUPS:
+        f, st = importlib.import_module(mod).generate()
+        files.update(f)
+        stats.update(st)
+    return files, stats
+
+
+def generate_originals():
     files, stats = {}, {}
     for stem, name, build, paint in MESHES:
         gltf, binary = build_gltf(stem, name, build())

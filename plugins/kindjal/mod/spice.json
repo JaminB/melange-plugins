@@ -37,8 +37,111 @@
     },
     {
       "file": "assets/meshes/kindjal.Crucible.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.BearTrap.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.BlackGunship.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.BlastKeg.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.Carcass.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.CarpetShell.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.CarrionGunship.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.DeadStar.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.ElephantGun.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.FieldRadio.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.Gauntlet.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.GibbetTurret.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.Gorger.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.Hangwoman.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.Harpoon.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.HarpoonGun.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.InflatedKnifeman.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.Knifeman.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.NailCluster.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.NailClusterPiece.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.PipeBomb.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.PlagueArrow.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.PlagueBow.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.PlagueRam.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.Plantains.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.ProfaneGrenade.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.RabidSheep.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.Railspike.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.RipperLauncher.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.RipperRocket.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.RustCanister.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.Shiv.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.SlugGun.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.StoneDonkey.xom"
     }
   ],
+  "vehicleMeshes": {
+    "BomberHelicopter": "kindjal.BlackGunship",
+    "SuperAirstrike": "kindjal.CarrionGunship"
+  },
   "weapons": [
     {
       "name": "kWeaponAcidSpitter",

@@ -1,0 +1,136 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "kindjal make_meshes.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "Shiv",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "Shiv",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "Shiv",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "images": [
+  {
+   "uri": "shiv.png"
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "shiv.bin",
+   "byteLength": 56536
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 19356,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 19356,
+   "byteLength": 19356,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 38712,
+   "byteLength": 12904,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 51616,
+   "byteLength": 4920,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 1613,
+   "type": "VEC3",
+   "min": [
+    -2.700000047683716,
+    -12.399999618530273,
+    -2.6500000953674316
+   ],
+   "max": [
+    2.815999984741211,
+    15.300000190734863,
+    2.6500000953674316
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 1613,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 1613,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 2460,
+   "type": "SCALAR"
+  }
+ ]
+}

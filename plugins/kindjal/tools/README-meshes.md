@@ -169,3 +169,34 @@ The `--into` recipe above is superseded by `xomtool convert --bundle`, which wri
 
 Each section is used once because a bank is one mesh and the engine loads a section once per session. Re-run it, and
 `--check`, whenever `make_meshes.py` output or xomtool changes; commit the banks with the script.
+
+## All static banks (19)
+
+`make_meshes.py` also runs the three group modules (`meshes_held.py`, `meshes_misc.py`, `meshes_thrown.py`; each exports
+`MODELS = [(slug, build_fn, vanilla_reference_name)]` and `generate()`). They validate against their own reference boxes
+with a 12% tolerance and 400 to 1800 triangles (the four originals keep 10% and 300 to 900). A plain run regenerates all
+19 models; `--check` compares all of them and flags anything else in `meshes/` as UNEXPECTED. `build_meshes.py` builds
+one bank per model into `../mod/assets/meshes/` (its `--check` compares only these 19; other files there, such as the
+clone banks, are ignored). xomtool accepted every material below, so no substitutions were needed.
+
+| slug | resource id | section | vanilla reference / material | triangles | bank bytes |
+| --- | --- | --- | --- | --- | --- |
+| `nail_bat` | `kindjal.NailBat` | 476 | `BaseballBat` | 720 | 91476 |
+| `acid_flask` | `kindjal.AcidFlask` | 477 | `GasCanister` | 820 | 90160 |
+| `acid_round` | `kindjal.AcidRound` | 478 | `Bazooka.Payload` | 836 | 92371 |
+| `crucible` | `kindjal.Crucible` | 479 | `HolyHandGrenade` | 792 | 92790 |
+| `shiv` | `kindjal.Shiv` | 480 | `BaseballBat` | 820 | 124803 |
+| `gauntlet` | `kindjal.Gauntlet` | 481 | `BaseballBat` | 1332 | 151471 |
+| `railspike` | `kindjal.Railspike` | 482 | `TailNail` | 880 | 125743 |
+| `ripper_launcher` | `kindjal.RipperLauncher` | 483 | `Bazooka.Weapon` | 1084 | 113415 |
+| `ripper_rocket` | `kindjal.RipperRocket` | 484 | `Bazooka.Payload` | 704 | 97444 |
+| `pipe_bomb` | `kindjal.PipeBomb` | 485 | `Grenade.Payload` | 508 | 87229 |
+| `blast_keg` | `kindjal.BlastKeg` | 486 | `Dynamite` | 764 | 102944 |
+| `profane_grenade` | `kindjal.ProfaneGrenade` | 487 | `HolyHandGrenade` | 968 | 98312 |
+| `plantain_bananas` | `kindjal.Plantains` | 488 | `BananaBomb` | 816 | 97887 |
+| `elephant_gun` | `kindjal.ElephantGun` | 489 | `SniperRifle` | 976 | 100501 |
+| `rust_canister` | `kindjal.RustCanister` | 490 | `GasCanister` | 1434 | 113853 |
+| `field_radio` | `kindjal.FieldRadio` | 491 | `Radio` | 1406 | 110923 |
+| `stone_donkey` | `kindjal.StoneDonkey` | 492 | `Donkey` | 1390 | 129587 |
+| `plague_arrow` | `kindjal.PlagueArrow` | 493 | `Arrow` | 660 | 93389 |
+| `inflated_knifeman` | `kindjal.InflatedKnifeman` | 494 | `InflatedScouser` | 1144 | 101484 |
