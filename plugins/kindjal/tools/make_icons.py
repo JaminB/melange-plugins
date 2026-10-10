@@ -13,7 +13,7 @@ composited with premultiplied alpha. Fixed geometry and fixed seeds, so the outp
 original, drawn by code; nothing is copied from the game. Stdlib only.
 
     python make_icons.py           write the files
-    python make_icons.py --check   regenerate in memory and compare byte-for-byte with disk; exit 1 on any difference
+    python make_icons.py --check   regenerate in memory and compare with disk (PNGs by decoded pixels, TGAs by bytes); exit 1 on any difference
 """
 import math
 import random
@@ -22,6 +22,9 @@ import sys
 import pathlib
 import zlib
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # the helper sits beside this file
+import _pngcmp  # noqa: E402
 
 MOD = Path(__file__).resolve().parent.parent / "mod"
 PNG_DIR = MOD / "assets" / "icons"
@@ -599,7 +602,7 @@ def main():
             if not path.exists():
                 print("MISSING  ", path)
                 bad += 1
-            elif path.read_bytes() != data:
+            elif not _pngcmp.same(path.read_bytes(), data, path.name):
                 print("DIFFERENT", path)
                 bad += 1
             else:

@@ -4,7 +4,7 @@
 deterministic (fixed seeds), so re-running gives identical bytes.
 
     python make_sprites.py            write the PNGs
-    python make_sprites.py --check    regenerate in memory and compare with the files on disk (exit 1 on a difference)
+    python make_sprites.py --check    regenerate in memory and compare with the files on disk (PNGs by decoded pixels; exit 1 on a difference)
 
 All sprites are RGBA with RGB pure white everywhere; the shape is in the alpha channel, so the client tints them at draw
 time (acid green, smoke grey, and so on) without fringing. Each keeps a clear margin so the quad edge never shows.

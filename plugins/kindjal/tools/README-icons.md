@@ -12,7 +12,7 @@ It is stdlib-only Python 3 (no Pillow) and deterministic (fixed geometry, fixed 
 so re-running gives identical bytes.
 
     python make_icons.py           # write the files (about 10 s)
-    python make_icons.py --check   # regenerate in memory, compare byte-for-byte with disk, exit 1 on any difference
+    python make_icons.py --check   # regenerate in memory, compare with disk (PNGs by decoded pixels, TGAs byte for byte), exit 1 on any difference
 
 The style follows the vanilla HUD icons: thin near-black outline, three-tone cel shading lit from the upper left, a tilted
 pose that fills the frame, a faint soft shadow; the palette is darker and grittier. Shapes are signed-distance functions

@@ -2,7 +2,7 @@
 """Generate Kindjal's weapon meshes into tools/meshes/ (glTF 2.0 + .bin + texture PNG, one set per weapon).
 
     python make_meshes.py            write the files
-    python make_meshes.py --check    regenerate in memory and compare byte for byte with the files on disk
+    python make_meshes.py --check    regenerate in memory and compare with the files on disk (the .png by decoded pixels, the rest byte for byte)
 
 nail_bat      replaces BaseballBat      slim dark club, taped band with a loose cloth tail, seven long bent nails
 acid_flask    replaces GasCanister      fat round flask, thick neck, oversized cork, raised skull plaque on two faces
@@ -29,6 +29,9 @@ import struct
 import sys
 import zlib
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # the helper sits beside this file
+import _pngcmp  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "meshes"
 TEX = 128  # every texture is 128x128
@@ -1146,7 +1149,7 @@ def main():
     args = ap.parse_args()
     files, stats = generate()
     if args.check:
-        bad = [n for n, data in files.items() if not (OUT / n).is_file() or (OUT / n).read_bytes() != data]
+        bad = [n for n, data in files.items() if not (OUT / n).is_file() or not _pngcmp.same((OUT / n).read_bytes(), data, n)]
         extra = sorted(p.name for p in OUT.glob("*") if p.is_file() and p.name not in files) if OUT.is_dir() else []
         for n in bad:
             print(f"DIFFERS: {n}")

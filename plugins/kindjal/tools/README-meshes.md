@@ -1,20 +1,31 @@
 # Weapon meshes
 
-`make_meshes.py` builds Kindjal's four custom weapon meshes into `meshes/` (glTF + texture, the editable source). The
-generated `.xom` banks ship from `mod/assets/meshes/`: `mod/spice.json` lists them under `meshes`, and the weapon
-definitions use them as `WeaponGraphicsResourceID` / `PayloadGraphicsResourceID` (see "Building the banks" below).
+Kindjal ships 37 mesh banks in `mod/assets/meshes/` (`mod/spice.json` lists them under `meshes`; the weapon definitions
+use them as `WeaponGraphicsResourceID` / `PayloadGraphicsResourceID` and the like, and `vehicleMeshes` swaps the two
+helicopters). 19 are static meshes: `make_meshes.py` builds them as glTF + texture into `meshes/` (the editable source)
+and `build_meshes.py` packs them (see "Building the banks" and "All static banks"). 18 are clones of vanilla skinned
+meshes, built by the `clones_*.py` scripts (see "Clone banks"). This page starts with the first four static meshes, the
+original set.
+
+**Where the scripts find xomtool and the game.** Nothing is hard-coded. Every script that runs xomtool reads
+`KINDJAL_XOMTOOL` (the exe; otherwise `xomtool` on PATH) and `KINDJAL_BUNDL09` (the game's `Bundles/Bundl09.xom`) or
+`KINDJAL_GAME_DATA` (the game's `Data` folder), and `--xomtool` / `--bundl09` (`--game-data` for `build_meshes.py`)
+override them; if nothing is found the script stops and says which to set (`_paths.py`). `--only` with an unknown slug
+is an error.
 
 **Status: shipped, but the look under the game's lighting is not yet verified in game.** The previews used while
 authoring were flat-lit, so check the contrast curve (`Texture(gain=, sat=)`) against a real screenshot.
 
     python make_meshes.py            write meshes/*
-    python make_meshes.py --check    regenerate in memory, compare byte for byte with the files on disk (exit 1 on a difference)
+    python make_meshes.py --check    regenerate in memory, compare with the files on disk (exit 1 on a difference); the
+                                     .png by decoded pixels, because deflate bytes differ between zlib builds, the rest byte for byte
 
 Stdlib only (json, struct, math, random, zlib), fixed seeds, deterministic. Every run also re-reads each glTF with a
 strict validator (accessor counts and alignment, buffer bounds, u16 index range, no unreferenced vertices, unit
 normals, uv in 0..1, POSITION min/max equal to the data, winding agrees with the normals, no directed edge used twice (an inside-out piece), texture is a valid 128x128 RGB
 PNG, bounding box within 10% of the vanilla asset, 300 to 900 triangles) and refuses to write anything that fails.
-The art is original; nothing comes from the game.
+The art of these static meshes is original; nothing comes from the game except the shader each bank borrows in the
+next step (`build_meshes.py`). The clone banks are different: see "Clone banks".
 
 | file set | replaces | vertices | triangles | texture |
 | --- | --- | --- | --- | --- |
@@ -143,7 +154,7 @@ Things to know when wiring them up:
 - The shaders are the game's lit shaders, so the painted ember light is baked into the texture and the mesh is still
   shaded by the scene lights on top of it.
 - Whether xomtool's `--texture` accepts 128x128 for a shader that vanilla fills with a 64x64 image depends on the
-  version; it did in the build used here (`dist/tools/xomtool.exe` of the melange-wt-controls worktree).
+  version; it did in the build used here (a `dist/tools/xomtool.exe` built from Melange's `audio` branch).
 - This `--into` recipe is the old manual route; the shipped banks come from `build_meshes.py` (next section).
 
 Edit the profiles, seeds and palettes at the top of each section of `make_meshes.py`, run it, and commit the outputs
@@ -162,10 +173,10 @@ The `--into` recipe above is superseded by `xomtool convert --bundle`, which wri
 | `kindjal.AcidRound.xom` | 478 | `Bazooka.Payload` | `meshes/acid_round.png` |
 | `kindjal.Crucible.xom` | 479 | `HolyHandGrenade` (first shape's shader) | `meshes/crucible.png` |
 
-    python build_meshes.py            write the four banks
+    python build_meshes.py            write the banks
     python build_meshes.py --check    rebuild in a temp folder, compare byte for byte (exit 1 on a difference)
-    --xomtool <path>                  default: the melange-wt-audio `dist\tools\xomtool.exe` (needs `convert --bundle`)
-    --game-data <Data folder>         default: WUMFix\testenv\A\Data (only Bundles\Bundl09.xom is read)
+    --xomtool <path>                  default: $KINDJAL_XOMTOOL, else xomtool on PATH (needs `convert --bundle`)
+    --game-data <Data folder>         default: $KINDJAL_GAME_DATA (only Bundles\Bundl09.xom is read)
 
 Each section is used once because a bank is one mesh and the engine loads a section once per session. Re-run it, and
 `--check`, whenever `make_meshes.py` output or xomtool changes; commit the banks with the script.
@@ -200,3 +211,23 @@ clone banks, are ignored). xomtool accepted every material below, so no substitu
 | `stone_donkey` | `kindjal.StoneDonkey` | 492 | `Donkey` | 1390 | 129587 |
 | `plague_arrow` | `kindjal.PlagueArrow` | 493 | `Arrow` | 660 | 93389 |
 | `inflated_knifeman` | `kindjal.InflatedKnifeman` | 494 | `InflatedScouser` | 1144 | 101484 |
+
+## Clone banks (18)
+
+These are made with `xomtool clone <Vanilla> --from Bundl09.xom`, which keeps the vanilla skinned mesh: skeleton, node
+names, skin weights, clip library, texture stages, vertex count and order, and UV layout all stay the game's, so the
+vanilla animations still drive them. A script supplies a `--deform` (new vertex positions) and the repainted textures
+(`--texture`). They are not original in the way the static meshes are, and the README says so ("What is derived from
+the game"). Each script has `--check` (rebuild in a temp folder, compare byte for byte; the bank holds raw pixels, so
+no deflate stream is involved), `--only <slug>` and the path options above.
+
+| script | banks |
+| --- | --- |
+| `clones_beasts.py` | `RabidSheep`, `PlagueRam`, `Carcass` |
+| `clones_people.py` | `Hangwoman`, `Knifeman`, `Gorger` |
+| `clones_air.py` | `BlackGunship`, `CarrionGunship` (the vanilla atlas is kept as shading detail under the new colours) |
+| `clones_guns.py` | `SlugGun`, `GibbetTurret`, `HarpoonGun`, `Harpoon`, `PlagueBow` |
+| `clones_props.py` | `NailCluster`, `NailClusterPiece`, `CarpetShell`, `BearTrap`, `DeadStar` |
+
+Texture rows: xomtool's glTF and its `--uv-layout` have v up, so a texel row is `(1 - v) * height`; every clone script
+rasterises that way.

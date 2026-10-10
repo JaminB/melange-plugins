@@ -9,7 +9,7 @@ each sprite keeps a clear margin so the quad edge never shows. Fixed seeds and n
 deterministic. Original art made by this script, nothing from the game or any other image. Stdlib only.
 
     python make_sprites.py          write the PNGs into ../mod/textures/
-    python make_sprites.py --check  regenerate in memory and compare byte for byte with the files on disk
+    python make_sprites.py --check  regenerate in memory and compare with the files on disk (decoded pixels, not deflate bytes)
 """
 import math
 import random
@@ -17,6 +17,9 @@ import struct
 import sys
 import zlib
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # the helper sits beside this file
+import _pngcmp  # noqa: E402
 
 OUT = Path(__file__).resolve().parent.parent / "mod" / "textures"
 
@@ -443,7 +446,7 @@ def main():
             if not path.is_file():
                 print(f"MISSING {path}")
                 bad += 1
-            elif path.read_bytes() != data:
+            elif not _pngcmp.same(path.read_bytes(), data, path.name):
                 print(f"DIFFERS {path}")
                 bad += 1
         if bad:

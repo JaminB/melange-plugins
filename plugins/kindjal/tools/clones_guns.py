@@ -32,10 +32,13 @@ import sys
 import tempfile
 import zlib
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the helper sits beside this file
+import _paths  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.normpath(os.path.join(HERE, "..", "mod", "assets", "meshes"))
-DEFAULT_XOMTOOL = r"C:\Users\Jamin\Desktop\melange-wt-audio\dist\tools\xomtool.exe"
-DEFAULT_BUNDL09 = r"C:\Users\Jamin\Desktop\WUMFix\testenv\A\Data\Bundles\Bundl09.xom"
+DEFAULT_XOMTOOL = _paths.default_xomtool()
+DEFAULT_BUNDL09 = _paths.default_bundl09()
 
 # ----------------------------------------------------------------------------------------------------------------------
 # small math helpers
@@ -99,7 +102,7 @@ def fbm(x, y, z, seed=0, octaves=3):
 
 
 def read_gltf(path):
-    """-> list of primitives {name, node, pos, nrm, uv (u, v-down), tris, islands, isl_of_tri}; positions are the shape's own."""
+    """-> list of primitives {name, node, pos, nrm, uv (u, v-up as xomtool writes it: PNG row = (1 - v) * height), tris, islands, isl_of_tri}; positions are the shape's own."""
     g = json.loads(open(path, "r", encoding="utf-8").read())
     with open(os.path.splitext(path)[0] + ".bin", "rb") as f:
         buf = f.read()
@@ -186,9 +189,10 @@ class Canvas:
         for pi, pr in enumerate(prims):
             uv = pr["uv"]
             for ti, (a, b, c) in enumerate(pr["tris"]):
-                A = (uv[a][0] * w, uv[a][1] * h)
-                B = (uv[b][0] * w, uv[b][1] * h)
-                C = (uv[c][0] * w, uv[c][1] * h)
+                # v is up in xomtool's glTF and in its uv-layout (PNG row y = (1 - v) * height), as in the other clone scripts
+                A = (uv[a][0] * w, (1 - uv[a][1]) * h)
+                B = (uv[b][0] * w, (1 - uv[b][1]) * h)
+                C = (uv[c][0] * w, (1 - uv[c][1]) * h)
                 area = (B[0] - A[0]) * (C[1] - A[1]) - (B[1] - A[1]) * (C[0] - A[0])
                 if abs(area) < 1e-9:
                     continue
@@ -648,7 +652,7 @@ def bow_limb(x, y):
     lower limb, upper limb and the knobs overlap there, tip to joint in opposite directions), so this is a function of the
     texel only. Bright bone in the middle, green rot at both ends of the strip (= the tips of one limb and the joint end
     of the other) with a clean dark edge and drips running into the bone."""
-    t = clamp((y - 67.5) / 60.0)
+    t = clamp((y - 67.5) / 60.0)    # y counts rows from the bottom of the PNG (the caller passes height - 1 - row)
     e = min(t, 1.0 - t)
     bone = mix((236, 228, 198), (255, 251, 232), vnoise(x * 0.35, y * 0.12, 0, 21))
     if vnoise(x * 0.9, 0.5, 0, 22) > 0.78:
@@ -719,7 +723,7 @@ def paint_plaguebow(cv, prims):
             ph = (Y * 1.25 + Z * 0.55 + X * 0.4) % 1.0
             c = mix((6, 6, 8), (74, 70, 84), 0.15 + 0.85 * smooth(0.15, 0.4, ph) * (1 - smooth(0.6, 0.85, ph)))
             return mix(c, ROT, smooth(0.74, 0.82, fbm(X * 0.8, Y * 0.8, Z * 0.8, 17, 3)) * 0.5)
-        return bow_limb(x, y)                              # limbs and knob tips
+        return bow_limb(x, cv.h - 1 - y)                   # limbs and knob tips (bow_limb's rows are the strip's, counted from the other edge)
 
     cv.raster(prims, shader)
     finish(cv, 1.0, 1.1)
@@ -782,14 +786,9 @@ def main(argv=None):
     ap.add_argument("--preview", help="folder to keep each model's deformed glTF and painted PNGs in")
     ap.add_argument("--out-dir", default=OUT_DIR)
     a = ap.parse_args(argv)
-    if not os.path.isfile(a.xomtool):
-        sys.exit("xomtool not found: " + a.xomtool)
-    if not os.path.isfile(a.bundl09):
-        sys.exit("Bundl09.xom not found: " + a.bundl09)
+    _paths.require_tools(a.xomtool, a.bundl09)
     slugs = a.only or list(MODELS)
-    for s in slugs:
-        if s not in MODELS:
-            sys.exit("unknown slug %s (have %s)" % (s, ", ".join(MODELS)))
+    _paths.require_slugs(slugs, MODELS)
     bad = 0
     with tempfile.TemporaryDirectory() as tmp:
         for s in slugs:

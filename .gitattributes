@@ -1,0 +1,11 @@
+# Kindjal's generators (plugins/kindjal/tools) compare their output with the committed files byte for byte, and they
+# write LF. Without this, a Windows checkout with core.autocrlf=true turns the glTF text into CRLF and every
+# `make_meshes.py --check` reports a difference although nothing is out of date.
+plugins/kindjal/tools/meshes/*.gltf -text
+
+# Binary assets: never convert line endings.
+*.xom binary
+*.tga binary
+*.wav binary
+*.png binary
+*.bin binary

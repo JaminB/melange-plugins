@@ -14,12 +14,15 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the helper sits beside this file
+import _paths  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.normpath(os.path.join(HERE, "..", "mod", "assets", "meshes"))
 MESH_DIR = os.path.join(HERE, "meshes")
 
-DEFAULT_XOMTOOL = r"C:\Users\Jamin\Desktop\melange-wt-audio\dist\tools\xomtool.exe"
-DEFAULT_GAME_DATA = r"C:\Users\Jamin\Desktop\WUMFix\testenv\A\Data"
+DEFAULT_XOMTOOL = _paths.default_xomtool()
+DEFAULT_GAME_DATA = _paths.default_game_data()
 
 # (source name, resource id, mod section, vanilla mesh whose shader is borrowed)
 BANKS = [
@@ -64,15 +67,12 @@ def build(xomtool, bundle09, out_dir):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--xomtool", default=DEFAULT_XOMTOOL, help="path to xomtool.exe (needs convert --bundle)")
-    ap.add_argument("--game-data", default=DEFAULT_GAME_DATA, help="the game's Data folder (read only)")
+    ap.add_argument("--game-data", default=DEFAULT_GAME_DATA, help="the game's Data folder (read only; or set KINDJAL_GAME_DATA)")
     ap.add_argument("--check", action="store_true", help="compare a fresh build with the files on disk")
     args = ap.parse_args()
 
-    if not os.path.isfile(args.xomtool):
-        sys.exit("xomtool not found: " + args.xomtool)
-    bundle09 = os.path.join(args.game_data, "Bundles", "Bundl09.xom")
-    if not os.path.isfile(bundle09):
-        sys.exit("Bundl09.xom not found: " + bundle09)
+    bundle09 = os.path.join(args.game_data, "Bundles", "Bundl09.xom") if args.game_data else ""
+    _paths.require_tools(args.xomtool, bundle09)
 
     if not args.check:
         build(args.xomtool, bundle09, OUT_DIR)

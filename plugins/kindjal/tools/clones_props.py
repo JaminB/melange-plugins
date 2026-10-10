@@ -51,10 +51,13 @@ import sys
 import tempfile
 import zlib
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the helper sits beside this file
+import _paths  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.normpath(os.path.join(HERE, "..", "mod", "assets", "meshes"))
-DEFAULT_XOMTOOL = r"C:\Users\Jamin\Desktop\melange-wt-audio\dist\tools\xomtool.exe"
-DEFAULT_BUNDL09 = r"C:\Users\Jamin\Desktop\WUMFix\testenv\A\Data\Bundles\Bundl09.xom"
+DEFAULT_XOMTOOL = _paths.default_xomtool()
+DEFAULT_BUNDL09 = _paths.default_bundl09()
 
 
 # ---------------------------------------------------------------------------------------------------------------- vectors
@@ -1094,12 +1097,12 @@ def main(argv=None):
     ap.add_argument("--keep", help="also write deform scripts, textures and deformed glTFs here")
     ap.add_argument("--only", help="comma-separated slugs")
     a = ap.parse_args(argv)
+    _paths.require_tools(a.xomtool, a.bundl09)
     models = MODELS
     if a.only:
         want = set(a.only.split(","))
+        _paths.require_slugs(sorted(want), [m.slug for m in MODELS])
         models = [m for m in MODELS if m.slug in want]
-        if len(models) != len(want):
-            sys.exit("unknown slug in --only: %s" % ", ".join(sorted(want - {m.slug for m in MODELS})))
     tmp = tempfile.mkdtemp(prefix="kj_clones_props_")
     try:
         bad = 0

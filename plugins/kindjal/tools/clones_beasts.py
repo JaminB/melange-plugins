@@ -34,9 +34,12 @@ import tempfile
 import zlib
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the helper sits beside this file
+import _paths  # noqa: E402
+
 HERE = Path(__file__).resolve().parent
-DEFAULT_XOMTOOL = r"C:\Users\Jamin\Desktop\melange-wt-audio\dist\tools\xomtool.exe"
-DEFAULT_BUNDL09 = r"C:\Users\Jamin\Desktop\WUMFix\testenv\A\Data\Bundles\Bundl09.xom"
+DEFAULT_XOMTOOL = _paths.default_xomtool()
+DEFAULT_BUNDL09 = _paths.default_bundl09()
 DEFAULT_OUT = HERE.parent / "mod" / "assets" / "meshes"
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -874,7 +877,9 @@ def main(argv=None):
     ap.add_argument("--work", default="", help="keep textures, deform JSON and glTF previews here")
     ap.add_argument("--check", action="store_true", help="rebuild into a temp dir and compare bytes with --out")
     a = ap.parse_args(argv)
+    _paths.require_tools(a.xomtool, a.bundl09)
     want = [s for s in a.only.split(",") if s]
+    _paths.require_slugs(want, [m.slug for m in MODELS])
     models = [m for m in MODELS if not want or m.slug in want]
     tmp = Path(tempfile.mkdtemp(prefix="clones_beasts_"))
     bad = 0

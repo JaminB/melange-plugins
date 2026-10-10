@@ -10,7 +10,7 @@ which island, which 3D position and which normal it belongs to; UVs wrap, as the
 model decides the colour from the island and the 3D position, so a feature such as an eye slit, a knife blade or a
 stain sits where it should on the mesh whatever the unwrap does.  Everything is deterministic (hash noise, no random).
 
-Run:   C:\\Users\\Jamin\\Desktop\\WUMFix\\tools\\python\\python.exe tools\\clones_people.py [--only slug,...] [--check]
+Run:   python tools/clones_people.py [--only slug,...] [--check]
        [--xomtool PATH] [--bundl09 PATH] [--out-dir DIR]
 
 Importing this file has no side effects; stdlib only.
@@ -26,9 +26,12 @@ import sys
 import tempfile
 import zlib
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the helper sits beside this file
+import _paths  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_XOMTOOL = r"C:\Users\Jamin\Desktop\melange-wt-audio\dist\tools\xomtool.exe"
-DEFAULT_BUNDL09 = r"C:\Users\Jamin\Desktop\WUMFix\testenv\A\Data\Bundles\Bundl09.xom"
+DEFAULT_XOMTOOL = _paths.default_xomtool()
+DEFAULT_BUNDL09 = _paths.default_bundl09()
 DEFAULT_OUT = os.path.normpath(os.path.join(HERE, "..", "mod", "assets", "meshes"))
 
 
@@ -761,8 +764,10 @@ def main(argv=None):
     ap.add_argument("--check", action="store_true", help="rebuild into a temp dir and compare bytes with --out-dir")
     ap.add_argument("--keep", default="", help="also copy the painted PNGs and deform JSONs into this directory")
     a = ap.parse_args(argv)
-    tool = Tool(a.xomtool, a.bundl09)
+    _paths.require_tools(a.xomtool, a.bundl09)
     slugs = [s for s in a.only.split(",") if s] or list(SPECS)
+    _paths.require_slugs(slugs, SPECS)
+    tool = Tool(a.xomtool, a.bundl09)
     bad = 0
     with tempfile.TemporaryDirectory() as tmp:
         for slug in slugs:

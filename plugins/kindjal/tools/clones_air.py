@@ -38,6 +38,7 @@ import argparse
 import colorsys
 import json
 import math
+import os
 import shutil
 import struct
 import subprocess
@@ -46,10 +47,13 @@ import tempfile
 import zlib
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the helper sits beside this file
+import _paths  # noqa: E402
+
 HERE = Path(__file__).resolve().parent
 OUT_DIR = HERE.parent / "mod" / "assets" / "meshes"
-XOMTOOL = r"C:\Users\Jamin\Desktop\melange-wt-audio\dist\tools\xomtool.exe"
-BUNDL09 = r"C:\Users\Jamin\Desktop\WUMFix\testenv\A\Data\Bundles\Bundl09.xom"
+XOMTOOL = _paths.default_xomtool()
+BUNDL09 = _paths.default_bundl09()
 
 
 # ---------------------------------------------------------------- PNG
@@ -634,6 +638,8 @@ def main(argv=None):
     ap.add_argument("--gltf-dir", help="also write the deformed glTFs and painted textures here (preview)")
     ap.add_argument("--only", action="append", help="build only this slug (repeatable)")
     a = ap.parse_args(argv)
+    _paths.require_tools(a.xomtool, a.bundl09)
+    _paths.require_slugs(a.only or [], [m["slug"] for m in MODELS])
     models = [m for m in MODELS if not a.only or m["slug"] in a.only]
     bad = 0
     with tempfile.TemporaryDirectory(prefix="kindjal-air-") as tmp:
