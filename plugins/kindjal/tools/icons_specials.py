@@ -399,9 +399,10 @@ def draw_plague_arrow():
 
 # ---------------------------------------------------------------- rust-canister: a rusted, dented drum that leaks
 def draw_rust_canister():
+    """Gas Canister: a big rusty drum, bold yellow-on-black biohazard trefoil, a dent, and green gas pouring from a hole."""
     cv = Canvas(SIZE, SIZE)
     rng = random.Random(63)
-    O, ANG = (88, 150), 8
+    O, ANG = (98, 152), 6
 
     def T(f):
         return place(f, O[0], O[1], ANG)
@@ -410,77 +411,79 @@ def draw_rust_canister():
         return rot_pt((x, y), O[0], O[1], ANG)
 
     # valve on top
-    cel(cv, T, rbox(-24, -104, 11, 9, 3), [G0, G1, G2], [(-1.5, -2), (-3, -4)], ow=2.8)
-    cel(cv, T, rbox(-24, -112, 22, 4.5, 2), [R0, R1, R2], [(-1.5, -1.5), (-3, -3)], ow=2.6)
+    cel(cv, T, rbox(-30, -100, 12, 9, 3), [G0, G1, G2], [(-1.5, -2), (-3, -4)], ow=2.8)
+    cel(cv, T, rbox(-30, -108, 24, 5, 2), [R0, R1, R2], [(-1.5, -1.5), (-3, -3)], ow=2.6)
 
-    body = rbox(0, 0, 66, 92, 15)
+    body = rbox(0, 0, 68, 92, 16)
     cel(cv, T, body, [X0, X1, X2], [(-10, -5), (-20, -10)])
-    # drum hoops: dark iron rims at the ends and two rolled ridges
     for hy in (-86, 86):
-        cel(cv, T, rbox(0, hy, 69, 10, 6), [X0, X1, X2], [(-1.5, -2.5), (-3, -4.5)], ow=3.0)
-    for hy in (-52, 56):
-        cv.paint(T(inter(rbox(0, hy, 68, 5, 2), body)), X0)
-        cv.paint(T(inter(rbox(0, hy - 2, 66, 1.6, 1), body)), R2, 0.85)
+        cel(cv, T, rbox(0, hy, 71, 10, 6), [X0, X1, X2], [(-1.5, -2.5), (-3, -4.5)], ow=3.0)
+    for hy in (-54, 56):
+        cv.paint(T(inter(rbox(0, hy, 70, 5, 2), body)), X0)
+        cv.paint(T(inter(rbox(0, hy - 2, 68, 1.6, 1), body)), R2, 0.85)
     # rust blotches, orange flecks and pits
-    for _ in range(14):
-        px, py = rng.uniform(-60, 56), rng.uniform(-80, 80)
-        rx, ry = rng.uniform(5, 15), rng.uniform(4, 11)
+    for _ in range(12):
+        px, py = rng.uniform(-66, 62), rng.uniform(-84, 84)
+        rx, ry = rng.uniform(6, 15), rng.uniform(5, 11)
         cv.paint(T(inter(ellipse(px, py, rx, ry), body)), X1 if rng.random() < 0.6 else X0, 0.85)
-        cv.paint(T(inter(ellipse(px - 1.5, py - 1.5, rx * 0.55, ry * 0.5), body)), R1, 0.8)
-    for _ in range(10):
-        cv.paint(T(inter(circle(rng.uniform(-60, 60), rng.uniform(-76, 76), rng.uniform(1.4, 2.8)), body)), X0)
-    for sx in (-48, -14, 38):
-        stroke(cv, [P(sx, -50), P(sx + rng.uniform(-3, 3), -20 + rng.uniform(0, 40))], 3.4, X0, 0.45, clip=T(body))
-    # a big dent: shadowed hollow with a bright lip on its lower right
-    dent = ellipse(-30, 38, 27, 19)
+        cv.paint(T(inter(ellipse(px - 1.5, py - 1.5, rx * 0.55, ry * 0.5), body)), R1, 0.85)
+    for _ in range(8):
+        cv.paint(T(inter(circle(rng.uniform(-64, 64), rng.uniform(-80, 80), rng.uniform(1.6, 3.0)), body)), X0)
+    # bold rust streaks running down from the hoops
+    for sx, y0, ln in ((-52, -50, 52), (-8, 62, 24), (50, -50, 62), (30, 62, 20)):
+        stroke(cv, [P(sx, y0), P(sx + rng.uniform(-3, 3), y0 + ln)], 6.5, X0, 0.8, clip=T(body))
+        stroke(cv, [P(sx - 1, y0), P(sx - 1, y0 + ln * 0.7)], 3.0, R2, 0.85, clip=T(body))
+    # a big, deep dent: shadowed hollow with a bright lip on its lower right
+    dent = ellipse(-34, 46, 30, 22)
     cv.paint(T(inter(dent, body)), X0)
-    cv.paint(T(inter(shift(dent, 5, 6), body)), R1)
-    cv.paint(T(inter(shift(dent, -3, -4), dent)), (0x2A, 0x14, 0x0A))
-    cv.paint(T(inter(ring(-30 + 6, 38 + 5, 22, 26), body)), R2, 0.5)
-    stroke(cv, [P(-46, 30), P(-34, 40), P(-18, 36)], 1.8, OUTLINE, 0.8, clip=T(body))
-    # biohazard mark, faded, over a dark plate
-    cx, cy = 6, -8
-    plate = circle(cx, cy, 39)
-    cv.paint(T(grow(plate, 2.4)), OUTLINE, 0.0)
-    cv.paint(T(plate), (0x24, 0x14, 0x0C), 0.35)
+    cv.paint(T(inter(shift(dent, 6, 7), body)), R2)
+    cv.paint(T(inter(shift(dent, -2, -3), dent)), (0x1A, 0x0C, 0x06))
+    cv.paint(T(inter(shift(dent, -7, -8), dent)), (0x0E, 0x06, 0x03))
+    cv.paint(T(inter(ring(-34 + 7, 46 + 6, 25, 30), body)), R2, 0.8)
+    stroke(cv, [P(-54, 36), P(-40, 48), P(-22, 42)], 2.4, OUTLINE, 0.9, clip=T(body))
+    # biohazard mark: bright yellow trefoil on a black roundel
+    cx, cy = 2, -6
+    cv.paint(T(circle(cx, cy, 50)), Y1)
+    cv.paint(T(circle(cx, cy, 47)), (0x0A, 0x08, 0x08))
     for k in range(3):
         a = math.radians(k * 120 - 90)
         ux, uy = math.cos(a), math.sin(a)
-        c = (cx + ux * 15, cy + uy * 15)
-        claw = sub(circle(c[0], c[1], 19), circle(c[0] + ux * 11, c[1] + uy * 11, 17))
-        cv.paint(T(grow(claw, 1.8)), OUTLINE)
+        lx, ly = cx + ux * 24, cy + uy * 24
+        lobe = circle(lx, ly, 21)
+        hole = circle(lx + ux * 9, ly + uy * 9, 11)
+        claw = sub(lobe, hole)
         cv.paint(T(claw), Y1)
-        cv.paint(T(inter(claw, shift(claw, -2, -3))), Y2)
-    cv.paint(T(circle(cx, cy, 11)), OUTLINE)
-    cv.paint(T(ring(cx, cy, 5, 9)), Y1)
-    cv.paint(T(circle(cx, cy, 3.4)), Y2)
-    for _ in range(5):                                           # corrosion chewing the paint
-        cv.paint(T(inter(ellipse(cx + rng.uniform(-28, 28), cy + rng.uniform(-28, 28), rng.uniform(3, 7), rng.uniform(2, 5)),
-                         plate)), X1, 0.8)
-    cv.paint(T(inter(box(-70, -92, 70, -88), body)), R2, 0.5)
+        cv.paint(T(inter(claw, shift(claw, -2.5, -3))), Y2)
+    cv.paint(T(circle(cx, cy, 14)), (0x0A, 0x08, 0x08))
+    cv.paint(T(ring(cx, cy, 7, 11)), Y1)
+    cv.paint(T(circle(cx, cy, 4)), Y2)
+    cv.paint(T(inter(box(-76, -96, 76, -91), body)), R2, 0.5)
 
-    # the leak: a hole low on the shoulder, a hissing cloud, slime running down
-    hx, hy = P(66, -46)
-    cv.paint(T(ellipse(64, -46, 6, 9)), (0x08, 0x10, 0x06))
-    cv.paint(T(ellipse(63, -46, 3.4, 5.5)), A1)
-    for k, (dx, dy) in enumerate(((30, -12), (36, -26), (26, -36))):
-        stroke(cv, [(hx + 4, hy), (hx + dx, hy + dy)], 4.2 - k, A3, 0.75)
-    cloud = smooth_union(smooth_union(circle(hx + 32, hy - 20, 17), circle(hx + 54, hy - 42, 20), 14),
-                         smooth_union(circle(hx + 42, hy - 58, 13), circle(hx + 22, hy - 4, 10), 10), 12)
-    cloud = union(cloud, circle(hx + 70, hy - 70, 7))
-    paint_alpha_cel(cv, cloud, [A0, A1, A2, A3], [(-4, -5), (-9, -11), (-14, -17)], [0.78, 0.78, 0.8, 0.82])
-    for bx, by, br in ((hx + 48, hy - 46, 4.4), (hx + 30, hy - 18, 3.2), (hx + 58, hy - 34, 3), (hx + 40, hy - 62, 2.4)):
-        cv.paint(ring(bx, by, br - 1.3, br), A4, 0.7)
-    wisp = smooth_union(circle(hx + 80, hy - 36, 7), circle(hx + 74, hy - 48, 4.5), 6)
-    paint_alpha_cel(cv, wisp, [A0, A1, A2], [(-2, -3), (-4, -5)], [0.5, 0.55, 0.6], ow=2.2, oalpha=0.4)
-    # slime running down from the hole
-    ex, ey = P(66, -36)
-    run = smooth_union(capsule(ex - 2, ey, ex - 3, ey + 56, 4.2), circle(ex - 2, ey + 4, 6), 6)
-    run = union(run, circle(ex - 3, ey + 62, 5.6))
-    cel(cv, IDENT, run, [A0, A1, A2], [(-1.5, -2), (-2.5, -3.5)], outline=OUTLINE_G, ow=2.6)
-    cv.paint(ellipse(ex - 5, ey + 20, 1.4, 8), A4, 0.8)
+    # the leak: a ragged hole on the shoulder with one connected plume pouring out, thick at the hole, thinning upward
+    hx, hy = P(48, -72)
+    cv.paint(T(ellipse(48, -72, 11, 9)), OUTLINE)
+    cv.paint(T(ellipse(48, -72, 8, 6.4)), (0x06, 0x0E, 0x04))
+    spine = [(hx, hy), (hx + 12, hy - 18), (hx + 26, hy - 36), (hx + 34, hy - 52), (hx + 34, hy - 64)]
+    plume = chain_pts(spine, [17, 17, 14, 10, 5])
+    plume = smooth_union(plume, circle(hx + 22, hy - 24, 17), 12)
+    plume = smooth_union(plume, circle(hx + 32, hy - 46, 12), 10)
+    plume = union(plume, circle(hx + 48, hy - 34, 6), circle(hx + 42, hy - 72, 3.4))
+    paint_alpha_cel(cv, plume, [A0, A1, A2, A3], [(-4, -5), (-8, -10), (-12, -16)], [0.9, 0.9, 0.92, 0.94], ow=3.0, oalpha=0.8)
+    for bx, by, br in ((hx + 22, hy - 28, 5), (hx + 32, hy - 46, 3.6), (hx + 10, hy - 8, 3.4), (hx + 38, hy - 62, 2.4)):
+        cv.paint(ring(bx, by, br - 1.3, br), A4, 0.8)
+    # slime dripping from the hole
+    for dx, ln, r in ((-4, 36, 4.8), (9, 18, 3.8)):
+        x0, y0 = hx + dx, hy + 4
+        dr = smooth_union(circle(x0, y0, r + 2), capsule(x0, y0, x0, y0 + ln, r * 0.62), 6)
+        dr = union(dr, circle(x0, y0 + ln + 3, r + 0.8))
+        cel(cv, IDENT, dr, [A0, A1, A2], [(-1.5, -2), (-2.5, -3.5)], outline=OUTLINE_G, ow=2.8)
+        cv.paint(ellipse(x0 - 1.8, y0 + ln * 0.5, 1.2, ln * 0.3), A4, 0.8)
     cv.shadow_under(5, 8, 3, 0.30)
     return cv
+
+
+def chain_pts(pts, radii):
+    return union(*[capsule(a[0], a[1], b[0], b[1], (ra + rb) / 2) for a, b, ra, rb in zip(pts, pts[1:], radii, radii[1:])])
 
 
 ICONS = [("hangwoman", draw_hangwoman), ("knifeman", draw_knifeman), ("gorger", draw_gorger),

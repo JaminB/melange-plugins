@@ -232,76 +232,74 @@ def draw_carrion_drop():
 
 # ---------------------------------------------------------------- icon 4: Earthquake Ass
 def draw_earthquake_ass():
+    """Concrete Donkey: a huge stone donkey head and neck in three-quarter profile, two tall splayed ears, fissures, dust."""
     cv = Canvas(SIZE, SIZE)
     rng = random.Random(53)
-    stone = [T0, T1, T2, T3]
-    ST = [(-5, -5), (-11, -11), (-18, -16)]
+    # grey stone lit from the upper left, shadow side a cool blue
+    Q0, Q1, Q2, Q3 = (0x1A, 0x22, 0x34), (0x3A, 0x47, 0x5E), (0x7C, 0x86, 0x90), (0xB8, 0xBC, 0xBC)
+    stone = [Q0, Q1, Q2, Q3]
+    ST = [(-8, -7), (-17, -15), (-30, -26)]
+    CR = (0x04, 0x05, 0x08)
 
-    # ground fissures, drawn first so the plinth sits over them
-    for pts in ([(40, 244), (22, 236), (8, 240), (-4, 232)], [(212, 244), (228, 237), (242, 242), (258, 233)],
-                [(96, 246), (88, 254)], [(160, 247), (172, 255)]):
-        stroke(cv, pts, 6.5, OUTLINE)
-        stroke(cv, pts, 3.0, (0x05, 0x04, 0x04))
-    plinth = rbox(122, 236, 106, 11, 4)
-    cel(cv, IDENT, plinth, [T0, T1, T2], [(-3, -3), (-7, -5)], ow=3.2)
-    # far legs
-    for x0, x1 in ((140, 146), (74, 68)):
-        cel(cv, IDENT, chain([(x0, 120), (x0 + 1, 170), (x1, 222)], [8, 6, 6]), [T0, T1, T2], [(-2, -2), (-4, -3)], ow=3.0)
-        cel(cv, IDENT, rbox(x1, 224, 10, 6, 2), [T0, T0, T1], [(-1, -2), (-2, -3)], ow=2.6)
-    # tail
-    cel(cv, IDENT, chain([(44, 90), (30, 118), (26, 142)], [5, 4.5, 4]), [T0, T1, T2], [(-1.5, -1.5), (-2.5, -3)], ow=2.8)
-    cel(cv, IDENT, ellipse(26, 150, 8, 12), [T0, T1, T2], [(-2, -2), (-4, -4)], ow=2.8)
-    # long ears, tall and separate
-    for (ax, ay, bx, by) in ((168, 112, 182, 52), (180, 120, 222, 82)):
-        ear = chain([(ax, ay), ((ax + bx) / 2 - 3, (ay + by) / 2), (bx, by)], [8, 8.5, 3.5])
-        cel(cv, IDENT, ear, [T0, T1, T2, T3], [(-2, -2), (-3, -4), (-4, -5)], ow=3.0)
-        cv.paint(chain([(ax + 3, ay - 6), (bx + 1, by + 8)], [2.2, 1.6]), T0, 0.9)
-    # barrel body, neck, bowed head and muzzle as one block of stone
-    body = smooth_union(ellipse(102, 110, 62, 40), chain([(142, 88), (176, 126)], [18, 16]), 20)
-    body = smooth_union(body, chain([(176, 126), (198, 186)], [16, 13]), 10)
-    body = smooth_union(body, ellipse(203, 196, 16, 14), 6)
-    body = smooth_union(body, ellipse(52, 98, 18, 26), 12)
-    cel(cv, IDENT, body, stone, ST, ow=3.6)
-    # near legs
-    for x0, x1 in ((122, 128), (92, 86)):
-        leg = chain([(x0, 124), (x0 + 1, 172), (x1, 222)], [9, 7, 7])
-        cel(cv, IDENT, leg, stone[:3], [(-3, -2), (-6, -4)], ow=3.2)
-        cel(cv, IDENT, rbox(x1, 224, 11, 6.5, 2), [T0, T1, T2], [(-1, -2), (-2, -3)], ow=2.6)
-    # stiff mane along the crest of the neck
-    for i in range(4):
-        t = i / 3
-        bx, by = 140 + 28 * t, 80 + 40 * t
-        cel(cv, IDENT, polygon([(bx - 3, by + 2), (bx - 9, by - 10), (bx + 3, by - 2)], 1), [T0, T1, T2], [(-1, -1), (-2, -2)], ow=2.2)
+    # ears first (behind the skull): tall, splayed, dark hollows
+    ears = []
+    for (pts, rad) in (([(92, 100), (66, 52), (46, 8)], [17, 15, 8]),
+                       ([(142, 88), (162, 46), (194, 10)], [17, 15, 8])):
+        ear = chain(pts, rad)
+        ears.append(ear)
+        cel(cv, IDENT, ear, stone[:3], [(-5, -5), (-10, -9)], ow=3.4)
+        hol = chain([(pts[0][0] + 1, pts[0][1] - 16), (pts[1][0] + 1, pts[1][1]), (pts[2][0] + 1, pts[2][1] + 12)], [7, 6.2, 2.4])
+        cv.paint(inter(hol, ear), CR, 0.95)
+    # neck: a thick block leaving the frame at the bottom-left
+    neck = polygon([(8, 150), (92, 98), (170, 170), (150, 262), (-12, 262), (-12, 170)], 10)
+    cel(cv, IDENT, neck, stone, ST, ow=3.8)
+    # skull and long muzzle, one stone mass
+    skull = ellipse(124, 118, 54, 46)
+    muzzle = chain([(150, 126), (192, 156), (218, 184)], [36, 31, 27])
+    head = smooth_union(skull, muzzle, 14)
+    cel(cv, IDENT, head, stone, [(-6, -6), (-13, -12), (-21, -18)], ow=3.8)
+    # stiff mane ridge: blocky teeth down the back of the head and neck
+    for i in range(6):
+        t = i / 5
+        bx, by = 92 - 78 * t, 96 + 58 * t
+        cel(cv, IDENT, polygon([(bx + 9, by + 10), (bx - 4, by - 20), (bx - 12, by + 4)], 1.5), stone[:3], [(-2, -2), (-4, -4)], ow=2.6)
     # stone speckle
-    for _ in range(40):
-        sx, sy = rng.uniform(40, 215), rng.uniform(70, 220)
-        r = rng.uniform(1.0, 2.2)
-        dark = rng.random() < 0.6
-        cv.paint(inter(circle(sx, sy, r), body), T0 if dark else T3, 0.55)
-    # chipped back and face details
-    cv.paint(inter(polygon([(96, 70), (112, 66), (118, 80), (104, 86)], 1), body), T0)
-    cv.paint(inter(polygon([(96, 70), (104, 68), (106, 74), (98, 78)], 1), body), T2, 0.8)
-    cv.paint(ellipse(187, 150, 4.6, 2.4), OUTLINE)                                    # sunk, blind eye
-    cv.paint(ellipse(210, 202, 2.6, 3.8), OUTLINE)                                    # nostril
-    # cracks: two long fissures with a jagged edge, light catching the lip
-    cracks = []
-    crack(rng, 112, 66, math.radians(95), 120, 2, cracks, 0.45)
-    crack(rng, 164, 100, math.radians(170), 100, 1, cracks, 0.5)
-    crack(rng, 62, 96, math.radians(80), 90, 1, cracks, 0.5)
-    for pts, depth in cracks:
-        stroke(cv, [(x + 1.3, y + 1.3) for x, y in pts], 4.8 - depth, T3, 0.6, clip=body)
-    for pts, depth in cracks:
-        stroke(cv, pts, 5.0 - depth, OUTLINE, 1.0, clip=body)
-    for pts, depth in cracks:
-        stroke(cv, pts, 2.2 - 0.4 * depth, (0x04, 0x03, 0x03), 1.0, clip=body)
-    # falling chips and dust
-    for cx, cy, a in ((70, 40, 20), (160, 36, 70), (214, 128, 40), (30, 190, 80)):
+    for _ in range(30):
+        sx, sy = rng.uniform(30, 210), rng.uniform(80, 210)
+        r = rng.uniform(1.2, 2.6)
+        cv.paint(inter(circle(sx, sy, r), union(head, neck)), Q0 if rng.random() < 0.6 else Q3, 0.5)
+    # face
+    # stone brow block over the eye
+    cel(cv, IDENT, polygon([(128, 98), (166, 88), (176, 104), (134, 112)], 3), stone[:3], [(-2, -2), (-4, -4)], ow=2.8)
+    # big round dark eye with a glint
+    cv.paint(circle(153, 118, 12.5), OUTLINE)
+    cv.paint(circle(153, 118, 10), (0x08, 0x09, 0x0E))
+    cv.paint(circle(149, 114, 3.4), (0xD8, 0xDC, 0xE0))
+    # mouth line and nostril
+    stroke(cv, [(166, 178), (196, 198), (228, 202)], 4.2, OUTLINE, 1.0, clip=head)
+    cv.paint(ellipse(214, 168, 6, 9), OUTLINE)
+    cv.paint(ellipse(213, 169, 3.4, 6), CR)
+    # three bold fissures with black interiors and a lit lip
+    fiss = [[(86, 96), (110, 104), (124, 90), (146, 100)],                      # forehead
+            [(52, 168), (66, 190), (50, 212), (64, 244)],                       # neck
+            [(166, 52), (176, 38), (168, 28), (180, 20)]]                       # ear
+    for pts in fiss:
+        stroke(cv, [(x + 2, y + 1.5) for x, y in pts], 5, Q3, 0.7, clip=union(head, neck, *ears))
+    for pts in fiss:
+        stroke(cv, pts, 10, OUTLINE, 1.0, clip=union(head, neck, *ears))
+    for pts in fiss:
+        stroke(cv, pts, 6, CR, 1.0, clip=union(head, neck, *ears))
+    # chipped ear tip: bite out of the right ear
+    cv.paint(polygon([(186, 4), (206, 6), (196, 22)], 1), OUTLINE)
+    # flying chips
+    for cx, cy, a, k in ((226, 66, 20, 1.2), (124, 30, 70, 1.0)):
         c, s = math.cos(math.radians(a)), math.sin(math.radians(a))
-        pts = [(cx + c * x - s * y, cy + s * x + c * y) for x, y in ((-6, -4), (7, -5), (4, 6), (-5, 4))]
-        cel(cv, IDENT, polygon(pts, 0.5), [T0, T1, T2], [(-1, -1), (-2, -2)], ow=2.2)
-    blob(cv, [(30, 224, 13), (46, 214, 11), (18, 214, 9), (62, 226, 10)], [U1, U2], [(-3, -4)], 0.82)
-    blob(cv, [(216, 226, 13), (232, 216, 10), (200, 218, 10), (240, 230, 8)], [U1, U2], [(-3, -4)], 0.82)
-    blob(cv, [(24, 170, 9), (36, 160, 7)], [U1, U2], [(-2, -3)], 0.6)
+        pts = [(cx + k * (c * x - s * y), cy + k * (s * x + c * y)) for x, y in ((-8, -5), (9, -6), (5, 8), (-6, 5))]
+        cel(cv, IDENT, polygon(pts, 0.5), [Q0, Q1, Q2], [(-1.5, -1.5), (-3, -3)], ow=2.6)
+    # dust puffs
+    DU = [(0x4A, 0x4C, 0x52), (0x80, 0x82, 0x86), (0xB4, 0xB4, 0xB0)]
+    blob(cv, [(200, 244, 14), (224, 238, 12), (180, 246, 10), (240, 248, 9)], DU, [(-4, -5), (-9, -9)], 0.92, OUTLINE, 2.4)
+    blob(cv, [(228, 134, 11), (244, 124, 8), (240, 146, 7)], DU, [(-3, -4), (-6, -6)], 0.92, OUTLINE, 2.2)
     cv.shadow_under(5, 6, 3, 0.28)
     return cv
 

@@ -237,59 +237,74 @@ def draw_shiv():
 
 # ---------------------------------------------------------------- railspike
 def draw_railspike():
+    """A big rust-orange railroad spike driven into a dark sleeper, a smaller steel sledge raised behind it."""
     cv = Canvas(SIZE, SIZE)
-    # sledge hammer behind: big head upper-left, short dark haft running down behind the spike
-    OH, AH = (98, 86), -28
+    rng = random.Random(9)
+    # sledge hammer behind and up-left: dark haft running down-left, light steel head
+    OH, AH = (68, 72), 27
 
     def TH(f):
         return place(f, OH[0], OH[1], AH)
 
-    hand = rbox(0, 84, 10, 66, 5)
-    cel(cv, TH, hand, [W0, W1, W2], [(-3, -2), (-6, -4)])
-    head = rbox(0, -6, 66, 30, 5)
-    cel(cv, TH, head, [H0, H1, H2, H3], [(0, -6), (0, -12), (0, -18)])
-    cel(cv, TH, rbox(-66, -6, 8, 34, 3), [H0, H1, H2], [(-1, -4), (-2, -9)], ow=2.8)     # striking face
-    cel(cv, TH, rbox(66, -6, 6, 26, 3), [H0, H1, H2], [(-1, -4), (-2, -9)], ow=2.8)
-    for rx, ry, rr in ((20, -10, 8), (-26, -2, 6)):
-        cv.paint(inter(TH(ellipse(rx, ry, rr * 1.4, rr)), TH(head)), R1, 0.8)
-    # iron spike in front, diagonal, point down-right, big flared head
-    O, ANG = (134, 134), 40
+    SL = ((0x2A, 0x32, 0x3A), (0x5C, 0x6A, 0x74), (0x98, 0xA8, 0xB2), (0xD8, 0xE4, 0xE8))
+    cel(cv, TH, rbox(0, 62, 8, 58, 4), [W0, W1, W2], [(-2, -2), (-4, -3)], ow=3.0)
+    head = rbox(0, 0, 46, 22, 5)
+    cel(cv, TH, head, list(SL), [(-1, -6), (-2, -11), (-4, -15)], ow=3.2)
+    cel(cv, TH, rbox(-46, 0, 7, 27, 3), list(SL[:3]), [(-1, -4), (-2, -8)], ow=2.8)
+    cel(cv, TH, rbox(46, 0, 7, 27, 3), list(SL[:3]), [(-1, -4), (-2, -8)], ow=2.8)
+    # the spike: a big rust-orange iron nail, point down-right, flared head
+    O, ANG = (146, 128), 58
 
     def T(f):
         return place(f, O[0], O[1], ANG)
 
-    IR = ((0x14, 0x13, 0x14), (0x2C, 0x2A, 0x2B), (0x4E, 0x4A, 0x48), (0x7C, 0x74, 0x6C))
-    shank = polygon([(-50, -15), (60, -13), (112, 0), (60, 13), (-50, 15)], 1.5)
-    cap = polygon([(-96, -30), (-54, -19), (-54, 19), (-96, 30)], 3)
-    cel(cv, T, shank, list(IR), [(0, -5), (0, -9), (0, -12)])
-    cel(cv, T, cap, list(IR), [(-2, -5), (-4, -10), (-6, -14)])
-    # rust pitting and streaks
-    rng = random.Random(9)
-    for _ in range(16):
-        rx, ry = rng.uniform(-90, 100), rng.uniform(-11, 11)
-        if rx < -54:
-            ry *= 2.0
-        cv.paint(inter(T(circle(rx, ry, rng.uniform(1.6, 4))), T(union(shank, cap))), R1 if rng.random() < 0.6 else R2, 0.9)
-    for sx, sy, sl in ((-30, 6, 40), (30, -9, 30)):
-        cv.paint(inter(T(ellipse(sx, sy, sl, 4)), T(shank)), R1, 0.85)
-        cv.paint(inter(T(ellipse(sx - 4, sy - 1.5, sl * 0.6, 1.8)), T(shank)), R2, 0.9)
-    stroke(cv, [rot_pt((-46, -10), O[0], O[1], ANG), rot_pt((96, -3), O[0], O[1], ANG)], 2.2, IR[3], 0.7, clip=T(shank))
+    ZP = ((0x5C, 0x20, 0x0A), (0xA8, 0x46, 0x14), (0xE0, 0x7C, 0x2A), (0xFF, 0xB8, 0x62))
+    shank = polygon([(-72, -14), (60, -10), (112, 0), (60, 10), (-72, 14)], 1.5)
+    cap = polygon([(-108, -37), (-72, -25), (-72, 25), (-108, 37)], 3)
+    cel(cv, T, shank, list(ZP), [(0, -5), (0, -8), (0, -10)])
+    cel(cv, T, cap, list(ZP), [(-2, -6), (-4, -11), (-6, -16)])
+    cv.paint(T(inter(box(-76, -26, -70, 26), cap)), ZP[0], 0.8)           # neck shadow under the flare
+    for _ in range(12):
+        rx, ry = rng.uniform(-100, 70), rng.uniform(-9, 9)
+        if rx < -72:
+            ry *= 2.4
+        cv.paint(inter(T(circle(rx, ry, rng.uniform(1.6, 3.6))), T(union(shank, cap))), ZP[0], 0.8)
+    for sx, sy, sl in ((-30, 6, 36), (28, -6, 24)):                          # darker rust streaks
+        cv.paint(inter(T(ellipse(sx, sy, sl, 4)), T(shank)), ZP[0], 0.7)
+    stroke(cv, [rot_pt((-66, -9), O[0], O[1], ANG), rot_pt((90, -2), O[0], O[1], ANG)], 3.0, ZP[3], 0.8, clip=T(shank))
+    stroke(cv, [rot_pt((-100, -30), O[0], O[1], ANG), rot_pt((-100, 28), O[0], O[1], ANG)], 2.4, ZP[3], 0.7, clip=T(cap))
+    # the sleeper: a dark wooden plank across the bottom, the spike buried in it
+    px, py = rot_pt((105, 0), O[0], O[1], ANG)
+    plank = rbox(128, 232, 126, 20, 3)
+    cel(cv, IDENT_M, plank, [W0, W1, W2], [(-2, -3), (-4, -6)], ow=3.2)
+    for gy in (222, 232, 242):
+        stroke(cv, [(10, gy + rng.uniform(-1, 1)), (120, gy + rng.uniform(-2, 2)), (248, gy + rng.uniform(-1, 1))], 1.6, W0, 0.7, clip=plank)
+    cv.paint(inter(box(0, 212, 256, 215), plank), W3, 0.7)               # lit top edge
+    cv.paint(inter(ellipse(px, 213, 20, 5.5), plank), OUTLINE)            # torn hole around the spike
+    cv.paint(inter(ellipse(px + 1, 213, 16, 3.6), plank), (0x05, 0x03, 0x02))
+    for sx, sy, a, k in ((px - 26, 206, -30, 1.0), (px - 36, 196, -60, 1.2), (px + 28, 202, 25, 1.0), (px + 38, 190, 55, 1.1), (px + 14, 192, 10, 0.8)):
+        c, s_ = math.cos(math.radians(a)), math.sin(math.radians(a))
+        pts = [(sx + k * (c * x - s_ * y), sy + k * (s_ * x + c * y)) for x, y in ((-13, -3.5), (13, -2), (9, 3.5))]
+        cel(cv, IDENT_M, polygon(pts, 0.6), [W1, W2, W3], [(-1, -1), (-1.5, -1.5)], ow=2.2)
     # sparks at the point
-    px, py = rot_pt((112, 0), O[0], O[1], ANG)
-    for ang, ln, w in ((-80, 30, 4), (-35, 38, 4), (10, 26, 3.4), (-120, 22, 3), (-8, 40, 3), (-58, 56, 3)):
+    sy0 = 205
+    for ang, ln, w in ((-100, 34, 4), (-60, 44, 4), (-20, 32, 3.4), (-140, 30, 3.4), (-80, 52, 3), (-40, 56, 3)):
         a = math.radians(ang)
-        a0, a1 = (px + math.cos(a) * 8, py + math.sin(a) * 8), (px + math.cos(a) * ln, py + math.sin(a) * ln)
+        a0, a1 = (px + math.cos(a) * 8, sy0 + math.sin(a) * 8), (px + math.cos(a) * ln, sy0 + math.sin(a) * ln)
         stroke(cv, [a0, a1], w + 2.4, E0, 0.6)
         stroke(cv, [a0, a1], w, E2)
         stroke(cv, [a0, a1], w * 0.4, E3)
-    cv.paint(circle(px, py, 11), E0, 0.55)
-    cv.paint(circle(px, py, 6), E2)
-    cv.paint(circle(px, py, 3), E3)
-    for ex, ey, er in ((px + 30, py - 40, 2.6), (px - 20, py - 38, 2.4), (px + 34, py + 2, 2.2)):
+    cv.paint(circle(px, sy0, 11), E0, 0.55)
+    cv.paint(circle(px, sy0, 6), E2)
+    cv.paint(circle(px, sy0, 3), E3)
+    for ex, ey, er in ((px + 40, sy0 - 40, 2.6), (px - 30, sy0 - 46, 2.4), (px + 52, sy0 - 12, 2.2)):
         cv.paint(circle(ex, ey, er + 1.4), E0, 0.45)
         cv.paint(circle(ex, ey, er), E3)
     cv.shadow_under(5, 8, 3, 0.30)
     return cv
+
+
+IDENT_M = lambda f: f  # noqa: E731
 
 
 # ---------------------------------------------------------------- slug gun
