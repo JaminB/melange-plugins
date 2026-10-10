@@ -1,0 +1,136 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "kindjal make_meshes.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "NailBat",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "NailBat",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "NailBat",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "images": [
+  {
+   "uri": "nail_bat.png"
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "nail_bat.bin",
+   "byteLength": 24208
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 7404,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 7404,
+   "byteLength": 7404,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 14808,
+   "byteLength": 4936,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 19744,
+   "byteLength": 4464,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 617,
+   "type": "VEC3",
+   "min": [
+    -2.862349033355713,
+    -12.579999923706055,
+    -2.707151412963867
+   ],
+   "max": [
+    2.899225950241089,
+    13.295000076293945,
+    2.918916940689087
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 617,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 617,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 2232,
+   "type": "SCALAR"
+  }
+ ]
+}
