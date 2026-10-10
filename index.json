@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 24,
+  "serial": 25,
   "plugins": [
     {
       "id": "bloodsand",
@@ -252,7 +252,7 @@
       "authors": [
         "Melange"
       ],
-      "description": "Adds a Kanly game style (five-minute rounds, then fast-rising water, a generous loadout), four Kanly Weapon Factory presets and Kanly sudden-death music. Also fixes controls (camera and aim invert, mouse sensitivity) and shows short on-screen control hints and a controls legend. Client-side.",
+      "description": "Adds the Kanly game style (five-minute rounds, then fast-rising water, a generous loadout) and Kanly Melee (the same timings, melee weapons, grenades and utilities only), four Kanly Weapon Factory presets and Kanly sudden-death music. Also fixes controls (camera and aim invert, mouse sensitivity) and shows short on-screen control hints and a controls legend. Client-side.",
       "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kanly",
       "licence": "MIT",
       "categories": [
