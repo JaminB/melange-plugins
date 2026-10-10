@@ -1,3 +1,14 @@
+## 1.2.0
+
+Adds a second game style, Kanly Melee.
+
+- Kanly Melee: the Kanly timings (five minute round, then fast-rising water) with close-range weapons only. Bazooka,
+  Homing Missile, Shotgun, Sniper Rifle, Poison Arrow, Sentry Gun, No More Nails, Bubble Trouble, Starburst, Super
+  Sheep, Weapon Factory weapon, both airstrikes, Concrete Donkey, Fatkins, Alien Abduction, Scouser, Flood and Crate
+  Shower are removed from the loadout and from crates. Fire Punch and Prod get 5 uses each (2 in Kanly).
+- Fix to the docs: Kanly's 15 mystery crate entries get 10 ammo and no delay, they are not left as in Standard.
+- Netplay: the host and every peer need Kanly 1.2.0, because the game style list positions shift with the new style.
+
 ## 1.1.0
 
 Adds control fixes and control hints. Needs Melange 0.8.0 or later.

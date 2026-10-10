@@ -1,10 +1,10 @@
 {
   "spiceVersion": 1,
   "id": "kanly",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "name": "Kanly",
   "authors": ["Melange"],
-  "description": "Adds a Kanly game style (five-minute rounds, then fast-rising water, a generous loadout), four Kanly Weapon Factory presets and Kanly sudden-death music. Also fixes controls (camera and aim invert, mouse sensitivity) and shows short on-screen control hints and a controls legend. Client-side.",
+  "description": "Adds the Kanly game style (five-minute rounds, then fast-rising water, a generous loadout) and Kanly Melee (the same timings, melee weapons, grenades and utilities only), four Kanly Weapon Factory presets and Kanly sudden-death music. Also fixes controls (camera and aim invert, mouse sensitivity) and shows short on-screen control hints and a controls legend. Client-side.",
   "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kanly",
   "kind": "client-only",
   "melange": { "range": ">=0.8.0" },
@@ -12,7 +12,7 @@
   "dependencies": [],
   "conflicts": [],
   "entry": { "client": "client/init.lua" },
-  "schemes": [{ "file": "schemes/kanly.json" }],
+  "schemes": [{ "file": "schemes/kanly.json" }, { "file": "schemes/kanly-melee.json" }],
   "music": [
     { "slot": "suddenDeath", "file": "music/ash-ridge.mp3", "title": "Ash Ridge", "credit": "Slaughter at Ash Ridge" },
     { "slot": "suddenDeath", "file": "music/ash-ridge-reprise.mp3", "title": "Ash Ridge Reprise", "credit": "Slaughter at Ash Ridge (second mix)" },
