@@ -669,8 +669,13 @@ class Validator:
         if len(shots) > MAX_SCREENSHOTS:
             errors.append("store.json: more than 6 screenshots")
         for shot in shots:
-            if not isinstance(shot, dict) or "file" not in shot:
+            if not isinstance(shot, dict) or not isinstance(shot.get("file"), str):
                 errors.append(f"store.json: bad screenshot entry {shot!r}")
+                continue
+            # A bare file name in plugins/<id>/screenshots/: a separator or ".." would make index.json point (and
+            # the site publish) a file from outside the plugin.
+            if not shot["file"] or shot["file"] in (".", "..") or any(c in shot["file"] for c in "/\\"):
+                errors.append(f"store.json: screenshot {shot['file']!r} must be a file name, not a path")
                 continue
             if Path(shot["file"]).suffix.lower() not in (".png", ".jpg", ".jpeg"):
                 errors.append(f"store.json: screenshot {shot['file']!r} must be .png/.jpg/.jpeg")

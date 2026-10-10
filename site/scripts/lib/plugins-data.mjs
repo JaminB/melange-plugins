@@ -75,10 +75,15 @@ export function loadPlugins(report) {
 		// Screenshots: index.json's entries carry the repo path; store.json names files in plugins/<id>/screenshots/.
 		const captions = new Map((store.screenshots ?? []).map((s) => [s.file, s.caption]));
 		const shotPaths = (entry.screenshots ?? []).length
-			? entry.screenshots.map((s) => ({ repoRel: s.path.replace(/^\/+/, ''), caption: s.caption }))
-			: (store.screenshots ?? []).map((s) => ({ repoRel: `plugins/${id}/screenshots/${s.file}`, caption: s.caption }));
+			? entry.screenshots.map((s) => ({ repoRel: path.posix.normalize(String(s.path ?? '').replace(/^\/+/, '')), caption: s.caption }))
+			: (store.screenshots ?? []).map((s) => ({ repoRel: path.posix.normalize(`plugins/${id}/screenshots/${s.file}`), caption: s.caption }));
 		const screenshots = [];
 		for (const s of shotPaths) {
+			// Both files are contributor-written; a "../" in them must not publish a file from outside the plugin.
+			if (!s.repoRel.startsWith(`plugins/${id}/`)) {
+				errors.push(`${id}: screenshot ${s.repoRel} is outside plugins/${id}/`);
+				continue;
+			}
 			const abs = path.join(REPO_DIR, ...s.repoRel.split('/'));
 			if (!exists(abs)) {
 				errors.push(`${id}: screenshot ${s.repoRel} is listed but missing`);

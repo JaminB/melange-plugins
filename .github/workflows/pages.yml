@@ -1,8 +1,10 @@
 name: pages
 
 # Builds the plugin catalogue site in site/ from index.json and plugins/**, and publishes it to GitHub Pages
-# (https://jaminb.github.io/melange-plugins/). Runs on every push to main, at the end of a release (release.yml calls
-# it), by hand, and as a build-only check on pull requests that touch the plugins or the site.
+# (https://jaminb.github.io/melange-plugins/). Runs on every push to main, after a release run succeeds (workflow_run:
+# it then runs on main, which the github-pages environment's branch policy allows, and builds main's current tree; the
+# released version itself appears once the release PR is merged, which redeploys again), by hand, and as a build-only
+# check on pull requests that touch the plugins or the site.
 
 on:
   push:
@@ -18,7 +20,9 @@ on:
       - "site/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
-  workflow_call:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
 
 permissions: {}
 
@@ -28,6 +32,8 @@ concurrency:
 
 jobs:
   build:
+    # After a release: only one that succeeded.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
