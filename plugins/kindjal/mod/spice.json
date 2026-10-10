@@ -3,21 +3,41 @@
   "id": "kindjal",
   "version": "1.0.0",
   "name": "Kindjal",
-  "authors": ["Melange"],
+  "authors": [
+    "Melange"
+  ],
   "description": "Every weapon shifted a dimension darker: melee that maims and launches, explosives that hit harder and throw worms much further, three new weapons (Acid Spitter, Acid Flask, Crucible) whose acid smokes and clings to a worm's skin, new names, new sounds. Content mod: every player in an online match needs it.",
   "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kindjal",
   "kind": "content",
-  "melange": { "range": ">=0.9.0" },
-  "permissions": { "unsafe": false, "filesystem": "none" },
+  "melange": {
+    "range": ">=0.9.0"
+  },
+  "permissions": {
+    "unsafe": false,
+    "filesystem": "none"
+  },
   "dependencies": [],
   "conflicts": [],
-  "entry": { "sim": "sim/main.lua", "client": "client/init.lua" },
-  "messages": ["Kindjal.Burst"],
+  "entry": {
+    "sim": "sim/main.lua",
+    "client": "client/init.lua"
+  },
+  "messages": [
+    "Kindjal.Burst"
+  ],
   "meshes": [
-    { "file": "assets/meshes/kindjal.NailBat.xom" },
-    { "file": "assets/meshes/kindjal.AcidRound.xom" },
-    { "file": "assets/meshes/kindjal.AcidFlask.xom" },
-    { "file": "assets/meshes/kindjal.Crucible.xom" }
+    {
+      "file": "assets/meshes/kindjal.NailBat.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.AcidRound.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.AcidFlask.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.Crucible.xom"
+    }
   ],
   "weapons": [
     {
@@ -35,7 +55,10 @@
       },
       "panelIcon": "icons/acid-spitter.png",
       "hudIcon": "kindjal.acid-spitter.hud.tga",
-      "text": { "name": "Acid Spitter", "help": "Spits a corrosive round. The burst is poison gas, and the acid clings to whatever it touches." }
+      "text": {
+        "name": "Acid Spitter",
+        "help": "Spits a corrosive round. The burst is poison gas, and the acid clings to whatever it touches."
+      }
     },
     {
       "name": "kWeaponAcidFlask",
@@ -57,7 +80,10 @@
       },
       "panelIcon": "icons/acid-flask.png",
       "hudIcon": "kindjal.acid-flask.hud.tga",
-      "text": { "name": "Acid Flask", "help": "Shatters where it lands and splashes acid to both sides. Poisons everything in the spill." }
+      "text": {
+        "name": "Acid Flask",
+        "help": "Shatters where it lands and splashes acid to both sides. Poisons everything in the spill."
+      }
     },
     {
       "name": "kWeaponCrucible",
@@ -77,42 +103,261 @@
       },
       "panelIcon": "icons/crucible.png",
       "hudIcon": "kindjal.crucible.hud.tga",
-      "text": { "name": "Crucible", "help": "No choir, no pause. Melts the ground it lands on and hurls everything nearby into the sky." }
+      "text": {
+        "name": "Crucible",
+        "help": "No choir, no pause. Melts the ground it lands on and hurls everything nearby into the sky."
+      }
     }
   ],
   "weaponText": {
-    "kWeaponBaseballBat":      { "name": "Nail Bat",        "help": "A bat studded with nails. Hits harder and sends the victim flying." },
-    "kWeaponFirePunch":        { "name": "Hellfist",        "help": "An uppercut that detonates on contact and launches the victim." },
-    "kWeaponProd":             { "name": "Shiv",            "help": "A stab that bleeds, with a shove behind it." },
-    "kWeaponNoMoreNails":      { "name": "Railspike",       "help": "Spikes driven straight in. Twice the hurt of a nail." },
-    "kWeaponBazooka":          { "name": "Ripper",          "help": "A heavier rocket: bigger blast, far more knockback." },
-    "kWeaponGrenade":          { "name": "Pipe Bomb",       "help": "Concentrated charge. Fewer victims, much deadlier." },
-    "kWeaponDynamite":         { "name": "Blast Keg",       "help": "Clears a hillside and everyone on it." },
-    "kWeaponHolyHandGrenade":  { "name": "Profane Grenade", "help": "The old miracle, stripped of mercy." },
-    "kWeaponBananaBomb":       { "name": "Plantain Hell",   "help": "Splits into seven bomblets that throw worms around." },
-    "kWeaponClusterGrenade":   { "name": "Nail Cluster",    "help": "Every fragment now hurts and shoves." },
-    "kWeaponLandmine":         { "name": "Bear Trap",       "help": "Stepping on one is a real event." },
-    "kWeaponHomingMissile":    { "name": "Harpoon",         "help": "Guided displacement. Pulls worms off their perches." },
-    "kWeaponAirstrike":        { "name": "Carpet Bombing",  "help": "Heavier bombs, bigger craters, worms in the air." },
-    "kWeaponSuperAirstrike":   { "name": "Carrion Drop",    "help": "Three carcasses from the sky. Nothing walks away." },
-    "kWeaponConcreteDonkey":   { "name": "Earthquake Ass",  "help": "Cataclysmic terrain loss. Everything near it is airborne." },
-    "kWeaponSheep":            { "name": "Rabid Flock",     "help": "The sheep that ends a worm." },
-    "kWeaponSuperSheep":       { "name": "Plague Ram",      "help": "Flies like the old one, kills like the new one." },
-    "kWeaponOldWoman":         { "name": "Hangwoman",       "help": "Shuffles over and throws everyone off the ledge." },
-    "kWeaponScouser":          { "name": "Knifeman",        "help": "Hits harder and shoves when he bursts." },
-    "kWeaponFatkins":          { "name": "Gorger",          "help": "Lands like a meteor; the whole area goes flying." },
-    "kWeaponStarburst":        { "name": "Dead Star",       "help": "A falling star that hurls worms across the map." },
-    "kWeaponShotgun":          { "name": "Slug Gun",        "help": "Two slugs, fifty each. Both land, the worm dies." },
-    "kWeaponSniperRifle":      { "name": "Elephant Gun",    "help": "The impact matters more than the hole." },
-    "kWeaponSentryGun":        { "name": "Gibbet Turret",   "help": "A turret that fires Ripper-class rounds." },
-    "kWeaponPoisonArrow":      { "name": "Plague Arrow",    "help": "Hits harder; the plague cloud is unchanged." },
-    "kWeaponGasCanister":      { "name": "Rust Canister",   "help": "Gas and a blast." }
+    "kWeaponBaseballBat": {
+      "name": "Nail Bat",
+      "help": "A bat studded with nails. Hits harder and sends the victim flying."
+    },
+    "kWeaponFirePunch": {
+      "name": "Hellfist",
+      "help": "An uppercut that detonates on contact and launches the victim."
+    },
+    "kWeaponProd": {
+      "name": "Shiv",
+      "help": "A stab that bleeds, with a shove behind it."
+    },
+    "kWeaponNoMoreNails": {
+      "name": "Railspike",
+      "help": "Spikes driven straight in. Twice the hurt of a nail."
+    },
+    "kWeaponBazooka": {
+      "name": "Ripper",
+      "help": "A heavier rocket: bigger blast, far more knockback."
+    },
+    "kWeaponGrenade": {
+      "name": "Pipe Bomb",
+      "help": "Concentrated charge. Fewer victims, much deadlier."
+    },
+    "kWeaponDynamite": {
+      "name": "Blast Keg",
+      "help": "Clears a hillside and everyone on it."
+    },
+    "kWeaponHolyHandGrenade": {
+      "name": "Profane Grenade",
+      "help": "The old miracle, stripped of mercy."
+    },
+    "kWeaponBananaBomb": {
+      "name": "Plantain Hell",
+      "help": "Splits into seven bomblets that throw worms around."
+    },
+    "kWeaponClusterGrenade": {
+      "name": "Nail Cluster",
+      "help": "Every fragment now hurts and shoves."
+    },
+    "kWeaponLandmine": {
+      "name": "Bear Trap",
+      "help": "Stepping on one is a real event."
+    },
+    "kWeaponHomingMissile": {
+      "name": "Harpoon",
+      "help": "Guided displacement. Pulls worms off their perches."
+    },
+    "kWeaponAirstrike": {
+      "name": "Carpet Bombing",
+      "help": "Heavier bombs, bigger craters, worms in the air."
+    },
+    "kWeaponSuperAirstrike": {
+      "name": "Carrion Drop",
+      "help": "Three carcasses from the sky. Nothing walks away."
+    },
+    "kWeaponConcreteDonkey": {
+      "name": "Earthquake Ass",
+      "help": "Cataclysmic terrain loss. Everything near it is airborne."
+    },
+    "kWeaponSheep": {
+      "name": "Rabid Flock",
+      "help": "The sheep that ends a worm."
+    },
+    "kWeaponSuperSheep": {
+      "name": "Plague Ram",
+      "help": "Flies like the old one, kills like the new one."
+    },
+    "kWeaponOldWoman": {
+      "name": "Hangwoman",
+      "help": "Shuffles over and throws everyone off the ledge."
+    },
+    "kWeaponScouser": {
+      "name": "Knifeman",
+      "help": "Hits harder and shoves when he bursts."
+    },
+    "kWeaponFatkins": {
+      "name": "Gorger",
+      "help": "Lands like a meteor; the whole area goes flying."
+    },
+    "kWeaponStarburst": {
+      "name": "Dead Star",
+      "help": "A falling star that hurls worms across the map."
+    },
+    "kWeaponShotgun": {
+      "name": "Slug Gun",
+      "help": "Two slugs, fifty each. Both land, the worm dies."
+    },
+    "kWeaponSniperRifle": {
+      "name": "Elephant Gun",
+      "help": "The impact matters more than the hole."
+    },
+    "kWeaponSentryGun": {
+      "name": "Gibbet Turret",
+      "help": "A turret that fires Ripper-class rounds."
+    },
+    "kWeaponPoisonArrow": {
+      "name": "Plague Arrow",
+      "help": "Hits harder; the plague cloud is unchanged."
+    },
+    "kWeaponGasCanister": {
+      "name": "Rust Canister",
+      "help": "Gas and a blast."
+    }
+  },
+  "weaponIcons": {
+    "kWeaponBaseballBat": {
+      "panelIcon": "icons/nail-bat.png",
+      "hudIcon": "kindjal.nail-bat.hud.tga"
+    },
+    "kWeaponFirePunch": {
+      "panelIcon": "icons/hellfist.png",
+      "hudIcon": "kindjal.hellfist.hud.tga"
+    },
+    "kWeaponProd": {
+      "panelIcon": "icons/shiv.png",
+      "hudIcon": "kindjal.shiv.hud.tga"
+    },
+    "kWeaponNoMoreNails": {
+      "panelIcon": "icons/railspike.png",
+      "hudIcon": "kindjal.railspike.hud.tga"
+    },
+    "kWeaponBazooka": {
+      "panelIcon": "icons/ripper.png",
+      "hudIcon": "kindjal.ripper.hud.tga"
+    },
+    "kWeaponGrenade": {
+      "panelIcon": "icons/pipe-bomb.png",
+      "hudIcon": "kindjal.pipe-bomb.hud.tga"
+    },
+    "kWeaponDynamite": {
+      "panelIcon": "icons/blast-keg.png",
+      "hudIcon": "kindjal.blast-keg.hud.tga"
+    },
+    "kWeaponHolyHandGrenade": {
+      "panelIcon": "icons/profane-grenade.png",
+      "hudIcon": "kindjal.profane-grenade.hud.tga"
+    },
+    "kWeaponBananaBomb": {
+      "panelIcon": "icons/plantain-hell.png",
+      "hudIcon": "kindjal.plantain-hell.hud.tga"
+    },
+    "kWeaponClusterGrenade": {
+      "panelIcon": "icons/nail-cluster.png",
+      "hudIcon": "kindjal.nail-cluster.hud.tga"
+    },
+    "kWeaponLandmine": {
+      "panelIcon": "icons/bear-trap.png",
+      "hudIcon": "kindjal.bear-trap.hud.tga"
+    },
+    "kWeaponHomingMissile": {
+      "panelIcon": "icons/harpoon.png",
+      "hudIcon": "kindjal.harpoon.hud.tga"
+    },
+    "kWeaponAirstrike": {
+      "panelIcon": "icons/carpet-bombing.png",
+      "hudIcon": "kindjal.carpet-bombing.hud.tga"
+    },
+    "kWeaponSuperAirstrike": {
+      "panelIcon": "icons/carrion-drop.png",
+      "hudIcon": "kindjal.carrion-drop.hud.tga"
+    },
+    "kWeaponConcreteDonkey": {
+      "panelIcon": "icons/earthquake-ass.png",
+      "hudIcon": "kindjal.earthquake-ass.hud.tga"
+    },
+    "kWeaponSheep": {
+      "panelIcon": "icons/rabid-flock.png",
+      "hudIcon": "kindjal.rabid-flock.hud.tga"
+    },
+    "kWeaponSuperSheep": {
+      "panelIcon": "icons/plague-ram.png",
+      "hudIcon": "kindjal.plague-ram.hud.tga"
+    },
+    "kWeaponOldWoman": {
+      "panelIcon": "icons/hangwoman.png",
+      "hudIcon": "kindjal.hangwoman.hud.tga"
+    },
+    "kWeaponScouser": {
+      "panelIcon": "icons/knifeman.png",
+      "hudIcon": "kindjal.knifeman.hud.tga"
+    },
+    "kWeaponFatkins": {
+      "panelIcon": "icons/gorger.png",
+      "hudIcon": "kindjal.gorger.hud.tga"
+    },
+    "kWeaponStarburst": {
+      "panelIcon": "icons/dead-star.png",
+      "hudIcon": "kindjal.dead-star.hud.tga"
+    },
+    "kWeaponShotgun": {
+      "panelIcon": "icons/slug-gun.png",
+      "hudIcon": "kindjal.slug-gun.hud.tga"
+    },
+    "kWeaponSniperRifle": {
+      "panelIcon": "icons/elephant-gun.png",
+      "hudIcon": "kindjal.elephant-gun.hud.tga"
+    },
+    "kWeaponSentryGun": {
+      "panelIcon": "icons/gibbet-turret.png",
+      "hudIcon": "kindjal.gibbet-turret.hud.tga"
+    },
+    "kWeaponPoisonArrow": {
+      "panelIcon": "icons/plague-arrow.png",
+      "hudIcon": "kindjal.plague-arrow.hud.tga"
+    },
+    "kWeaponGasCanister": {
+      "panelIcon": "icons/rust-canister.png",
+      "hudIcon": "kindjal.rust-canister.hud.tga"
+    }
   },
   "settings": [
-    { "key": "intensity", "type": "enum", "options": ["off", "subtle", "full"], "default": "full", "label": "Acid and impact visuals" },
-    { "key": "smoke", "type": "bool", "default": true, "label": "Acid smoke and puddles" },
-    { "key": "melee", "type": "bool", "default": true, "label": "Melee impact flourish" },
-    { "key": "sounds", "type": "float", "min": 0.0, "max": 1.0, "default": 0.8, "label": "Kindjal sound volume" },
-    { "key": "spikes", "type": "bool", "default": false, "label": "Spike glints on melee swings (experimental)" }
+    {
+      "key": "intensity",
+      "type": "enum",
+      "options": [
+        "off",
+        "subtle",
+        "full"
+      ],
+      "default": "full",
+      "label": "Acid and impact visuals"
+    },
+    {
+      "key": "smoke",
+      "type": "bool",
+      "default": true,
+      "label": "Acid smoke and puddles"
+    },
+    {
+      "key": "melee",
+      "type": "bool",
+      "default": true,
+      "label": "Melee impact flourish"
+    },
+    {
+      "key": "sounds",
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.8,
+      "label": "Kindjal sound volume"
+    },
+    {
+      "key": "spikes",
+      "type": "bool",
+      "default": false,
+      "label": "Spike glints on melee swings (experimental)"
+    }
   ]
 }

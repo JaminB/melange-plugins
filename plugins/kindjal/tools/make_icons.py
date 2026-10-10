@@ -19,6 +19,7 @@ import math
 import random
 import struct
 import sys
+import pathlib
 import zlib
 from pathlib import Path
 
@@ -527,13 +528,64 @@ def draw_crucible():
 
 ICONS = [("acid-spitter", draw_spitter), ("acid-flask", draw_flask), ("crucible", draw_crucible)]
 
+# The vanilla weapons' replacement icons live in one module per group (tools/icons_*.py); each exports its own ICONS.
+GROUPS = ("icons_melee", "icons_explosives", "icons_air", "icons_specials")
+
+
+def all_icons():
+    import importlib
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # the group modules sit beside this file
+    icons = list(ICONS)
+    for mod in GROUPS:
+        icons += importlib.import_module(mod).ICONS
+    return icons
+
+
+def tile_rgb(x, y):
+    """The weapon panel's own cell tile, redrawn: a 64 px rounded teal square with a one-pixel black rim, a dark ring,
+    a lit top-left edge and a fill that darkens toward the bottom right. The panel atlas has no alpha, so a replacement
+    for a vanilla weapon's icon is composited onto this tile; the values were measured from the game's blank cells."""
+    if x + y < 3 or (63 - x) + (63 - y) < 3 or x + (63 - y) < 3 or (63 - x) + y < 3:
+        return (0, 0, 0)
+    if x == 0 or y == 0 or x == 63 or y == 63:
+        return (0, 2, 3)
+    if x == 1 or y == 1:
+        return (1, 60, 82)
+    if x == 62 or y == 62:
+        return (2, 72, 97)
+    if x == 2 or y == 2:
+        return (30, 152, 178)
+    if x == 61 or y == 61:
+        return (7, 111, 144)
+    if x == 3 or y == 3:
+        return (8, 121, 156)
+    t = min(1.0, max(0.0, (x + y - 54) / 36.0))
+    return (0, round(110 - 14 * t), round(147 - 16 * t))
+
+
+def tiled(cv):
+    """cv (64 px, premultiplied) composited onto the panel tile; returns a new opaque Canvas."""
+    out = Canvas(cv.w, cv.h)
+    for y in range(cv.h):
+        for x in range(cv.w):
+            r, g, b, a = cv.px[y * cv.w + x]
+            tr, tg, tb = (c / 255.0 for c in tile_rgb(x, y))
+            out.px[y * cv.w + x] = [r + tr * (1 - a), g + tg * (1 - a), b + tb * (1 - a), 1.0]
+    return out
+
+
+# The three clone weapons keep transparent panel icons: Melange writes those into blank cells of its own.
+CLONE_ICONS = {"acid-spitter", "acid-flask", "crucible"}
+
 
 def build():
     """Every output file as {path: bytes}."""
     out = {}
-    for name, draw in ICONS:
+    for name, draw in all_icons():
         big = draw()
         small = big.downsample(SIZE // SMALL)
+        if name not in CLONE_ICONS:
+            small = tiled(small)
         out[PNG_DIR / (name + ".png")] = png_bytes(small, OUTLINE)
         out[TGA_DIR / ("kindjal." + name + ".hud.tga")] = tga_bytes(big, OUTLINE)
     return out
