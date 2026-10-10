@@ -1,0 +1,136 @@
+---
+// The landing page: the sky hero (src/components/Hero.astro), then the catalogue grid built from
+// src/data/catalogue.json (written by scripts/catalogue.mjs from ../index.json, what the in-game Store reads).
+// The category and text filters are plain JS; their state lives in the URL hash (#category=maps&q=water).
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import PluginCard from '../components/PluginCard.astro';
+import catalogue from '../data/catalogue.json';
+
+const { plugins, categories } = catalogue;
+const count = (c: string) => plugins.filter((p) => p.categories.includes(c)).length;
+---
+
+<StarlightPage
+	frontmatter={{
+		title: 'Melange Plugins',
+		description: 'Plugins for Melange, installed from the Store in the game. Browse the catalogue, read each plugin\'s notes and permissions, or download a zip.',
+		template: 'splash',
+		hero: {
+			title: 'Plugins for Melange.',
+			tagline: 'Install them from the Store in the game: press <kbd>`</kbd> and open <strong>Thumper &gt; Store</strong>, or use Melange.exe\'s <strong>Plugins</strong> page.',
+		},
+	}}
+>
+	<section class="mel-catalogue not-content" id="catalogue" aria-labelledby="catalogue-title">
+		<div class="mel-catalogue__head">
+			<h2 class="mel-catalogue__title" id="catalogue-title">The catalogue</h2>
+			<p class="mel-catalogue__count" role="status" data-count>{plugins.length} plugins</p>
+		</div>
+
+		<form class="mel-filters" role="search" aria-label="Filter plugins" data-filters>
+			<div class="mel-filters__chips" role="group" aria-label="Category">
+				<button type="button" class="mel-filter" data-category="" aria-pressed="true">All <span class="mel-filter__n">{plugins.length}</span></button>
+				{
+					categories.map((c) => (
+						<button type="button" class="mel-filter" data-category={c} aria-pressed="false">
+							{c} <span class="mel-filter__n">{count(c)}</span>
+						</button>
+					))
+				}
+			</div>
+			<label class="mel-filters__search">
+				<span class="sr-only">Search plugins</span>
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.5 15.5 21 21" /></svg>
+				<input type="search" name="q" placeholder="Search by name, author or description" autocomplete="off" spellcheck="false" data-q />
+			</label>
+		</form>
+
+		<div class="mel-cards" data-cards>
+			{plugins.map((p) => <PluginCard plugin={p} />)}
+		</div>
+
+		<div class="mel-empty" data-empty hidden>
+			<p><strong>No plugins match.</strong> Try another word or category.</p>
+			<button type="button" class="mel-btn" data-clear>Show all plugins</button>
+		</div>
+	</section>
+</StarlightPage>
+
+<script>
+	const form = document.querySelector<HTMLFormElement>('[data-filters]');
+	const input = document.querySelector<HTMLInputElement>('[data-q]');
+	const chips = [...document.querySelectorAll<HTMLButtonElement>('.mel-filter')];
+	const cards = [...document.querySelectorAll<HTMLElement>('[data-cards] .mel-card')];
+	const empty = document.querySelector<HTMLElement>('[data-empty]');
+	const countEl = document.querySelector<HTMLElement>('[data-count]');
+
+	let category = '';
+	let query = '';
+
+	function readHash() {
+		const params = new URLSearchParams(location.hash.slice(1));
+		const c = params.get('category') ?? '';
+		category = chips.some((b) => b.dataset.category === c) ? c : '';
+		query = params.get('q') ?? '';
+		if (input) input.value = query;
+	}
+
+	function writeHash() {
+		const params = new URLSearchParams();
+		if (category) params.set('category', category);
+		if (query.trim()) params.set('q', query.trim());
+		const hash = params.toString();
+		const url = hash ? `#${hash}` : location.pathname + location.search;
+		history.replaceState(null, '', url);
+	}
+
+	function apply() {
+		const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+		let shown = 0;
+		for (const card of cards) {
+			const inCategory = !category || (card.dataset.categories ?? '').split(' ').includes(category);
+			const text = card.dataset.search ?? '';
+			const match = inCategory && words.every((w) => text.includes(w));
+			card.hidden = !match;
+			if (match) shown++;
+		}
+		for (const b of chips) b.setAttribute('aria-pressed', String(b.dataset.category === category));
+		if (empty) empty.hidden = shown > 0;
+		if (countEl) {
+			countEl.textContent =
+				shown === cards.length ? `${cards.length} plugins` : `${shown} of ${cards.length} plugins`;
+		}
+	}
+
+	for (const b of chips) {
+		b.addEventListener('click', () => {
+			category = b.dataset.category ?? '';
+			writeHash();
+			apply();
+		});
+	}
+	input?.addEventListener('input', () => {
+		query = input.value;
+		writeHash();
+		apply();
+	});
+	form?.addEventListener('submit', (e) => e.preventDefault());
+	document.querySelector('[data-clear]')?.addEventListener('click', () => {
+		category = '';
+		query = '';
+		if (input) input.value = '';
+		writeHash();
+		apply();
+		input?.focus();
+	});
+	addEventListener('hashchange', () => {
+		readHash();
+		apply();
+	});
+
+	// "#catalogue" (the hero's link) is an anchor, not filter state.
+	if (location.hash && location.hash !== '#catalogue') {
+		readHash();
+		apply();
+	}
+</script>

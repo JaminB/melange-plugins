@@ -1,0 +1,16 @@
+---
+// The site's own header links (.mel-nav from the shared theme). Used by Header.astro (wide screens) and
+// MobileMenuFooter.astro (inside the mobile menu).
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const path = Astro.url.pathname;
+const links = [
+	{ label: 'Plugins', href: `${base}/`, current: path === `${base}/` || path.startsWith(`${base}/plugins/`) },
+	{ label: 'Publish a plugin', href: `${base}/publish/`, current: path.startsWith(`${base}/publish/`) },
+	{ label: 'Melange docs', href: 'https://jaminb.github.io/melange/', current: false },
+];
+const { class: className } = Astro.props;
+---
+
+<nav class:list={['mel-nav', className]} aria-label="Site">
+	{links.map((l) => <a href={l.href} aria-current={l.current ? 'page' : undefined}>{l.label}</a>)}
+</nav>
