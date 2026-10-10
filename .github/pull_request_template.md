@@ -8,7 +8,8 @@
 - [ ] `plugins/<id>/LICENSE` is present and its SPDX id is in `store.json`'s `licence` (from the allow-list)
 - [ ] `plugins/<id>/store.json` has no fields that `spice.json` already provides
 - [ ] This is my own work, or I have the right to submit it under the stated licence
-- [ ] No game files, and nothing extracted or derived from them, are included
+- [ ] No stock game file is included unchanged, and nothing overwrites or modifies a game file in place (assets derived
+      from the game, such as a reworked copy of a vanilla model, are allowed; see CONTRIBUTING.md)
 - [ ] For an update: `spice.json` `version` is higher than the newest released version, and `CHANGELOG.md` has a
       section for it
 - [ ] `tools/validate.ps1` (or `python tools/store.py validate plugins/<id>`) passes locally

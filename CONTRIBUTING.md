@@ -63,8 +63,22 @@ it in-game: `python tools/store.py pack your-id --out dist`.
 ## 4. Open the PR
 
 Fill in the PR template's checklist. `check.yml` runs read-only, with no secrets, against your PR. A maintainer
-reviews the mod itself (licence, originality, no game files, what any requested permission is for) — automated
+reviews the mod itself (licence, game content as described below, what any requested permission is for) — automated
 checks don't replace that review.
+
+### Game content
+
+A plugin may ship assets derived from the game, for example a copy of a vanilla model that has been reshaped and
+repainted, or a texture painted into a vanilla model's UV layout. Two things are not allowed:
+
+- **Overwriting or modifying game files in place.** A plugin never replaces, patches or writes to a file in the game
+  folder (`Data\`, the executable, the language and tweak banks). Its assets are its own files, under its own names,
+  loaded by Melange next to the game's (mesh banks under `<modId>.*` resource names, loose files named `<modId>.*`).
+- **Shipping a stock game file unchanged.** A file that is just a copy of one of the game's own files, under its
+  name or another, doesn't belong in a plugin; `policy/stock-names.txt` catches the obvious cases by name.
+
+Say in the plugin's README which assets are derived from the game, so players and reviewers know what they are
+getting.
 
 ## 5. Release (maintainer only)
 
