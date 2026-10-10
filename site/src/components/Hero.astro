@@ -1,0 +1,44 @@
+---
+// Starlight Hero override: the sky panel (.mel-hero from the shared theme) used by the landing page
+// (src/pages/index.astro), with the "how to install" card on the right. Only the landing page sets `hero`.
+import cloudSvg from '../assets/cloud.svg?raw';
+import crateSvg from '../assets/crate.svg?raw';
+
+const { data } = Astro.locals.starlightRoute.entry;
+const { title = data.title, tagline } = data.hero || {};
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+const inline = (svg: string, cls: string) =>
+	svg.replace(/<!--[\s\S]*?-->/g, '').replace('<svg ', `<svg class="${cls}" focusable="false" `);
+---
+
+<section class="mel-hero mel-plugins-hero not-content" aria-labelledby="_top">
+	<div class="mel-deco mel-celestial"></div>
+	<Fragment set:html={inline(cloudSvg, 'mel-deco mel-cloud mel-cloud--a')} />
+	<Fragment set:html={inline(cloudSvg, 'mel-deco mel-cloud mel-cloud--b')} />
+	<Fragment set:html={inline(crateSvg, 'mel-deco mel-hero__crate')} />
+
+	<div class="mel-wrap mel-hero__grid">
+		<div class="mel-hero__copy">
+			<h1 class="mel-hero__title mel-outlined" id="_top" data-page-title>{title}</h1>
+			{tagline && <p class="mel-hero__lede" set:html={tagline} />}
+		</div>
+
+		<section class="mel-dl mel-install" aria-labelledby="install-heading">
+			<h2 class="mel-install__title" id="install-heading">Install in the game</h2>
+			<ol class="mel-install__steps">
+				<li>Start the game with Melange and press <kbd>`</kbd> to open the overlay.</li>
+				<li>Open <strong>Thumper &gt; Store</strong> and pick a plugin.</li>
+				<li>Install it. The Store keeps it up to date.</li>
+			</ol>
+			<p class="mel-dl__req">Prefer the launcher? Melange.exe has the same list on its <strong>Plugins</strong> page.</p>
+			<ul class="mel-dl__links">
+				<li><a href="#catalogue">Browse the plugins</a></li>
+				<li><a href={`${base}/publish/`}>Publish your own</a></li>
+				<li><a href="https://jaminb.github.io/melange/">Get Melange</a></li>
+			</ul>
+		</section>
+	</div>
+
+	<div class="mel-divider mel-divider--sand" aria-hidden="true"></div>
+</section>

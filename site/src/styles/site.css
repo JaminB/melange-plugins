@@ -1,0 +1,234 @@
+/* Plugins-site additions on top of the shared theme (theme.css is a verbatim copy shared with the Melange site;
+   put anything specific to this site here instead). Loaded after theme.css. */
+
+/* ---------------------------------------------------------------- header nav */
+.right-group .mel-nav { margin-inline-end: .25rem; }
+.mel-nav a { white-space: nowrap; }
+@media (max-width: 64rem) { .right-group .mel-nav a { padding-inline: 7px; font-size: .9rem; } }
+.mel-nav--mobile {
+	flex-wrap: wrap;
+	gap: 4px;
+	padding-block: 1rem .25rem;
+	border-top: 1px solid var(--sl-color-gray-6);
+}
+
+/* ---------------------------------------------------------------- footer */
+.mel-site-footer {
+	margin-top: 2.5rem;
+	border-radius: var(--mel-radius-lg);
+	border: var(--mel-outline-w) solid var(--mel-icon-ink);
+	box-shadow: 4px 4px 0 var(--mel-hard-shadow);
+	padding: 16px 0 18px;
+}
+.mel-site-footer .mel-wrap { max-width: none; }
+.mel-site-footer p:last-child { margin-bottom: 0; }
+
+/* ---------------------------------------------------------------- landing hero (src/components/Hero.astro) */
+.mel-plugins-hero {
+	border: var(--mel-outline-w) solid var(--mel-outline);
+	border-radius: var(--mel-radius-xl);
+	box-shadow: 5px 5px 0 var(--mel-hard-shadow);
+}
+.mel-plugins-hero h1#_top {
+	color: var(--mel-title-fill);
+	line-height: 1.05;
+	max-width: 12ch;
+}
+.mel-plugins-hero .mel-hero__lede { max-width: 34ch; }
+.mel-plugins-hero kbd,
+.mel-install kbd,
+.mel-plugin-header kbd {
+	font: 600 .85em/1 var(--sl-font-mono);
+	padding: .15em .45em;
+	border: 1.5px solid currentColor;
+	border-bottom-width: 3px;
+	border-radius: 6px;
+	background: var(--mel-card);
+	color: var(--sl-color-white);
+}
+.mel-plugins-hero .mel-divider { margin-bottom: -1px; }
+@media (min-width: 880px) {
+	.mel-plugins-hero .mel-hero__grid { padding-top: 64px; padding-bottom: 28px; }
+	.mel-plugins-hero .mel-hero__crate { bottom: 58px; left: 38%; }
+}
+
+.mel-install__title {
+	margin: 0 0 .5rem;
+	font: 700 1.3rem/1.2 var(--mel-font-display);
+	color: var(--sl-color-white);
+}
+.mel-install__steps {
+	margin: 0;
+	padding-inline-start: 1.4rem;
+	font-size: .97rem;
+	line-height: 1.55;
+}
+.mel-install__steps li + li { margin-top: .35rem; }
+.mel-install__steps li::marker { font-family: var(--mel-font-display); font-weight: 700; color: var(--mel-ochre-text); }
+
+/* ---------------------------------------------------------------- catalogue (src/pages/index.astro) */
+.mel-catalogue { margin-top: 2rem; }
+.mel-catalogue__head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 4px 16px;
+}
+.mel-catalogue__title {
+	margin: 0;
+	font: 700 var(--sl-text-h2)/1.2 var(--mel-font-display);
+	color: var(--sl-color-white);
+}
+.mel-catalogue__count { margin: 0; font-size: .9rem; color: var(--sl-color-gray-3); }
+
+.mel-filters {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px 20px;
+	margin: 14px 0 22px;
+	padding: 12px 14px;
+	background: var(--mel-sand);
+	color: var(--mel-sand-ink);
+	border: 2px solid var(--mel-outline);
+	border-radius: var(--mel-radius);
+	box-shadow: 3px 3px 0 var(--mel-hard-shadow);
+}
+.mel-filters__chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.mel-filter {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font: 600 .9rem/1 var(--mel-font-display);
+	text-transform: capitalize;
+	color: var(--mel-sand-ink);
+	background: var(--mel-sand-tile);
+	border: 2px solid var(--mel-outline);
+	border-radius: 999px;
+	padding: 7px 12px;
+	cursor: pointer;
+	transition: transform .14s var(--mel-bounce);
+}
+.mel-filter:hover { transform: translateY(-1px); }
+.mel-filter[aria-pressed='true'] {
+	background: var(--sl-color-accent);
+	color: var(--sl-color-text-invert);
+	box-shadow: 2px 2px 0 var(--mel-hard-shadow);
+}
+.mel-filter:focus-visible { outline: 3px solid var(--sl-color-text-accent); outline-offset: 2px; }
+.mel-filter__n { font: 600 .75rem/1 var(--sl-font-mono); opacity: .8; }
+.mel-filters__search {
+	position: relative;
+	flex: 1 1 16rem;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+}
+.mel-filters__search svg {
+	position: absolute;
+	left: 12px;
+	width: 18px;
+	height: 18px;
+	color: var(--sl-color-gray-3);
+	pointer-events: none;
+}
+.mel-filters__search input {
+	width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+	font: 400 1rem/1.3 var(--sl-font);
+	color: var(--sl-color-text);
+	background: var(--mel-card);
+	border: 2px solid var(--mel-outline);
+	border-radius: var(--mel-radius-sm);
+	padding: 9px 12px 9px 38px;
+}
+.mel-filters__search input::placeholder { color: var(--sl-color-gray-3); opacity: 1; }
+.mel-filters__search input:focus-visible { outline: 3px solid var(--sl-color-text-accent); outline-offset: 2px; }
+
+.mel-card[hidden] { display: none; }
+/* theme.css styles .sl-markdown-content h3 in Inter at higher specificity; card titles stay Fredoka */
+.mel-card .mel-card__title { font: 700 1.3rem/1.15 var(--mel-font-display); letter-spacing: .005em; }
+.mel-chip--cat { text-transform: capitalize; }
+.mel-card__foot { flex-direction: column; align-items: stretch; }
+.mel-card__meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 2px 12px;
+	margin: 0;
+}
+.mel-card__actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mel-card__download {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font: 650 .92rem/1 var(--sl-font);
+	color: var(--sl-color-text-accent);
+	text-underline-offset: .18em;
+}
+.mel-card__download svg { width: 18px; height: 18px; flex: none; }
+.mel-card__download:focus-visible { outline: 3px solid var(--sl-color-text-accent); outline-offset: 3px; border-radius: 4px; }
+
+.mel-empty {
+	margin-top: 8px;
+	padding: 28px 20px;
+	text-align: center;
+	background: var(--sl-color-gray-7);
+	border: 2px dashed var(--sl-color-hairline-light);
+	border-radius: var(--mel-radius);
+}
+.mel-empty[hidden] { display: none; }
+.mel-empty p { margin: 0 0 14px; }
+
+/* ---------------------------------------------------------------- plugin page header (scripts/plugin-pages.mjs) */
+.mel-plugin-header { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-bottom: 2rem; }
+.mel-plugin-header__meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 12px;
+	font-size: .9rem;
+	color: var(--sl-color-gray-3);
+}
+.mel-plugin-header .mel-pill { font-family: var(--sl-font-mono); font-weight: 600; }
+.mel-plugin-dl { max-width: 40rem; margin-top: 4px; }
+.mel-plugin-dl .mel-dl__req { margin-top: 10px; }
+
+.mel-facts {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 2px 18px;
+	margin: 0;
+	font-size: .95rem;
+	line-height: 1.5;
+}
+.mel-facts dt {
+	margin: 8px 0 0;
+	font: 650 .72rem/1.2 var(--sl-font);
+	letter-spacing: .08em;
+	text-transform: uppercase;
+	color: var(--sl-color-gray-3);
+}
+.mel-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.mel-facts a { color: var(--sl-color-text-accent); text-underline-offset: .18em; }
+.mel-facts code {
+	font-size: .85em;
+	background: var(--sl-color-bg-inline-code);
+	border: 1px solid var(--sl-color-hairline);
+	border-radius: 5px;
+	padding: .05em .35em;
+}
+@media (min-width: 560px) {
+	.mel-facts { grid-template-columns: max-content minmax(0, 1fr); padding-top: 4px; }
+	.mel-facts dt { margin: 0; padding-top: .3em; }
+	.mel-facts dd + dt, .mel-facts dd { padding-bottom: 6px; border-bottom: 1px solid var(--sl-color-hairline-light); }
+	.mel-facts dt { border-bottom: 1px solid var(--sl-color-hairline-light); padding-bottom: 6px; }
+}
+
+/* ---------------------------------------------------------------- 404 (src/pages/404.astro) */
+.mel-404-links { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.mel-404-links a:not(.mel-btn) { color: var(--sl-color-text-accent); text-underline-offset: .18em; }
+
+/* theme.css's inline-code rule (.sl-markdown-content :not(pre) > code) outranks .mel-sha__value; undo it here */
+.mel-plugin-header .mel-sha__value { font-size: .8rem; background: none; border: 0; padding: 0; }

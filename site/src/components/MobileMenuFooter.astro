@@ -1,0 +1,9 @@
+---
+// Starlight MobileMenuFooter override: the site nav (hidden in the header on small screens) above the stock
+// theme and social controls.
+import Default from '@astrojs/starlight/components/MobileMenuFooter.astro';
+import NavLinks from './NavLinks.astro';
+---
+
+<NavLinks class="mel-nav--mobile" />
+<Default />

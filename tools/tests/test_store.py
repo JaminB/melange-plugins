@@ -83,6 +83,25 @@ class ValidateMelangeRange(unittest.TestCase):
             self.assertTrue(any("lower bound only" in e for e in errors), (r, errors))
 
 
+class ValidateScreenshotFile(unittest.TestCase):
+    def errors_for(self, file: str) -> list[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(Path(tmp), "sample-plugin")
+            store_path = root / "plugins" / "sample-plugin" / "store.json"
+            store_json = json.loads(store_path.read_text(encoding="utf-8"))
+            store_json["screenshots"] = [{"file": file, "caption": "x"}]
+            store_path.write_text(json.dumps(store_json), encoding="utf-8")
+            return store.Validator(root).validate_plugin("sample-plugin")
+
+    def test_path_in_file_fails(self):
+        for f in ("../../README.md", "..\\x.png", "sub/x.png", "/x.png", ""):
+            errors = self.errors_for(f)
+            self.assertTrue(any("must be a file name" in e for e in errors), (f, errors))
+
+    def test_bare_name_passes_the_name_check(self):
+        self.assertFalse(any("must be a file name" in e for e in self.errors_for("shot.png")))
+
+
 class ValidateOversize(unittest.TestCase):
     def test_oversize_file_fails(self):
         with tempfile.TemporaryDirectory() as tmp:

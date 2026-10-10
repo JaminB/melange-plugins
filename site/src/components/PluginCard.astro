@@ -1,0 +1,81 @@
+---
+// One catalogue card (.mel-card from the shared theme) for the landing page. `plugin` is an entry of
+// src/data/catalogue.json (see scripts/catalogue.mjs for its shape).
+import crateSvg from '../assets/crate.svg?raw';
+
+// Codename glyph per category; keep in sync with scripts/plugin-pages.mjs.
+const CATEGORY_GLYPHS: Record<string, string> = { gameplay: 'thumper', graphics: 'mirage', maps: 'erg', audio: 'oasis', tools: 'sieve' };
+
+interface Props {
+	plugin: {
+		id: string;
+		name: string;
+		authors: string[];
+		description: string;
+		categories: string[];
+		kind: string;
+		permissions: { unsafe: boolean; filesystem: string };
+		version: string;
+		released: string;
+		melange: string;
+		melangeMin: string | null;
+		url: string;
+		size: number;
+		sizeLabel: string;
+		link: string;
+	};
+}
+const { plugin: p } = Astro.props;
+const crate = crateSvg.replace(/<!--[\s\S]*?-->/g, '').replace('<svg ', '<svg class="mel-card__crate" focusable="false" ');
+const search = [p.id, p.name, p.description, ...p.authors, ...p.categories, p.kind].join(' ').toLowerCase();
+const zip = p.url.split('/').pop();
+---
+
+<article class="mel-card" data-categories={p.categories.join(' ')} data-search={search}>
+	<div class="mel-card__sky">
+		<span class="mel-card__ridge" aria-hidden="true"></span>
+		<Fragment set:html={crate} />
+		<span class="mel-card__version"><span class="sr-only">Version </span>v{p.version}</span>
+	</div>
+	<div class="mel-card__body">
+		<h3 class="mel-card__title"><a href={p.link}>{p.name}</a></h3>
+		<p class="mel-card__by">by {p.authors.join(', ')}</p>
+		<p class="mel-card__desc">{p.description}</p>
+		<ul class="mel-chips" aria-label="Categories and permissions">
+			{
+				p.categories.map((c) => (
+					<li class="mel-chip mel-chip--cat">
+						<span class="mel-glyph" data-glyph={CATEGORY_GLYPHS[c] ?? 'spice'} aria-hidden="true" />
+						{c}
+					</li>
+				))
+			}
+			{
+				p.permissions.unsafe ? (
+					<li class="mel-chip mel-chip--deep">
+						<span class="mel-glyph" data-glyph="deep-desert" aria-hidden="true" />
+						<abbr title="Can patch raw game memory">Deep Desert</abbr>
+						<span class="sr-only">: can patch raw game memory</span>
+					</li>
+				) : (
+					<li class="mel-chip">Sandboxed</li>
+				)
+			}
+			{p.permissions.filesystem !== 'none' && <li class="mel-chip">Files: {p.permissions.filesystem}</li>}
+		</ul>
+		<div class="mel-card__foot">
+			<p class="mel-card__meta">
+				<span>Melange &ge; {p.melangeMin ?? p.melange}</span>
+				<span>Released <time datetime={p.released}>{p.released}</time></span>
+				<span>{p.sizeLabel}</span>
+			</p>
+			<div class="mel-card__actions">
+				<a class="mel-btn" href={p.link}>Details<span class="sr-only"> about {p.name}</span></a>
+				<a class="mel-card__download" href={p.url} download>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M6.5 10l5.5 5.5 5.5-5.5M4 20h16" /></svg>
+					Download<span class="sr-only"> {zip}</span>
+				</a>
+			</div>
+		</div>
+	</div>
+</article>
