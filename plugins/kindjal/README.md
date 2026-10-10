@@ -111,10 +111,12 @@ In a match the overlay's Lua menu has *Preview acid*, *Preview melee* and *Acid 
 - The sounds are synthesised; they have been checked for format and level, not auditioned by the author before the
   first release.
 - Verified in the game before the first release: the renames (panel and tag), every stat field applied, the three
-  clones in the panel with their icons, the acid coat, smoke, puddle and melee flourish, sounds playing, the Nail Bat
-  model in hand, and a two-player LocalNet match with identical Wormsign hashes on both machines over six turns. Not
-  yet seen in play: the Acid Flask and Crucible models in hand and in flight, the Acid Spitter's round in flight, and
-  whether the Rust Canister's blast and the Gibbet Turret's shot numbers take effect.
+  clones in the panel with their icons, the acid coat, smoke, puddle and melee flourish, sounds playing, the Nail
+  Bat, Acid Flask and Crucible models in hand, and a two-player LocalNet match with identical Wormsign hashes on both
+  machines over six turns. Not yet seen in play: the three projectiles in flight, and whether the Rust Canister's
+  blast and the Gibbet Turret's shot numbers take effect.
+- The Crucible follows the Holy Hand Grenade's ammo and delay: in the Standard style it reads "Delayed" until the
+  third turn, like the grenade it is built on.
 
 ## Licence
 
