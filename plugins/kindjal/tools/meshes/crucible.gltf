@@ -1,0 +1,136 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "kindjal make_meshes.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "Crucible",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "Crucible",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "Crucible",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "images": [
+  {
+   "uri": "crucible.png"
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "crucible.bin",
+   "byteLength": 24496
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 7404,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 7404,
+   "byteLength": 7404,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 14808,
+   "byteLength": 4936,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 19744,
+   "byteLength": 4752,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 617,
+   "type": "VEC3",
+   "min": [
+    -5.033364772796631,
+    -5.021988391876221,
+    -6.927538871765137
+   ],
+   "max": [
+    4.8163161277771,
+    4.850903034210205,
+    6.800000190734863
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 617,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 617,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 2376,
+   "type": "SCALAR"
+  }
+ ]
+}

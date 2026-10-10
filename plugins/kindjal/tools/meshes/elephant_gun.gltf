@@ -1,0 +1,136 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "kindjal make_meshes.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "ElephantGun",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "ElephantGun",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "ElephantGun",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "images": [
+  {
+   "uri": "elephant_gun.png"
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "elephant_gun.bin",
+   "byteLength": 32224
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 9888,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 9888,
+   "byteLength": 9888,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 19776,
+   "byteLength": 6592,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 26368,
+   "byteLength": 5856,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 824,
+   "type": "VEC3",
+   "min": [
+    -3.5,
+    1.8666058778762817,
+    -10.670000076293945
+   ],
+   "max": [
+    3.5,
+    16.839229583740234,
+    14.350000381469727
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 824,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 824,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 2928,
+   "type": "SCALAR"
+  }
+ ]
+}

@@ -1,0 +1,136 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "kindjal make_meshes.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "AcidFlask",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "AcidFlask",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "AcidFlask",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "images": [
+  {
+   "uri": "acid_flask.png"
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "acid_flask.bin",
+   "byteLength": 21880
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 6360,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 6360,
+   "byteLength": 6360,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 12720,
+   "byteLength": 4240,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 16960,
+   "byteLength": 4920,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 530,
+   "type": "VEC3",
+   "min": [
+    -4.599999904632568,
+    -6.0,
+    -4.915329933166504
+   ],
+   "max": [
+    4.599999904632568,
+    6.0,
+    4.915329933166504
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 530,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 530,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 2460,
+   "type": "SCALAR"
+  }
+ ]
+}

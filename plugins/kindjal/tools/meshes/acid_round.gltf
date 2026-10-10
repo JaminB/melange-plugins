@@ -1,0 +1,136 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "kindjal make_meshes.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "AcidRound",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "AcidRound",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "AcidRound",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "images": [
+  {
+   "uri": "acid_round.png"
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "acid_round.bin",
+   "byteLength": 24088
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 7152,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 7152,
+   "byteLength": 7152,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 14304,
+   "byteLength": 4768,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 19072,
+   "byteLength": 5016,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 596,
+   "type": "VEC3",
+   "min": [
+    -2.619999885559082,
+    -2.593332290649414,
+    -3.0739998817443848
+   ],
+   "max": [
+    2.619999885559082,
+    2.593332290649414,
+    3.61899995803833
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 596,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 596,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 2508,
+   "type": "SCALAR"
+  }
+ ]
+}

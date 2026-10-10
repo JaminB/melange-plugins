@@ -1,0 +1,136 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "kindjal make_meshes.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "PipeBomb",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "PipeBomb",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "PipeBomb",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "images": [
+  {
+   "uri": "pipe_bomb.png"
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "pipe_bomb.bin",
+   "byteLength": 18952
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 5964,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 5964,
+   "byteLength": 5964,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 11928,
+   "byteLength": 3976,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 15904,
+   "byteLength": 3048,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 497,
+   "type": "VEC3",
+   "min": [
+    -5.710568428039551,
+    -4.4442667961120605,
+    -4.02528190612793
+   ],
+   "max": [
+    4.510568141937256,
+    7.185605049133301,
+    6.02528190612793
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 497,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 497,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 1524,
+   "type": "SCALAR"
+  }
+ ]
+}

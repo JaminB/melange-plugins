@@ -1,0 +1,136 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "kindjal make_meshes.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "Gauntlet",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "Gauntlet",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "Gauntlet",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "images": [
+  {
+   "uri": "gauntlet.png"
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "gauntlet.bin",
+   "byteLength": 83192
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 28200,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 28200,
+   "byteLength": 28200,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 56400,
+   "byteLength": 18800,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 75200,
+   "byteLength": 7992,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 2350,
+   "type": "VEC3",
+   "min": [
+    -3.200000047683716,
+    -4.53000020980835,
+    -3.153372287750244
+   ],
+   "max": [
+    3.200000047683716,
+    4.53000020980835,
+    3.152235269546509
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 2350,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 2350,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 3996,
+   "type": "SCALAR"
+  }
+ ]
+}

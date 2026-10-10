@@ -1,0 +1,136 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "kindjal make_meshes.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "PlagueArrow",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "PlagueArrow",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "PlagueArrow",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "images": [
+  {
+   "uri": "plague_arrow.png"
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "plague_arrow.bin",
+   "byteLength": 25112
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 7932,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 7932,
+   "byteLength": 7932,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 15864,
+   "byteLength": 5288,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 21152,
+   "byteLength": 3960,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 661,
+   "type": "VEC3",
+   "min": [
+    -2.450000047683716,
+    -2.0999999046325684,
+    -17.700000762939453
+   ],
+   "max": [
+    2.450000047683716,
+    2.0,
+    12.020999908447266
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 661,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 661,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 1980,
+   "type": "SCALAR"
+  }
+ ]
+}

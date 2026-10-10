@@ -1,0 +1,1443 @@
+-- Kindjal client script: the look and sound of the mod. The simulation side (sim/main.lua) changes the weapons; this file only
+-- reads game state and draws, so it can never desynchronise a match.
+--
+--   Acid coat      A burst of acid (Acid Spitter, Acid Flask) coats every worm in reach. The coat is the kindjal/acid post-FX
+--                  effect: a skin of acid that spreads over the worm for ten seconds, holds, and fades out by about 70 s.
+--                  Coated worms give off thin wisps of vapour.
+--   Burst smoke    Green-yellow smoke and bubbles at the burst, and a puddle on the ground that smokes while it lasts.
+--                  The Crucible has no acid: it throws a ring of dark dust instead.
+--   Melee flourish Bat, Prod, Fire Punch and No More Nails: sparks where the hit lands, a short red flash on the screen
+--                  (kindjal/hit post-FX) and a matching sound. Optional spike glints on the swing.
+--   Sounds         Swing, impact, launch and explosion sounds through wum.audio (Melange 0.9 and later). Every audio call
+--                  is guarded, so an older Melange simply plays none.
+--
+-- Messages used: Kindjal.Burst (sim -> client, p.value = "x,y,z,r,kind"), Explosion, Weapon.Fired, Worm.Damaged,
+-- melange.match.start / melange.match.end.
+--
+-- Post-FX parameters are named without the p_ prefix here ("worm0", "level0"), as in Bloodsand: Melange adds the prefix to
+-- the uniform. Both effects are enabled only while they have something to show.
+--
+-- Smoothness. Nothing here counts frames: every motion and every curve is a function of seconds. The step is the measured time
+-- between two frames (os.clock), clamped to 1/15 s so a hitch does not throw particles across the screen. Particle motion is
+-- integrated in closed form (drag and gravity together), so a particle is in the same place at the same time at 30, 60 or 144
+-- frames a second. Steady emitters keep a fractional accumulator and give each new particle the age it would have if it had
+-- been born at its exact moment inside the frame, so nothing arrives in bursts of N frames.
+
+if not (wum and wum.draw and wum.draw.on and wum.game and wum.config) then return end
+
+local sqrt, random, floor, min, max, abs = math.sqrt, math.random, math.floor, math.min, math.max, math.abs
+local sin, cos, pi, exp = math.sin, math.cos, math.pi, math.exp
+
+local function log(msg)
+    if wum.log and wum.log.warn then pcall(wum.log.warn, msg) end
+end
+
+-- A log line that cannot flood: one per 5 seconds at most (a fault in a per-frame step would otherwise write 60 a second).
+local lastErrAt = -100
+local function logErr(where, err)
+    local t = os.clock()
+    if t - lastErrAt < 5 then return end
+    lastErrAt = t
+    log("kindjal: " .. where .. ": " .. tostring(err))
+end
+
+local function clamp(v, lo, hi) if v < lo then return lo elseif v > hi then return hi end return v end
+local function rnd(a, b) return a + random() * (b - a) end
+
+local function cfg(key, default)
+    local ok, v = pcall(wum.config.get, key)
+    if ok and v ~= nil then return v end
+    return default
+end
+
+-- Subscribes with a pcall around the handler, so a bug in one handler is logged instead of counting as a fault (three faults
+-- disable a callback for the rest of the session).
+local function subscribe(name, fn)
+    if not (wum.events and wum.events.on) then return end
+    local ok, err = pcall(wum.events.on, name, function(p)
+        local good, e = pcall(fn, p)
+        if not good then logErr(name, e) end
+    end)
+    if not ok then log("kindjal: cannot subscribe to " .. name .. ": " .. tostring(err)) end
+end
+
+-- Vectors arrive as {x, y, z} arrays in event payloads and with named fields from wum.game and wum.render.
+local function vec(v)
+    if type(v) ~= "table" then return nil end
+    local x, y, z = tonumber(v.x or v[1]), tonumber(v.y or v[2]), tonumber(v.z or v[3])
+    if x and y and z then return x, y, z end
+    return nil
+end
+
+-- ---------------------------------------------------------------- constants and state
+-- Settings, and what is derived from them. S.preset is nil while the visuals are off.
+local PRESETS = {
+    subtle = { strength = 0.55, pmax = 200, rate = 0.5 },
+    full   = { strength = 1.0,  pmax = 400, rate = 1.0 },
+}
+local S = { preset = nil, smoke = true, melee = true, sounds = 0.8, spikes = false, seed = 0 }
+
+local CENTRE_Y = 12             -- a worm's body centre is this far above the position the game reports
+local SLOTS = 16                -- the acid effect has 16 worm slots
+
+-- Timings (seconds) of the acid coat: level ramps up, holds, fades out; the eaten pattern spreads over SPREAD_SECS.
+-- Values are continuous. A level or spread is sent when it moved by more than SEND_EPS since the last send, or after SEND_EVERY
+-- seconds; a worm centre when it moved by POS_EPS. TOKENS is only a ceiling on sends per coated worm per second (a runaway
+-- guard; the rules above send far fewer, and only during the 1.5 s ramp does a worm need one every frame).
+local COATK = { RAMP = 1.5, HOLD_END = 21.5, FADE_END = 70, SPREAD_SECS = 10, SPREAD_FROM = 0.15,
+                WISP_CAP = 8, POS_EPS = 0.02, SEND_EPS = 1 / 256, SEND_EVERY = 0.25, TOKENS = 240, FOLLOW = 10 }
+
+-- The melee weapons (ids as in worms()[i].weapon; the same as Bloodsand's MEL.SIG): how far a hit reaches, which sound
+-- goes with it, whether the swing whooshes and whether it has spikes for the glints.
+local MELEE = {
+    [10] = { reach = 52, hit = "impact_bat",   swing = true,  spikes = true },    -- baseball bat
+    [11] = { reach = 42, hit = "impact_stab",  swing = true,  spikes = false },   -- prod
+    [12] = { reach = 48, hit = "firepunch",    swing = false, spikes = false },   -- fire punch
+    [25] = { reach = 44, hit = "impact_spike", swing = true,  spikes = true },    -- no more nails
+}
+
+local hasPostfx = wum.postfx and wum.postfx.setTransient and wum.postfx.enable and true or false
+local hasSprite = wum.draw.sprite and true or false
+
+local now = os.clock()          -- this frame's time (os.clock is wall time on Windows)
+local lastT = now               -- the time of the frame before (the step is measured from this, so a handler that sets `now`
+                                -- for itself cannot shorten the next step)
+local curDt = 1 / 60            -- this frame's step in seconds, clamped to MAX_DT
+local MAX_DT = 1 / 15
+
+-- Smoothstep and its relatives, used by every curve below.
+local function smooth(u)
+    if u <= 0 then return 0 elseif u >= 1 then return 1 end
+    return u * u * (3 - 2 * u)
+end
+
+-- ---------------------------------------------------------------- textures
+-- Eleven sprites, all white with the shape in alpha so that they take any tint (see the asset list in the README).
+local TEX = {}
+do
+    local names = { "smoke1", "smoke2", "smoke3", "wisp1", "wisp2", "bubble", "puddle1", "puddle2", "spark", "glint", "drop" }
+    if wum.draw.texture then
+        for _, n in ipairs(names) do
+            local ok, id = pcall(wum.draw.texture, "textures/kj_" .. n .. ".png")
+            if ok and type(id) == "number" then
+                TEX[n] = id
+            else
+                log("kindjal: texture kj_" .. n .. ".png not loaded: " .. tostring(ok and "no id" or id))
+            end
+        end
+    end
+end
+
+-- Picking a variant is a table lookup (building the name with .. would make a string every time a particle is born).
+local SMOKE_T, WISP_T = {}, {}
+for i = 1, 3 do SMOKE_T[i] = TEX["smoke" .. i] end
+for i = 1, 2 do WISP_T[i] = TEX["wisp" .. i] end
+
+-- ---------------------------------------------------------------- sounds
+-- wum.audio comes with Melange 0.9. Handles are loaded the first time a sound is wanted (a failed load is tried again after
+-- ten seconds), and nothing is played while audio is not ready or the volume setting is 0.
+local AUD = { h = {}, retry = {} }
+
+local function audioReady()
+    if not (wum.audio and wum.audio.ready and wum.audio.load and wum.audio.play) then return false end
+    local ok, r = pcall(wum.audio.ready)
+    return ok and r == true
+end
+
+-- Plays sounds/kj_<name>.wav at a world point (x == nil: not positional) and returns the voice, or nil.
+local function play(name, vol, x, y, z, loop)
+    if S.sounds <= 0.001 or not audioReady() then return nil end
+    local h = AUD.h[name]
+    if not h then
+        if (AUD.retry[name] or 0) > os.clock() then return nil end
+        local ok, got = pcall(wum.audio.load, "sounds/kj_" .. name .. ".wav")
+        if ok and got then
+            h = got
+            AUD.h[name] = h
+        else
+            AUD.retry[name] = os.clock() + 10
+            return nil
+        end
+    end
+    local opts = { volume = clamp((vol or 1) * S.sounds, 0, 2), pitch = loop and 1 or rnd(0.96, 1.04), loop = loop and true or false }
+    if x then opts.pos = { x, y, z, x = x, y = y, z = z } end
+    local ok, voice = pcall(wum.audio.play, h, opts)
+    if ok then return voice end
+    return nil
+end
+
+local function stopVoice(v)
+    if v and wum.audio and wum.audio.stop then pcall(wum.audio.stop, v) end
+end
+
+-- ---------------------------------------------------------------- post-FX
+-- Values go through wum.postfx.setTransient (neither saved nor logged by Melange) and one is only sent when it differs from
+-- the last value sent to that effect. Only switching an effect on or off is saved, so that is only sent when it changes.
+-- The acid effect is metered: the sends for coated worms share a token bucket of TOKENS per coated worm per second.
+local FXA = { id = "kindjal/acid", cache = {}, enabled = nil, metered = true }
+local FXH = { id = "kindjal/hit", cache = {}, enabled = nil }
+local TOK = { v = 12 }
+
+-- True when the value last sent for `name` is missing, or differs from (a, b, c, d) by more than eps in some component, or
+-- differs at all and was sent `every` seconds ago or more. This is what lets a smooth value go out in steps of 1/256 (finer
+-- than an 8-bit colour can show) without ever going stale.
+local function moved(fx, name, eps, every, sentAt, a, b, c, d)
+    local old = fx.cache[name]
+    if not old then return true end
+    local dm, dx = 0, 0
+    dx = abs(a - (old[1] or 0)); if dx > dm then dm = dx end
+    if b then dx = abs(b - (old[2] or 0)); if dx > dm then dm = dx end end
+    if c then dx = abs(c - (old[3] or 0)); if dx > dm then dm = dx end end
+    if d then dx = abs(d - (old[4] or 0)); if dx > dm then dm = dx end end
+    return dm > eps or (dm > 0 and now - sentAt >= every)
+end
+
+-- Returns true when a value was actually sent. `free` skips the token bucket (zeros that must go out, once-only values).
+local function sendParam(fx, name, a, b, c, free)
+    if not hasPostfx then return false end
+    local old = fx.cache[name]
+    if old and old[1] == a and old[2] == b and old[3] == c then return false end
+    if fx.metered and not free and TOK.v < 1 then return false end
+    -- Melange returns false when it does not know the effect, so the cache only changes once it took the value and a failed
+    -- call is tried again at the next change or resend.
+    local ok, res
+    if c ~= nil then
+        ok, res = pcall(wum.postfx.setTransient, fx.id, name, a, b, c)
+    elseif b ~= nil then
+        ok, res = pcall(wum.postfx.setTransient, fx.id, name, a, b)
+    else
+        ok, res = pcall(wum.postfx.setTransient, fx.id, name, a)
+    end
+    if not ok or res == false then return false end
+    if not old then
+        old = {}
+        fx.cache[name] = old
+    end
+    old[1], old[2], old[3] = a, b, c
+    if fx.metered and not free then TOK.v = TOK.v - 1 end
+    return true
+end
+
+local function sendVec4(fx, name, a, b, c, d, free)
+    if not hasPostfx then return false end
+    local old = fx.cache[name]
+    if old and old[1] == a and old[2] == b and old[3] == c and old[4] == d then return false end
+    if fx.metered and not free and TOK.v < 1 then return false end
+    local ok, res = pcall(wum.postfx.setTransient, fx.id, name, a, b, c, d)
+    if not ok or res == false then return false end
+    if not old then
+        old = {}
+        fx.cache[name] = old
+    end
+    old[1], old[2], old[3], old[4] = a, b, c, d
+    if fx.metered and not free then TOK.v = TOK.v - 1 end
+    return true
+end
+
+-- Melange compiles an effect when it is first switched on and the driver builds the program on its first draw, which costs
+-- several milliseconds in the middle of the action. WARM switches each effect on for a few frames at the start of the first
+-- match (one at a time, nothing to draw) so that this happens before anything is on screen. HOLD must outlast Melange's
+-- start-up of the PostWorld stage (it registers the stage at the end of the first frame and hooks the engine's slot at the
+-- end of the next). WARM.on[id] is true while an effect is held on.
+local WARM = { on = {}, ids = { "kindjal/acid", "kindjal/hit" }, frame = 0, done = false, GAP = 6, HOLD = 5 }
+
+local function sendEnabled(fx, on)
+    if WARM.on[fx.id] then on = true end
+    if not hasPostfx or fx.enabled == on then return end
+    local ok, res = pcall(wum.postfx.enable, fx.id, on)
+    if not ok or res == false then return end
+    fx.enabled = on
+end
+
+local function warmStep()
+    if WARM.done or not hasPostfx or not S.preset then return end
+    local f = WARM.frame + 1
+    WARM.frame = f
+    for k = 1, #WARM.ids do
+        local id, t0 = WARM.ids[k], WARM.GAP * k
+        if f == t0 then
+            WARM.on[id] = true
+        elseif f == t0 + WARM.HOLD then
+            WARM.on[id] = nil
+        end
+    end
+    if f >= WARM.GAP * #WARM.ids + WARM.HOLD then
+        WARM.done = true
+        WARM.on = {}
+    end
+end
+
+-- Parameter names, built once.
+local WN, LN, SN = {}, {}, {}
+for i = 0, SLOTS - 1 do WN[i] = "worm" .. i end
+for k = 0, 3 do LN[k], SN[k] = "level" .. k, "spread" .. k end
+
+-- ---------------------------------------------------------------- camera
+local CAM = { ok = false, rx = 1, ry = 0, rz = 0, ux = 0, uy = 1, uz = 0, fx = 0, fy = 0, fz = 1 }
+
+local function readCamera()
+    CAM.ok = false
+    if not (wum.render and wum.render.camera) then return end
+    local ok, c = pcall(wum.render.camera)
+    if not ok or type(c) ~= "table" then return end
+    local fx, fy, fz = vec(c.fwd)
+    local ux, uy, uz = vec(c.up)
+    if not (fx and ux) then return end
+    local fl = sqrt(fx * fx + fy * fy + fz * fz)
+    if fl < 1e-6 then return end
+    fx, fy, fz = fx / fl, fy / fl, fz / fl
+    local rx, ry, rz = fy * uz - fz * uy, fz * ux - fx * uz, fx * uy - fy * ux
+    local len = sqrt(rx * rx + ry * ry + rz * rz)
+    if len < 1e-6 then return end
+    rx, ry, rz = rx / len, ry / len, rz / len
+    -- Up made exactly perpendicular to forward and right, so a rotated sprite stays square.
+    ux, uy, uz = ry * fz - rz * fy, rz * fx - rx * fz, rx * fy - ry * fx
+    CAM.rx, CAM.ry, CAM.rz, CAM.ux, CAM.uy, CAM.uz, CAM.fx, CAM.fy, CAM.fz = rx, ry, rz, ux, uy, uz, fx, fy, fz
+    CAM.ok = true
+end
+
+-- ---------------------------------------------------------------- terrain ray
+-- wum.game.landRay is the game's own ray cast against the land. Melange answers "unavailable" for the current level or thread
+-- as well as for a build without it, so the flag is not final: it is set again at the next match start and ten seconds after
+-- a failure. A frame may make RAY.cap rays of its own (Melange's cap of 256 is for all mods together).
+local RAY = { fn = wum.game.landRay, ok = type(wum.game.landRay) == "function", retryAt = 0, used = 0, cap = 12 }
+
+local function rayFailed()
+    RAY.ok = false
+    RAY.retryAt = os.clock() + 10
+end
+
+-- Returns t (0..1 along the segment) and the unit normal of the hit. A miss is nil alone; nil and a reason is a ray that did
+-- not run or whose answer was no use.
+local function castRay(x0, y0, z0, x1, y1, z1)
+    if not RAY.ok then return nil, "unavailable" end
+    if RAY.used >= RAY.cap then return nil, "budget" end
+    RAY.used = RAY.used + 1
+    local ok, t, nx, ny, nz = pcall(RAY.fn, x0, y0, z0, x1, y1, z1)
+    if not ok then
+        rayFailed()
+        return nil, "unavailable"
+    end
+    if t == nil then
+        if nx == "unavailable" then
+            rayFailed()
+            return nil, "unavailable"
+        elseif nx == "budget" then
+            RAY.used = RAY.cap
+            return nil, "budget"
+        elseif nx ~= nil then
+            return nil, "bad"
+        end
+        return nil
+    end
+    if type(t) ~= "number" or type(nx) ~= "number" or type(ny) ~= "number" or type(nz) ~= "number" then return nil, "bad" end
+    local l = sqrt(nx * nx + ny * ny + nz * nz)
+    if l < 1e-6 then return nil, "bad" end
+    return t, nx / l, ny / l, nz / l
+end
+
+-- ---------------------------------------------------------------- particles
+-- A struct of arrays: particle i is P.x[i], P.y[i] and so on, and the last particle moves into a freed slot.
+local K_PUFF, K_WISP, K_SPARK, K_BUBBLE, K_DROP, K_GLINT = 0, 1, 2, 3, 4, 5
+
+-- age < 0 is a particle that has not been born yet: it waits, unseen, and starts moving at age 0 (bursts use this to billow
+-- instead of appearing in one frame; a steady emitter uses it to place a particle at its exact moment inside the frame).
+-- bias is a fixed distance toward the camera, see BIAS.
+local P = { x = {}, y = {}, z = {}, vx = {}, vy = {}, vz = {}, s0 = {}, s1 = {}, age = {}, life = {}, kind = {}, tex = {},
+            add = {}, rgb = {}, a = {}, drag = {}, grav = {}, rot = {}, spin = {}, bias = {} }
+local PARTS = { P.x, P.y, P.z, P.vx, P.vy, P.vz, P.s0, P.s1, P.age, P.life, P.kind, P.tex, P.add, P.rgb, P.a, P.drag,
+                P.grav, P.rot, P.spin, P.bias }
+local nP = 0
+
+-- Sprites are sorted back to front by view depth and two at the same depth keep their call order, which changes whenever a
+-- particle is removed (the last one takes its slot): that is the flicker of sprites that fight over one depth. So each
+-- particle is pulled a fixed, distinct distance toward the camera: a base per kind (sparks over bubbles over wisps over smoke,
+-- always) and a per-particle fraction of BIAS_SPREAD from a golden-ratio sequence, which never repeats. The distances are tiny
+-- against sprites 5 to 30 units wide, and they do not change from frame to frame, so nothing moves on screen.
+local BIAS = { [0] = 0, 0.35, 1.25, 0.7, 1.0, 1.6 }      -- by kind: puff, wisp, spark, bubble, drop, glint
+local BIAS_SPREAD = 0.3
+local nextId = 0
+
+local function rgb8(r, g, b)
+    return (floor(clamp(r, 0, 1) * 255 + 0.5) << 24) | (floor(clamp(g, 0, 1) * 255 + 0.5) << 16) | (floor(clamp(b, 0, 1) * 255 + 0.5) << 8)
+end
+
+-- size is the half width at birth (s0) and death (s1). `soft` particles (the steady wisps) leave a quarter of the pool free
+-- for the bursts and the sparks. delay (seconds, optional) holds the particle back before it is born. Returns the particle's
+-- index (so the caller can adjust it), or false.
+local function spawn(kind, tex, additive, x, y, z, vx, vy, vz, s0, s1, life, r, g, b, a, drag, grav, rot, spin, soft, delay)
+    local pre = S.preset
+    if not pre or not hasSprite or not tex then return false end
+    if nP >= pre.pmax or (soft and nP >= pre.pmax * 0.75) then return false end
+    nP = nP + 1
+    local i = nP
+    nextId = nextId + 1
+    P.x[i], P.y[i], P.z[i], P.vx[i], P.vy[i], P.vz[i] = x, y, z, vx, vy, vz
+    P.s0[i], P.s1[i], P.age[i], P.life[i], P.kind[i], P.tex[i] = s0, s1, -(delay or 0), life, kind, tex
+    P.add[i], P.rgb[i], P.a[i], P.drag[i], P.grav[i], P.rot[i], P.spin[i] = additive, rgb8(r, g, b), a, drag, grav, rot or 0, spin or 0
+    P.bias[i] = BIAS[kind] + ((nextId * 0.6180339887) % 1) * BIAS_SPREAD
+    return i
+end
+
+-- A steady emitter's particle, placed at the moment inside the frame when it was due. `over` is how far the emitter's
+-- accumulator is past the due moment (a fraction of a particle), `rate` the emitter's particles a second. The step that
+-- follows ages the particle by a whole step, so its age is set to age0 - step and it comes out at age0: the time since it
+-- was due. The stream therefore has no frame-sized lumps.
+local function subframe(i, over, rate)
+    if not i then return end
+    local age0 = over / rate
+    if age0 > curDt then age0 = curDt end
+    P.age[i] = age0 - curDt
+end
+
+local function removeParticle(i)
+    for k = 1, #PARTS do
+        local arr = PARTS[k]
+        arr[i] = arr[nP]
+    end
+    nP = nP - 1
+end
+
+-- The alpha envelope of a particle: eases in over tin seconds from birth (smoothstep) and eases out over the last `fout` of
+-- its life (the fade starts flat and ends flat, so neither end shows as an edge).
+local function envelope(age, life, tin, fout)
+    local e = 1
+    if age < tin then
+        local u = age / tin
+        e = u * u * (3 - 2 * u)
+    end
+    local v = (age / life - (1 - fout)) / fout
+    if v > 0 then
+        if v >= 1 then return 0 end
+        e = e * (1 - v * v * (3 - 2 * v))
+    end
+    return e
+end
+
+-- Moves, ages and draws every particle in one pass (sprites can only be drawn inside the world callback, where this runs).
+local function stepParticles(dt)
+    local pre = S.preset
+    if not pre or not hasSprite then
+        nP = 0
+        return
+    end
+    while nP > pre.pmax do removeParticle(nP) end     -- the amount was turned down
+    local sprite = wum.draw.sprite
+    local camOk = CAM.ok
+    local rx, ry, rz, ux, uy, uz = CAM.rx, CAM.ry, CAM.rz, CAM.ux, CAM.uy, CAM.uz
+    local cfx, cfy, cfz = CAM.fx, CAM.fy, CAM.fz
+    -- The arrays as locals: a register read per access instead of a field lookup, which is a third of this loop's cost.
+    local Px, Py, Pz, Pvx, Pvy, Pvz, Ps0, Ps1 = P.x, P.y, P.z, P.vx, P.vy, P.vz, P.s0, P.s1
+    local Page, Plife, Pkind, Ptex, Padd, Prgb, Pa = P.age, P.life, P.kind, P.tex, P.add, P.rgb, P.a
+    local Pdrag, Pgrav, Prot, Pspin, Pbias = P.drag, P.grav, P.rot, P.spin, P.bias
+    for i = nP, 1, -1 do
+        local age = Page[i] + dt
+        local life = Plife[i]
+        if age >= life then
+            removeParticle(i)
+        elseif age <= 0 then
+            Page[i] = age                                               -- not born yet
+        else
+            Page[i] = age
+            -- A particle born inside this step moves for the rest of it only.
+            local step = dt
+            if age < step then step = age end
+            -- Drag and gravity integrated exactly over the step (v' = -d v + g), so the path does not depend on the step size.
+            local vx, vy, vz = Pvx[i], Pvy[i], Pvz[i]
+            local dr, gr = Pdrag[i], Pgrav[i]
+            local x, y, z = Px[i], Py[i], Pz[i]
+            if dr > 1e-4 then
+                local e = exp(-dr * step)
+                local f = (1 - e) / dr
+                x, z = x + vx * f, z + vz * f
+                vx, vz = vx * e, vz * e
+                if gr ~= 0 then
+                    local gd = gr / dr
+                    -- v' = -d v + g (positive g lifts, as in the no-drag branch): v settles on the terminal speed g/d.
+                    local vt = vy - gd
+                    y = y + vt * f + gd * step
+                    vy = vt * e + gd
+                else
+                    y = y + vy * f
+                    vy = vy * e
+                end
+            else
+                x, z = x + vx * step, z + vz * step
+                y = y + vy * step + 0.5 * gr * step * step
+                vy = vy + gr * step
+            end
+            Pvx[i], Pvy[i], Pvz[i], Px[i], Py[i], Pz[i] = vx, vy, vz, x, y, z
+
+            local t = age / life
+            local kind = Pkind[i]
+            local a = Pa[i]
+            local s0 = Ps0[i]
+            local s = s0 + (Ps1[i] - s0) * t * (2 - t)                     -- eased out: grows fast, settles
+            local hw                                                        -- the half width the sprite is drawn with (s unless set)
+            local ax, ay, az, hl = 0, 0, 0, 0
+            if kind == K_PUFF then
+                -- Smoke blows up fast and then settles: the size follows sqrt(age), eased in over the first 0.2 s so that it
+                -- does not start with a jump.
+                local g = sqrt(t)
+                if age < 0.2 then g = g * smooth(age * 5) end
+                s = s0 + (Ps1[i] - s0) * g
+                a = a * envelope(age, life, 0.15, 1)
+                local rot = Prot[i] + Pspin[i] * step
+                Prot[i] = rot
+                if camOk then
+                    local c, sn = cos(rot), sin(rot)
+                    ax, ay, az, hl = rx * c + ux * sn, ry * c + uy * sn, rz * c + uz * sn, s
+                end
+            elseif kind == K_WISP then
+                a = a * envelope(age, life, 0.35, 0.65)
+                -- A slow sideways sway, zero at birth, on top of the rise.
+                local ph = Prot[i]
+                x = x + (sin(age * 2.3 + ph) - sin(ph)) * 1.6
+                z = z + (cos(age * 1.9 + ph) - cos(ph)) * 1.6
+                ax, ay, az, hl = -vx * 0.02, -1, -vz * 0.02, s * 2     -- the PNG is 1:2, its top row is the tail
+            elseif kind == K_SPARK then
+                a = a * envelope(age, life, 0.03, 1)
+                -- kj_spark.png is a horizontal lens, long along u (the sprite's width), while the sprite's axis stretches v (the
+                -- rows). So the streak runs along the width: halfW is the streak's half length, halfL its thin half thickness
+                -- (the lens fills about a quarter of the rows), and the axis is turned a quarter turn from the velocity on screen
+                -- (forward x velocity lies in the screen plane and is perpendicular to the projected velocity), which puts the
+                -- width along the flight. The length is a smooth function of speed (about 0.05 of a unit per unit of speed,
+                -- flattening toward 14): a spark that slows at the top of its arc shrinks to a dot, a fast one never hits a limit.
+                local sp = sqrt(vx * vx + vy * vy + vz * vz)
+                hw, hl = 1.2 + 12.8 * (1 - exp(-sp * 0.0039)), s * 2
+                ax, ay, az = ux, uy, uz                                 -- no camera or a head-on spark: a level streak
+                if camOk and sp > 1e-3 then
+                    local qx, qy, qz = CAM.fy * vz - CAM.fz * vy, CAM.fz * vx - CAM.fx * vz, CAM.fx * vy - CAM.fy * vx
+                    local ql = sqrt(qx * qx + qy * qy + qz * qz)
+                    if ql > sp * 0.05 then ax, ay, az = qx / ql, qy / ql, qz / ql end
+                end
+            elseif kind == K_BUBBLE then
+                -- A bubble eases in, holds, then pops: in the last 0.18 s it swells by a third while it fades out.
+                local rem = life - age
+                if rem < 0.18 then
+                    local pop = smooth(1 - rem / 0.18)
+                    a = a * (1 - pop)
+                    s = s * (1 + 0.35 * pop)
+                end
+                if age < 0.2 then a = a * smooth(age * 5) end
+                local ph = Prot[i]
+                x = x + (sin(age * 4 + ph) - sin(ph)) * 1.2             -- zero at birth, so it does not jump
+            elseif kind == K_DROP then
+                a = a * envelope(age, life, 0.05, 0.6)
+                if vx ~= 0 or vy ~= 0 or vz ~= 0 then ax, ay, az, hl = vx, vy, vz, s * 1.4 end
+            else    -- K_GLINT
+                a = a * envelope(age, life, life * 0.3, 0.7)
+                local rot = Prot[i] + Pspin[i] * step
+                Prot[i] = rot
+                if camOk then
+                    local c, sn = cos(rot), sin(rot)
+                    ax, ay, az, hl = rx * c + ux * sn, ry * c + uy * sn, rz * c + uz * sn, s
+                end
+            end
+            local a8 = floor(a * 255 + 0.5)
+            if a8 > 0 and s > 0 then
+                if a8 > 255 then a8 = 255 end
+                local b = Pbias[i]
+                sprite(Ptex[i], x - cfx * b, y - cfy * b, z - cfz * b, hw or s, hl, ax, ay, az, Prgb[i] | a8,
+                       Padd[i] and "additive" or "alpha")
+            end
+        end
+    end
+end
+
+-- ---------------------------------------------------------------- worms
+-- W[slot] holds what the last frame saw: position, health, facing, weapon, and the latest drop in health.
+local W = {}
+local FR = { n = 0 }            -- frame counter; W[slot].seen == FR.n for the worms listed this frame
+local ACT = { slot = nil }
+
+local function activeSlot()
+    if not wum.game.activeWorm then return nil end
+    local ok, a = pcall(wum.game.activeWorm)
+    if ok then return tonumber(a) end
+    return nil
+end
+
+local MEL = { heldWeapon = nil, heldSlot = nil, heldAt = -100, firedSlot = nil, firedWid = nil, firedAt = -100,
+              pending = false, hurtAt = -100, hurtWid = nil, lastAt = -100, pv = 0 }
+
+-- The game moves a worm 50 times a second (see wum.game.tick) and reports where it was at the last tick, so a position read
+-- every frame advances in steps, and at 144 fps it stands still for two frames in three. Anything pinned to a worm (the acid
+-- coat) would shudder with it. s.rx/ry/rz is the worm's position smoothed for drawing: it is carried forward at the speed the
+-- reported position has been moving and pulled toward the report with a time constant of 1/FOLLOW second, so it never drifts.
+-- The speed is measured from the reports (the engine's own velocity is zero while a worm walks) and low-passed over VEL_TAU
+-- seconds, which evens out whole ticks arriving two to a frame or none. A jump of more than 40 units is a teleport or a
+-- respawn, and is followed at once.
+local VEL_TAU = 0.08
+
+local function follow(s, x, y, z)
+    local dt = curDt
+    if not s.rx or s.px == nil then
+        s.rx, s.ry, s.rz, s.evx, s.evy, s.evz = x, y, z, 0, 0, 0
+        return
+    end
+    local dx, dy, dz = x - s.px, y - s.py, z - s.pz
+    if dx * dx + dy * dy + dz * dz > 1600 then
+        s.rx, s.ry, s.rz, s.evx, s.evy, s.evz = x, y, z, 0, 0, 0
+        return
+    end
+    if dt <= 0 then return end
+    local kv = 1 - exp(-dt / VEL_TAU)
+    local ivd = 1 / dt
+    s.evx, s.evy, s.evz = s.evx + (dx * ivd - s.evx) * kv, s.evy + (dy * ivd - s.evy) * kv, s.evz + (dz * ivd - s.evz) * kv
+    local k = 1 - exp(-dt * COATK.FOLLOW)
+    local rx, ry, rz = s.rx + s.evx * dt, s.ry + s.evy * dt, s.rz + s.evz * dt
+    s.rx, s.ry, s.rz = rx + (x - rx) * k, ry + (y - ry) * k, rz + (z - rz) * k
+end
+
+local function trackWorms()
+    ACT.slot = activeSlot()
+    local ok, worms = pcall(wum.game.worms)
+    if not ok or type(worms) ~= "table" then return end
+    FR.n = FR.n + 1
+    for i = 1, #worms do
+        local w = worms[i]
+        local slot = type(w) == "table" and tonumber(w.slot)
+        local x, y, z
+        if slot then x, y, z = vec(w.pos) end
+        if x then
+            local health = tonumber(w.health) or 0
+            local alive = w.alive == true
+            local yaw = tonumber(w.yaw)
+            if yaw and yaw - yaw ~= 0 then yaw = nil end        -- NaN or infinite
+            local s = W[slot]
+            if not s then
+                s = { hp = health, alive = alive, dropAmt = 0, dropAt = -100 }
+                W[slot] = s
+            end
+            if alive and s.alive and health < s.hp then s.dropAmt, s.dropAt = s.hp - health, now end
+            follow(s, x, y, z)
+            s.px, s.py, s.pz, s.hp, s.alive, s.yaw, s.seen = x, y, z, health, alive, yaw or s.yaw or 0, FR.n
+            local wid = tonumber(w.weapon)
+            s.weapon = wid
+            if wid and slot == ACT.slot then MEL.heldWeapon, MEL.heldSlot, MEL.heldAt = wid, slot, now end
+        end
+    end
+end
+
+-- ---------------------------------------------------------------- with Bloodsand and Sunstone
+-- Kindjal's acid draws after Bloodsand's skin (51), guts (52) and gibs (53) and before Sunstone's occlusion (100) and grade
+-- (300); its hit flash is Final 900, after both plugins' PostWorld effects, Bloodsand's lens splatter (60) and Sunstone's
+-- lens finish (800). Nothing has to be configured: Melange lets a mod read every effect (wum.postfx.list: id, enabled, failed),
+-- so the other plugins are found by their effect ids. Asked at the start, at a match edge, when the mod list changes and every
+-- five seconds (the player can switch a mod or Sunstone's quality at any time). What is found changes four things:
+--   Sunstone   p_compat 1 (the acid's skin test allows for Sunstone's tinted shade, see acid.frag) and the acid's opacity
+--              x1.15: Sunstone's occlusion, haze and vignette darken and thin what is behind them, and at the subtle intensity
+--              (0.55) that costs more than at the full one. The tonemap itself keeps hue and saturation (README).
+--   Bloodsand  the hit flash at 0.6 of its peak, as Bloodsand throws its own red splat on the lens for a heavy hit near the
+--              camera (the two together read as one red shock, not two); and no acid or wisps on a worm with no health left,
+--              as Bloodsand gibs it: the body is blown apart and the vapour would rise from nothing.
+-- Every id Kindjal switches or sets is "kindjal/...": the check below runs at load and turns the post-FX off rather than touch an
+-- effect that is not its own (Melange refuses it as well).
+local COMPAT = { bloodsand = false, sunstone = false, nextAt = 0, STRENGTH = 1.15, FLASH = 0.6, EVERY = 5 }
+
+for _, id in ipairs({ FXA.id, FXH.id, table.unpack(WARM.ids) }) do
+    if string.sub(id, 1, 8) ~= "kindjal/" then
+        hasPostfx = false
+        log("kindjal: post-FX id " .. id .. " is not namespaced kindjal/, so the post-FX are off")
+    end
+end
+
+function COMPAT.probe()
+    COMPAT.nextAt = os.clock() + COMPAT.EVERY
+    if not (wum.postfx and wum.postfx.list) then return end
+    local ok, list = pcall(wum.postfx.list)
+    if not ok or type(list) ~= "table" then return end
+    local bs, ss = false, false
+    for i = 1, #list do
+        local e = list[i]
+        if type(e) == "table" and type(e.id) == "string" and e.failed ~= true then
+            -- Bloodsand turns its effects on and off as the gore needs them, so being listed is what counts. Sunstone's
+            -- effects are on for as long as its quality setting uses them (any of them means its lighting is on too).
+            if string.sub(e.id, 1, 10) == "bloodsand/" then bs = true end
+            if string.sub(e.id, 1, 9) == "sunstone/" and e.enabled == true then ss = true end
+        end
+    end
+    COMPAT.bloodsand, COMPAT.sunstone = bs, ss
+    if not COMPAT.primed then
+        COMPAT.primed = true
+        COMPAT.k = ss and 1 or 0
+    end
+end
+
+function COMPAT.poll()
+    if os.clock() >= COMPAT.nextAt then COMPAT.probe() end
+end
+
+-- The acid effect's opacity for a preset strength, and its p_compat. Both follow COMPAT.k, which eases to 1 (Sunstone found) or 0
+-- over EASE seconds instead of jumping, because the probe can notice a switch up to EVERY seconds late and a coated worm would
+-- then change its skin mask and opacity in one frame. k is sent in steps of 1/256, like the coat levels. The first probe sets
+-- it directly, so Sunstone already running at load does not fade in.
+COMPAT.k, COMPAT.primed, COMPAT.EASE = 0, false, 0.3
+function COMPAT.ease(dt)
+    local target = COMPAT.sunstone and 1 or 0
+    if not COMPAT.primed then return end
+    local step = dt / COMPAT.EASE
+    if COMPAT.k < target then COMPAT.k = min(target, COMPAT.k + step)
+    elseif COMPAT.k > target then COMPAT.k = max(target, COMPAT.k - step) end
+end
+function COMPAT.strength(base) return min(1, base * (1 + (COMPAT.STRENGTH - 1) * floor(COMPAT.k * 256 + 0.5) / 256)) end
+function COMPAT.compat() return floor(COMPAT.k * 256 + 0.5) / 256 end
+-- The factor on the hit flash's peak.
+function COMPAT.flash() return COMPAT.bloodsand and COMPAT.FLASH or 1 end
+-- True for a worm Bloodsand has blown apart (or is about to): its health is gone, whatever its alive flag still says.
+function COMPAT.gibbed(s) return COMPAT.bloodsand and (tonumber(s.hp) or 1) <= 0 end
+
+-- Is a coated worm anywhere near the screen? The acid pass is a full-screen pass, so it is left off while every coated worm is
+-- far outside the view (a worm coated for 70 s can be off screen for most of that). Asked four times a second, and it stays on
+-- for two seconds after the last time one was in view, so panning back and forth does not switch the effect on and off (Melange
+-- saves that switch). When the view cannot be worked out it says yes.
+local VIS = { at = -100, last = -100 }
+
+function COMPAT.coatInView(coat)
+    if not (wum.render and wum.render.worldToScreen and wum.render.windowSize) then return true end
+    if now - VIS.at >= 0.25 then
+        VIS.at = now
+        local okw, w, h = pcall(wum.render.windowSize)
+        if not okw or type(w) ~= "number" or type(h) ~= "number" or w <= 0 or h <= 0 then return true end
+        local margin = 0.5 * h              -- a worm is under 100 pixels tall unless zoomed in; half a window is generous
+        for slot in pairs(coat) do
+            local s = W[slot]
+            if not s then
+                VIS.last = now              -- no position yet: assume in view
+            else
+                local ok, sx, sy = pcall(wum.render.worldToScreen, { x = s.px, y = s.py + CENTRE_Y, z = s.pz })
+                if not ok then
+                    VIS.last = now
+                elseif type(sx) == "number" and type(sy) == "number" and sx > -margin and sx < w + margin and sy > -margin and sy < h + margin then
+                    VIS.last = now
+                end                         -- nil: behind the camera
+            end
+        end
+    end
+    return now - VIS.last < 2
+end
+
+-- ---------------------------------------------------------------- acid coat
+-- COAT[slot] = { t0 (spread clock), tl (level clock), kind, seed, cx, cy, cz (the position last sent), placed, wrate, wacc }.
+-- The level and the spread are exact, continuous functions of the clocks (LV, SP hold the current values), packed four slots to
+-- a vec4 (slot = 4k + i) and sent when they have moved by SEND_EPS or after SEND_EVERY seconds (see `moved`).
+local COAT = {}
+local CS = { n = 0 }
+local LV, SP = {}, {}
+local GRP = { [0] = { dirty = false, lvAt = -100, spAt = -100 }, { dirty = false, lvAt = -100, spAt = -100 },
+              { dirty = false, lvAt = -100, spAt = -100 }, { dirty = false, lvAt = -100, spAt = -100 } }
+for i = 0, SLOTS - 1 do LV[i], SP[i] = 0, 0 end
+
+-- Rise on a smoothstep, hold, and a long fade that leaves the hold and arrives at nothing with no slope at either end, so
+-- there is no visible corner anywhere on the curve.
+local function coatLevel(a)
+    if a <= 0 then return 0 end
+    if a < COATK.RAMP then return smooth(a / COATK.RAMP) end
+    if a < COATK.HOLD_END then return 1 end
+    if a < COATK.FADE_END then return 1 - smooth((a - COATK.HOLD_END) / (COATK.FADE_END - COATK.HOLD_END)) end
+    return 0
+end
+
+-- The spread accelerates away from the first spots and settles into the full coat (a smoothstep between the two).
+local function coatSpread(a)
+    if a >= COATK.SPREAD_SECS then return 1 end
+    return COATK.SPREAD_FROM + (1 - COATK.SPREAD_FROM) * smooth(a / COATK.SPREAD_SECS)
+end
+
+local function coatAdd(slot, kind)
+    if slot < 0 or slot >= SLOTS then return end
+    local c = COAT[slot]
+    if c then
+        -- Hit again: the level carries on from where it is (it never drops), and the hold starts over. The spread keeps going.
+        -- The level is a smoothstep of the ramp clock, so the clock is set by inverting that curve (u = 0.5 - sin(asin(1-2y)/3)),
+        -- not by scaling: scaling would put the level back below where it was.
+        local cur = coatLevel(now - c.tl)
+        if cur < 1 then
+            local u = 0.5 - sin(math.asin(clamp(1 - 2 * cur, -1, 1)) / 3)
+            c.tl = now - u * COATK.RAMP
+        else
+            c.tl = now - COATK.RAMP
+        end
+        return
+    end
+    -- wrate: this coat's wisps a second at full level, chosen once (a rate redrawn every frame would be noise, not a rate).
+    COAT[slot] = { t0 = now, tl = now, kind = kind, seed = random(0, 1000), placed = false, wrate = rnd(4, 6), wacc = 0,
+                   cx = 0, cy = 0, cz = 0 }
+    CS.n = CS.n + 1
+    GRP[slot >> 2].dirty = true
+end
+
+local function coatRemove(slot)
+    if COAT[slot] then
+        COAT[slot] = nil
+        CS.n = CS.n - 1
+        GRP[slot >> 2].dirty = true         -- the next send puts its zeros out
+    end
+    LV[slot], SP[slot] = 0, 0
+end
+
+-- Wisps of vapour rise from the surface of a coated worm: thin curls, additive, green-grey. They start nearly at rest and
+-- are carried up by a lift that the drag balances (a terminal speed of 20 to 33 a second, reached over about a second), so the
+-- velocity eases in instead of starting at full speed.
+local function spawnWisp(cx, cy, cz, over, rate)
+    local a = rnd(0, 2 * pi)
+    local i = spawn(K_WISP, WISP_T[random(1, 2)], true, cx + cos(a) * 6, cy + rnd(-8, 9), cz + sin(a) * 6,
+                    cos(a) * 1.5 + rnd(-2, 2), rnd(5, 10), sin(a) * 1.5 + rnd(-2, 2), rnd(3.5, 5), rnd(5.5, 8), rnd(1.4, 2.4),
+                    rnd(0.38, 0.5), rnd(0.55, 0.68), rnd(0.25, 0.34), rnd(0.4, 0.55), 0.9, rnd(18, 30), rnd(0, 2 * pi), 0, true)
+    subframe(i, over, rate)
+end
+
+-- Sends group k (slots 4k..4k+3) when it has a coat or has just lost its last one.
+local function sendGroup(k)
+    local g = GRP[k]
+    local any = false
+    for i = 0, 3 do
+        if COAT[4 * k + i] then any = true break end
+    end
+    if not (any or g.dirty) then return end
+    local free = not any
+    for i = 0, 3 do
+        local slot = 4 * k + i
+        local c = COAT[slot]
+        if c then
+            sendParam(FXA, WN[slot], c.cx, c.cy, c.cz)
+        else
+            sendParam(FXA, WN[slot], 0, 0, 0, true)
+        end
+    end
+    local b = 4 * k
+    local eps, every = COATK.SEND_EPS, COATK.SEND_EVERY
+    local l1, l2, l3, l4 = LV[b], LV[b + 1], LV[b + 2], LV[b + 3]
+    if free or moved(FXA, LN[k], eps, every, g.lvAt, l1, l2, l3, l4) then
+        if sendVec4(FXA, LN[k], l1, l2, l3, l4, free) then g.lvAt = now end
+    end
+    local s1, s2, s3, s4 = SP[b], SP[b + 1], SP[b + 2], SP[b + 3]
+    if free or moved(FXA, SN[k], eps, every, g.spAt, s1, s2, s3, s4) then
+        if sendVec4(FXA, SN[k], s1, s2, s3, s4, free) then g.spAt = now end
+    end
+    g.dirty = any
+end
+
+local function coatUpdate(dt)
+    local pre = S.preset
+    local nc = max(1, CS.n)
+    COMPAT.ease(dt)
+    TOK.v = min(max(12, COATK.TOKENS * nc * 0.1), TOK.v + dt * COATK.TOKENS * nc)
+    local emitting = 0
+    for slot, c in pairs(COAT) do
+        local s = W[slot]
+        local la = now - c.tl
+        if not pre or not s or s.seen ~= FR.n or not s.alive or COMPAT.gibbed(s) or la >= COATK.FADE_END then
+            coatRemove(slot)
+        else
+            local lv, sp = coatLevel(la), coatSpread(now - c.t0)
+            LV[slot], SP[slot] = lv, sp
+            local x, y, z = s.rx, s.ry + CENTRE_Y, s.rz
+            -- The centre follows the worm continuously; it is only held back while the worm has moved less than POS_EPS.
+            local dx, dy, dz = x - c.cx, y - c.cy, z - c.cz
+            if not c.placed or dx * dx + dy * dy + dz * dz > COATK.POS_EPS * COATK.POS_EPS then
+                c.cx, c.cy, c.cz, c.placed = x, y, z, true
+            end
+            if S.smoke and lv > 0.002 and emitting < COATK.WISP_CAP then
+                emitting = emitting + 1
+                local rate = c.wrate * lv * pre.rate
+                c.wacc = c.wacc + dt * rate
+                while c.wacc >= 1 do
+                    c.wacc = c.wacc - 1
+                    spawnWisp(x, y, z, c.wacc, rate)
+                end
+            end
+        end
+    end
+
+    -- What the shader gets: worm centres, then the packed levels and spreads. A group that has just emptied sends its zeros
+    -- (free of the token bucket) and then goes quiet.
+    for k = 0, 3 do sendGroup(k) end
+    if CS.n > 0 and pre then
+        sendParam(FXA, "seed", S.seed, nil, nil, true)
+        sendParam(FXA, "strength", COMPAT.strength(pre.strength), nil, nil, true)
+        sendParam(FXA, "compat", COMPAT.compat(), nil, nil, true)
+    end
+    sendEnabled(FXA, CS.n > 0 and pre ~= nil and COMPAT.coatInView(COAT))
+end
+
+-- ---------------------------------------------------------------- puddles
+-- A puddle lies on the ground where the acid came down: grows for a second, holds about twelve seconds, shrinks over eight and
+-- smokes while it lasts. At most three; a fourth replaces the oldest.
+local PUD = {}
+local PK = { MAX = 3, GROW = 1, HOLD = 12, SHRINK = 8, MIN_NY = 0.766 }      -- 0.766 is cos(40 degrees)
+local nPuddles = 0
+
+local function puddleEnd(p)
+    stopVoice(p.voice)
+    p.voice = nil
+end
+
+-- It spreads out fast and eases to its full size (ease-out), and shrinks slowly at first and then faster (ease-in).
+local function puddleScale(age)
+    if age < PK.GROW then
+        local u = 1 - age / PK.GROW
+        return 1 - u * u * u
+    end
+    if age < PK.GROW + PK.HOLD then return 1 end
+    local u = (age - PK.GROW - PK.HOLD) / PK.SHRINK
+    if u >= 1 then return 0 end
+    return 1 - u * u
+end
+
+local function puddleAdd(x, y, z, r)
+    if not RAY.ok then return end
+    -- Straight down from just above the burst; the first ray starts inside land when the crater is deep, then try from higher.
+    local t, nx, ny, nz = castRay(x, y + 20, z, x, y - 160, z)
+    local py = t and (y + 20 - t * 180)
+    if t and t < 0.01 then
+        t, nx, ny, nz = castRay(x, y + 90, z, x, y - 230, z)
+        py = t and (y + 90 - t * 320)
+        if t and t < 0.01 then t = nil end          -- still inside land: no surface to put it on
+    end
+    if not t or not ny or ny < PK.MIN_NY then return end
+    if #PUD >= PK.MAX then
+        puddleEnd(PUD[1])
+        table.remove(PUD, 1)
+    end
+    nPuddles = nPuddles + 1
+    local p = { x = x, y = py, z = z, nx = nx, ny = ny, nz = nz, R = clamp(r * 0.5, 18, 46), t0 = now, wacc = 0, wrate = rnd(2, 4), bias = (nPuddles % 6) * 0.15 }
+    p.voice = play("acid_hiss", 0.35, x, py + 2, z, true)
+    PUD[#PUD + 1] = p
+end
+
+-- Sprites face the camera, so a puddle is drawn the way a flat disc looks from here: stretched along the ground direction
+-- that is square to the view, and as thin as the camera's angle to the ground makes it. It is moved toward the camera along
+-- the view ray (the screen position does not change) so that the ground in front of it does not cut off its near half.
+local function puddleDraw(p, sc, alpha)
+    if not (CAM.ok and TEX.puddle1) then return end
+    local nx, ny, nz = p.nx, p.ny, p.nz
+    local d = CAM.rx * nx + CAM.ry * ny + CAM.rz * nz
+    local tx, ty, tz = CAM.rx - nx * d, CAM.ry - ny * d, CAM.rz - nz * d
+    local tl = sqrt(tx * tx + ty * ty + tz * tz)
+    if tl < 1e-4 then return end
+    tx, ty, tz = tx / tl, ty / tl, tz / tl
+    local fn = abs(CAM.fx * nx + CAM.fy * ny + CAM.fz * nz)
+    local R = p.R * sc
+    local halfW = max(R * fn, R * 0.2)
+    local push = min(25, R * sqrt(max(0, 1 - fn * fn)) * 0.45)
+    -- p.bias: a puddle on top of an older one is a fixed fraction of a unit nearer, so stacked puddles never fight over a depth.
+    push = push + p.bias
+    local cx, cy, cz = p.x + nx * 0.6 - CAM.fx * push, p.y + ny * 0.6 - CAM.fy * push, p.z + nz * 0.6 - CAM.fz * push
+    local a8 = floor(clamp(alpha, 0, 1) * 255 + 0.5)
+    if a8 <= 0 then return end
+    local sprite = wum.draw.sprite
+    sprite(TEX.puddle1, cx, cy, cz, halfW, R, tx, ty, tz, rgb8(0.36, 0.58, 0.09) | a8, "alpha")
+    if TEX.puddle2 then
+        -- The shine layer sits a fixed half unit nearer the camera, so the two never fight over one depth.
+        local b8 = floor(a8 * 0.6)
+        sprite(TEX.puddle2, cx + tx * R * 0.1 - CAM.fx * 0.5, cy + ty * R * 0.1 - CAM.fy * 0.5, cz + tz * R * 0.1 - CAM.fz * 0.5,
+               halfW * 0.72, R * 0.72, tx, ty, tz, rgb8(0.62, 0.84, 0.16) | b8, "alpha")
+    end
+end
+
+local function puddleUpdate(dt)
+    local pre = S.preset
+    for i = #PUD, 1, -1 do
+        local p = PUD[i]
+        local age = now - p.t0
+        local sc = puddleScale(age)
+        if not pre or age >= PK.GROW + PK.HOLD + PK.SHRINK then
+            puddleEnd(p)
+            table.remove(PUD, i)
+        else
+            if S.smoke then
+                puddleDraw(p, 0.15 + 0.85 * sc, smooth(sc * 1.5) * 0.62)
+                -- The smoke thickens as the puddle spreads and thins as it shrinks, with no threshold to cross.
+                local rate = p.wrate * smooth((sc - 0.15) / 0.6) * pre.rate
+                if rate > 0 then
+                    p.wacc = p.wacc + dt * rate
+                    while p.wacc >= 1 do
+                        p.wacc = p.wacc - 1
+                        local a, d = rnd(0, 2 * pi), rnd(0, 0.6) * p.R * sc
+                        local j = spawn(K_WISP, WISP_T[random(1, 2)], true, p.x + cos(a) * d + p.nx * 2, p.y + p.ny * 2, p.z + sin(a) * d + p.nz * 2,
+                                        rnd(-2, 2), rnd(5, 10), rnd(-2, 2), rnd(3.5, 5), rnd(6, 9), rnd(1.6, 2.6),
+                                        rnd(0.38, 0.5), rnd(0.6, 0.72), rnd(0.22, 0.3), rnd(0.35, 0.5), 0.9, rnd(16, 26), rnd(0, 2 * pi), 0, true)
+                        subframe(j, p.wacc, rate)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- ---------------------------------------------------------------- bursts
+-- Smoke and bubbles of an acid burst, and the drops it throws.
+local function acidSmoke(x, y, z, r)
+    local R = S.preset.rate
+    local spread = clamp(r * 0.22, 6, 24)
+    for _ = 1, floor(rnd(25, 40) * R + 0.5) do
+        local a, d = rnd(0, 2 * pi), rnd(0, 1) * spread
+        -- Each puff is born up to 0.12 s apart, so the cloud billows out instead of appearing in one frame.
+        spawn(K_PUFF, SMOKE_T[random(1, 3)], true, x + cos(a) * d, y + rnd(0, 10), z + sin(a) * d,
+              rnd(-12, 12), rnd(8, 26), rnd(-12, 12), rnd(5, 9), rnd(16, 30), rnd(3, 6),
+              rnd(0.5, 0.7), rnd(0.75, 0.9), rnd(0.1, 0.22), rnd(0.14, 0.24), 0.5, 0, rnd(0, 2 * pi), rnd(-0.6, 0.6), false,
+              rnd(0, 0.12))
+    end
+    for _ = 1, floor(rnd(10, 15) * R + 0.5) do
+        local a, d = rnd(0, 2 * pi), rnd(0, 1) * spread
+        spawn(K_BUBBLE, TEX.bubble, false, x + cos(a) * d, y + rnd(0, 6), z + sin(a) * d,
+              rnd(-3, 3), rnd(8, 16), rnd(-3, 3), rnd(1.5, 3.5), rnd(2, 4.5), rnd(2, 4),
+              0.72, 1, 0.6, rnd(0.55, 0.8), 0.2, 0, rnd(0, 6), 0, false, rnd(0, 0.2))
+    end
+    -- Drops thrown up and out, falling back.
+    if TEX.drop then
+        for _ = 1, floor(rnd(8, 12) * R + 0.5) do
+            local a, sp = rnd(0, 2 * pi), rnd(30, 90)
+            spawn(K_DROP, TEX.drop, false, x, y + 4, z, cos(a) * sp, rnd(80, 170), sin(a) * sp, rnd(1.1, 2), rnd(0.8, 1.4),
+                  rnd(0.7, 1.2), 0.5, 0.9, 0.14, 0.9, 0, -300, 0, 0, false, rnd(0, 0.04))
+        end
+    end
+end
+
+-- The Crucible: a ring of dark dust thrown out along the ground, and a short orange flare in the middle.
+local function crucibleDust(x, y, z, r)
+    local R = S.preset.rate
+    local n = floor(rnd(16, 20) * R + 0.5)
+    for i = 1, n do
+        local a = (i / n) * 2 * pi + rnd(-0.2, 0.2)
+        local sp = rnd(60, 110)
+        local c, s = cos(a), sin(a)
+        spawn(K_PUFF, SMOKE_T[random(1, 3)], false, x + c * r * 0.12, y + rnd(2, 8), z + s * r * 0.12,
+              c * sp, rnd(6, 20), s * sp, rnd(10, 14), rnd(30, 40), rnd(3, 5),
+              rnd(0.14, 0.2), rnd(0.12, 0.16), rnd(0.1, 0.13), rnd(0.45, 0.6), 0.9, 0, rnd(0, 2 * pi), rnd(-0.5, 0.5), false,
+              rnd(0, 0.08))
+    end
+    for _ = 1, floor(5 * R + 0.5) do
+        spawn(K_PUFF, SMOKE_T[random(1, 3)], true, x + rnd(-12, 12), y + rnd(2, 14), z + rnd(-12, 12),
+              rnd(-10, 10), rnd(30, 60), rnd(-10, 10), rnd(14, 20), rnd(45, 70), rnd(0.5, 0.9),
+              1, rnd(0.45, 0.6), 0.14, rnd(0.4, 0.55), 1.2, 0, rnd(0, 2 * pi), rnd(-1, 1), false, rnd(0, 0.05))
+    end
+end
+
+local function onBurst(x, y, z, r, kind)
+    -- The sounds do not depend on the visuals setting.
+    if kind == 2 then
+        play("crucible", 1.0, x, y, z)
+    else
+        play("acid_burst", kind == 1 and 1.0 or 0.7, x, y, z)
+    end
+    local pre = S.preset
+    if not pre then return end
+    if kind == 2 then
+        if S.smoke then crucibleDust(x, y, z, r) end
+        return
+    end
+    -- Every living worm in reach is coated; reach is the blast radius plus a little for the size of a worm.
+    local reach = r * 1.15 + 12
+    for slot, s in pairs(W) do
+        if s.seen == FR.n and s.alive then
+            local dx, dy, dz = s.px - x, s.py + CENTRE_Y - y, s.pz - z
+            if dx * dx + dy * dy + dz * dz <= reach * reach then coatAdd(slot, kind) end
+        end
+    end
+    if S.smoke then
+        acidSmoke(x, y, z, r)
+        puddleAdd(x, y, z, r)
+    end
+end
+
+-- Parses "x,y,z,r,kind".
+local function onBurstMessage(p)
+    local text = type(p) == "table" and p.value or p
+    if type(text) ~= "string" then return end
+    local v, n = {}, 0
+    for num in string.gmatch(text, "[-%d%.eE]+") do
+        local d = tonumber(num)
+        if d then
+            n = n + 1
+            v[n] = d
+        end
+    end
+    if n < 5 then return end
+    onBurst(v[1], v[2], v[3], v[4], floor(v[5] + 0.5))
+end
+
+-- ---------------------------------------------------------------- melee flourish
+-- The game says "a worm was damaged" without saying by what or whom. So the swing is remembered when it happens
+-- (Weapon.Fired: who, which weapon), a health drop that follows within 0.6 s is matched to it, and the victim is the other worm
+-- in reach whose health fell furthest. A weapon id can vanish from worms() before the damage arrives, so the id last seen on
+-- the active worm is kept for 2.5 s.
+-- The flash is a pulse: a quick smoothstep rise (FLASH_RISE), then an ease-out to nothing over FLASH_SECS, so there is no hard
+-- cut at either end. Two pulses can overlap (the later one does not cut the earlier one short); the screen shows the higher.
+-- The vignette stays on the victim: the pulse remembers whose hit it was and follows that worm on the screen.
+local HF = { on = false, u = 0.5, v = 0.5, last = 0, w = 1920, h = 1080, slot = nil,
+             { t0 = -100, peak = 0 }, { t0 = -100, peak = 0 }, next = 1 }
+local FLASH_SECS, FLASH_RISE, FLASH_EPS = 0.25, 0.04, 1 / 512
+-- The rise and the fall overlap, so their product tops out at 0.708 of the peak (at about 0.037 s); this gain brings the
+-- highest point of the flash back to exactly the peak.
+local FLASH_GAIN = 1.412
+
+local function flashCurve(age, peak)
+    if age <= 0 or age >= FLASH_SECS then return 0 end
+    local fall = 1 - age / FLASH_SECS
+    return peak * FLASH_GAIN * smooth(age / FLASH_RISE) * fall * fall
+end
+
+local function flashCentre(vx, vy, vz)
+    local ok, sx, sy = pcall(wum.render.worldToScreen, { x = vx, y = vy, z = vz })
+    if not ok or type(sx) ~= "number" or type(sy) ~= "number" then return false end
+    -- The shader's uv has its origin at the bottom left; window pixels count from the top left.
+    HF.u, HF.v = clamp(sx / HF.w, 0, 1), clamp(1 - sy / HF.h, 0, 1)
+    return true
+end
+
+local function startFlash(vx, vy, vz, dmg, slot)
+    if not (hasPostfx and wum.render and wum.render.worldToScreen and wum.render.windowSize) then return end
+    local okw, w, h = pcall(wum.render.windowSize)
+    if not okw or type(w) ~= "number" or type(h) ~= "number" or w <= 0 or h <= 0 then return end
+    HF.w, HF.h = w, h
+    if not flashCentre(vx, vy, vz) then return end
+    local pulse = HF[HF.next]
+    HF.next = 3 - HF.next
+    pulse.t0 = now
+    pulse.peak = clamp(dmg, 10, 50) / 50 * 0.35 * S.preset.strength * COMPAT.flash()
+    HF.on, HF.slot = true, slot
+    sendParam(FXH, "center", HF.u, HF.v, nil, true)
+end
+
+local function hitUpdate()
+    if HF.on then
+        local f = max(flashCurve(now - HF[1].t0, HF[1].peak), flashCurve(now - HF[2].t0, HF[2].peak))
+        local live = S.preset and (now - HF[1].t0 < FLASH_SECS or now - HF[2].t0 < FLASH_SECS)
+        if not live then
+            HF.on, HF.last = false, 0
+            sendParam(FXH, "flash", 0, nil, nil, true)
+        else
+            -- The vignette follows the victim (smoothed position, so it does not shudder with the game's ticks).
+            local s = HF.slot and W[HF.slot]
+            if s and s.seen == FR.n and s.rx then
+                local u0, v0 = HF.u, HF.v
+                if flashCentre(s.rx, s.ry + CENTRE_Y, s.rz) and (abs(HF.u - u0) > 1e-4 or abs(HF.v - v0) > 1e-4) then
+                    sendParam(FXH, "center", HF.u, HF.v, nil, true)
+                end
+            end
+            -- Continuous, sent when it has moved by 1/512 (the flash peaks at 0.35, so that is half a percent of it at most).
+            if abs(f - HF.last) > FLASH_EPS or not FXH.cache.flash then
+                HF.last = f
+                sendParam(FXH, "flash", f, nil, nil, true)
+            end
+        end
+    end
+    sendEnabled(FXH, HF.on)
+end
+
+local function impactBurst(ix, iy, iz, dx, dy, dz, dmg, wid)
+    local R = S.preset.rate
+    local boost = 0.7 + 0.3 * clamp(dmg / 30, 0.3, 1.5)
+    for _ = 1, floor(rnd(8, 14) * R * boost + 0.5) do
+        local sp = rnd(70, 190)
+        spawn(K_SPARK, TEX.spark, false, ix, iy, iz, dx * sp + rnd(-60, 60), dy * sp + rnd(10, 90), dz * sp + rnd(-60, 60),
+              rnd(0.9, 1.6), 0.5, rnd(0.35, 0.7), rnd(0.32, 0.5), rnd(0.04, 0.08), rnd(0.03, 0.06), 0.9, 0.6, -260)
+    end
+    local hot = wid == 12 and 2 or 0
+    for _ = 1, floor((rnd(3, 5) + hot) * R + 0.5) do
+        local sp = rnd(100, 240)
+        spawn(K_SPARK, TEX.spark, true, ix, iy, iz, dx * sp + rnd(-70, 70), dy * sp + rnd(0, 100), dz * sp + rnd(-70, 70),
+              rnd(1.2, 1.8), 0.4, rnd(0.15, 0.3), 1, rnd(0.45, 0.65), 0.12, 0.9, 0.8, -200)
+    end
+    spawn(K_GLINT, TEX.glint, true, ix, iy, iz, 0, 0, 0, 6, 10, 0.18, 1, 0.7, 0.3, 0.9, 0, 0, rnd(0, 2 * pi), rnd(-2, 2))
+end
+
+-- Spike glints on the swing: a few sparkles at the tip, for a third of a second.
+local function spikeGlints(a)
+    local s = W[a]
+    if not (S.preset and S.spikes and S.melee and s and TEX.glint) then return end
+    local yaw = s.yaw or 0
+    local gx, gy, gz = s.px + sin(yaw) * 10, s.py + CENTRE_Y + 8, s.pz + cos(yaw) * 10
+    for _ = 1, random(2, 3) do
+        spawn(K_GLINT, TEX.glint, true, gx + rnd(-3, 3), gy + rnd(-3, 3), gz + rnd(-3, 3), 0, 0, 0, 2.5, 5.5, 0.35,
+              1, 0.95, 0.7, 0.9, 0, 0, rnd(0, 2 * pi), rnd(-3, 3))
+    end
+end
+
+-- One flourish: the matching sound, and (when the visuals are on) sparks at the impact point and the screen flash. The
+-- impact point is the victim's centre pulled six units toward the attacker. `force` skips the rate limit (the preview).
+local function flourish(aSlot, vSlot, wid, dmg, snap, force)
+    if not force and now - MEL.lastAt < 0.4 then return end
+    local m = MELEE[wid]
+    local a, v = W[aSlot], W[vSlot]
+    if not (m and v) then return end
+    MEL.lastAt = now
+    local vx, vy, vz
+    if snap then vx, vy, vz = v.sx or v.px, (v.sy or v.py) + CENTRE_Y, v.sz or v.pz else vx, vy, vz = v.px, v.py + CENTRE_Y, v.pz end
+    local ax, ay, az = vx, vy, vz
+    if a and a ~= v then
+        if snap then ax, ay, az = a.sx or a.px, (a.sy or a.py) + CENTRE_Y, a.sz or a.pz else ax, ay, az = a.px, a.py + CENTRE_Y, a.pz end
+    end
+    local dx, dy, dz = ax - vx, ay - vy, az - vz                 -- victim to attacker
+    local dl = sqrt(dx * dx + dy * dy + dz * dz)
+    if dl < 1 then
+        -- Same worm, or on top of each other: use the way the attacker faces.
+        local yaw = a and a.yaw or 0
+        dx, dy, dz, dl = -sin(yaw), 0, -cos(yaw), 1
+    end
+    dx, dy, dz = dx / dl, dy / dl, dz / dl
+    local ix, iy, iz = vx + dx * 6, vy + dy * 6, vz + dz * 6
+    play(m.hit, 1.0, ix, iy, iz)
+    if S.preset and S.melee then
+        -- Sparks fly away from the attacker.
+        impactBurst(ix, iy, iz, -dx, -dy, -dz, dmg, wid)
+        startFlash(vx, vy, vz, dmg, vSlot)
+    end
+end
+
+local function resolveMelee()
+    if not MEL.pending then return end
+    if now - MEL.hurtAt > 0.35 then
+        MEL.pending = false
+        return
+    end
+    local wid = MEL.hurtWid
+    local m = wid and MELEE[wid]
+    local a = MEL.firedSlot and W[MEL.firedSlot]
+    if not (m and a) then
+        MEL.pending = false
+        return
+    end
+    -- The victim: another worm in reach (by where everyone stood when the damage was reported) whose health fell, the
+    -- biggest fall winning.
+    local best, bestDrop
+    local ax, ay, az = a.sx or a.px, a.sy or a.py, a.sz or a.pz
+    for slot, s in pairs(W) do
+        if slot ~= MEL.firedSlot and s.seen == FR.n and s.dropAt >= MEL.hurtAt - 0.25 then
+            local dx, dy, dz = (s.sx or s.px) - ax, (s.sy or s.py) - ay, (s.sz or s.pz) - az
+            if sqrt(dx * dx + dz * dz) <= m.reach and abs(dy) <= 30 and (not bestDrop or s.dropAmt > bestDrop) then
+                best, bestDrop = slot, s.dropAmt
+            end
+        end
+    end
+    if best then
+        MEL.pending = false
+        W[best].dropAt = -100
+        flourish(MEL.firedSlot, best, wid, bestDrop, true, false)
+    end
+end
+
+-- ---------------------------------------------------------------- explosives
+local EXPL = { t0 = -100, n = 0 }
+
+local function onExplosion(p)
+    if type(p) ~= "table" then return end
+    local x, y, z = vec(p.damageEpicentre)
+    if not x then return end
+    local t = os.clock()
+    if t - EXPL.t0 >= 1 then EXPL.t0, EXPL.n = t, 0 end
+    if EXPL.n >= 6 then return end
+    EXPL.n = EXPL.n + 1
+    local wd = tonumber(p.wormDamage) or 0
+    local name = wd >= 60 and "boom_large" or (wd >= 35 and "boom_med" or "boom_small")
+    play(name, clamp(wd / 100, 0.4, 1.2), x, y, z)
+end
+
+local function onFired()
+    local t = os.clock()
+    local a = activeSlot()
+    if not a then return end
+    local s = W[a]
+    local wid = s and s.weapon
+    if not wid and MEL.heldSlot == a and t - MEL.heldAt <= 2.5 then wid = MEL.heldWeapon end
+    if not wid then return end
+    local m = MELEE[wid]
+    if m then
+        MEL.firedSlot, MEL.firedWid, MEL.firedAt = a, wid, t
+        if s and m.swing then play("swing", 0.8, s.px, s.py + CENTRE_Y, s.pz) end
+        if m.spikes then spikeGlints(a) end
+    elseif s then
+        play("launch", 0.6, s.px, s.py + CENTRE_Y, s.pz)
+    end
+end
+
+local function onDamaged()
+    local t = os.clock()
+    -- Only a hit within 0.6 s of a melee swing is a flourish; the positions are those of the last frame, before the knock.
+    if MEL.firedWid and t - MEL.firedAt <= 0.6 then
+        MEL.pending, MEL.hurtAt, MEL.hurtWid = true, t, MEL.firedWid
+        for _, s in pairs(W) do s.sx, s.sy, s.sz = s.px, s.py, s.pz end
+    end
+end
+
+-- ---------------------------------------------------------------- preview
+-- Menu items and one event ("mod.kindjal.preview", p.what = "acid" | "melee" | "age") for the test harness.
+local PV = { kind = 2, weapon = 0, radii = { [0] = 70, 60, 243 }, melees = { 10, 11, 25, 12 } }
+
+local function previewTarget()
+    local a = ACT.slot or activeSlot()
+    local sa = a and W[a]
+    if sa and sa.seen ~= FR.n then sa = nil end
+    local best, bd
+    for slot, s in pairs(W) do
+        if s.seen == FR.n and s.alive and slot ~= a then
+            local d = 0
+            if sa then
+                local dx, dy, dz = s.px - sa.px, s.py - sa.py, s.pz - sa.pz
+                d = dx * dx + dy * dy + dz * dz
+            end
+            if not bd or d < bd then best, bd = slot, d end
+        end
+    end
+    if best then return best, a end
+    if sa and sa.alive then return a, a end
+    return nil
+end
+
+local function previewAcid()
+    local v = previewTarget()
+    local s = v and W[v]
+    if not s then return end
+    now = os.clock()
+    PV.kind = (PV.kind + 1) % 3
+    onBurst(s.px, s.py + 2, s.pz, PV.radii[PV.kind], PV.kind)
+end
+
+local function previewMelee()
+    local v, a = previewTarget()
+    if not v then return end
+    now = os.clock()
+    PV.weapon = PV.weapon % #PV.melees + 1
+    flourish(a or v, v, PV.melees[PV.weapon], 30, false, true)
+end
+
+local function previewAge()
+    for _, c in pairs(COAT) do c.t0, c.tl = c.t0 - 10, c.tl - 10 end
+    for _, p in ipairs(PUD) do p.t0 = p.t0 - 10 end
+end
+
+-- ---------------------------------------------------------------- lifecycle
+-- The insurance resend: Melange keeps a transient value across an effect reload unless the reload changes the parameter
+-- list, so everything live is sent again every two seconds, a group of four slots per frame.
+local RS = { step = 0 }
+
+local function resendStep()
+    local k = RS.step
+    if k == 0 then return end
+    RS.step = k < 5 and k + 1 or 0
+    if k <= 4 then
+        local g = k - 1
+        for i = 0, 3 do FXA.cache[WN[4 * g + i]] = nil end
+        FXA.cache[LN[g]], FXA.cache[SN[g]] = nil, nil
+    else
+        FXA.cache.seed, FXA.cache.strength, FXA.cache.compat = nil, nil, nil
+        if HF.on then FXH.cache.flash, FXH.cache.center = nil, nil end
+    end
+end
+
+-- Everything visual back to nothing: the match ended or started, or the visuals were turned off.
+local function clearVisuals()
+    nP = 0
+    for slot in pairs(COAT) do coatRemove(slot) end
+    for i = #PUD, 1, -1 do
+        puddleEnd(PUD[i])
+        PUD[i] = nil
+    end
+    HF.on, HF.last = false, 0
+end
+
+local live = false
+
+local function resetAll()
+    clearVisuals()
+    for slot in pairs(W) do W[slot] = nil end
+    MEL.pending, MEL.firedSlot, MEL.firedWid, MEL.firedAt, MEL.heldSlot = false, nil, nil, -100, nil
+    EXPL.n = 0
+    S.seed = random(0, 1000)
+    -- A match edge can cut the warm-up short between "held on" and its release, and WARM.on would force the effect on until
+    -- the next match; drop the holds here and let an unfinished warm-up run again from the start.
+    WARM.on = {}
+    if not WARM.done then WARM.frame = 0 end
+    -- Zeros out now (only for the groups that had a coat), then the effects off; nothing runs between matches.
+    for k = 0, 3 do sendGroup(k) end
+    sendParam(FXH, "flash", 0, nil, nil, true)
+    sendEnabled(FXA, false)
+    sendEnabled(FXH, false)
+    live = false
+end
+
+local function frame()
+    local t = os.clock()
+    local dt = clamp(t - lastT, 0, MAX_DT)
+    lastT, now, curDt = t, t, dt
+    local okm, inMatch = pcall(wum.game.inMatch)
+    if not (okm and inMatch) then
+        if live then resetAll() end
+        return
+    end
+    live = true
+    RAY.used = 0
+    if not RAY.ok and type(RAY.fn) == "function" and t >= RAY.retryAt then RAY.ok = true end
+    warmStep()
+    trackWorms()
+    resolveMelee()
+    -- coatUpdate also runs with the visuals off: it sends the zeros of coats that were just cleared.
+    if S.preset then readCamera() end
+    coatUpdate(dt)
+    if S.preset then
+        puddleUpdate(dt)
+        stepParticles(dt)
+    end
+    hitUpdate()
+    resendStep()
+end
+
+local function onWorld()
+    local ok, err = pcall(frame)
+    if not ok then logErr("frame", err) end
+end
+
+-- ---------------------------------------------------------------- settings
+local function applySettings()
+    local pre = PRESETS[tostring(cfg("intensity", "full"))]       -- "off" has no preset
+    S.smoke = cfg("smoke", true) ~= false
+    S.melee = cfg("melee", true) ~= false
+    S.sounds = clamp(tonumber(cfg("sounds", 0.8)) or 0.8, 0, 1)
+    S.spikes = cfg("spikes", false) == true
+    COMPAT.poll()
+    if pre ~= S.preset then
+        local was = S.preset
+        S.preset = pre
+        if not pre then
+            -- A warm-up cut short here would leave WARM.on forcing an effect on; start it again from the top later.
+            WARM.on, WARM.frame = {}, 0
+            if was then clearVisuals() end
+        end
+    end
+    -- Outside a match nothing drives the effects, so settle an enabled=1 that Melange saved earlier.
+    local ok, inMatch = pcall(wum.game.inMatch)
+    if not (ok and inMatch) then
+        sendEnabled(FXA, false)
+        sendEnabled(FXH, false)
+    end
+end
+
+-- ---------------------------------------------------------------- start
+S.seed = random(0, 1000)
+applySettings()
+
+subscribe("Kindjal.Burst", onBurstMessage)
+subscribe("Explosion", onExplosion)
+subscribe("Weapon.Fired", onFired)
+subscribe("Worm.Damaged", onDamaged)
+subscribe("melange.match.start", resetAll)
+subscribe("melange.match.end", resetAll)
+-- A mod switched on or off, or a match starting: look at the other plugins again (at the next half second).
+subscribe("melange.mods.changed", function() COMPAT.nextAt = 0 end)
+subscribe("melange.match.start", function() COMPAT.nextAt = 0 end)
+subscribe("mod.kindjal.preview", function(p)
+    local what = type(p) == "table" and p.what
+    if what == "acid" then previewAcid() elseif what == "melee" then previewMelee() elseif what == "age" then previewAge() end
+end)
+
+wum.draw.on("world", onWorld)
+if wum.ui and wum.ui.menu then
+    pcall(wum.ui.menu, "Preview acid", previewAcid)
+    pcall(wum.ui.menu, "Preview melee", previewMelee)
+    pcall(wum.ui.menu, "Acid +10 s", previewAge)
+end
+wum.timers.every(0.5, applySettings)
+wum.timers.every(2, function() if RS.step == 0 then RS.step = 1 end end)

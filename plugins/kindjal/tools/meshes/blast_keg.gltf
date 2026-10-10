@@ -1,0 +1,136 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "kindjal make_meshes.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "BlastKeg",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "BlastKeg",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "BlastKeg",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "images": [
+  {
+   "uri": "blast_keg.png"
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "blast_keg.bin",
+   "byteLength": 34664
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 11280,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 11280,
+   "byteLength": 11280,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 22560,
+   "byteLength": 7520,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 30080,
+   "byteLength": 4584,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 940,
+   "type": "VEC3",
+   "min": [
+    -2.8773372173309326,
+    -7.300000190734863,
+    -4.679559707641602
+   ],
+   "max": [
+    2.8773372173309326,
+    7.913364410400391,
+    2.9513332843780518
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 940,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 940,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 2292,
+   "type": "SCALAR"
+  }
+ ]
+}
