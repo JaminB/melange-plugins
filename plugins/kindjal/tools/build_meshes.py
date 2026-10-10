@@ -18,7 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.normpath(os.path.join(HERE, "..", "mod", "assets", "meshes"))
 MESH_DIR = os.path.join(HERE, "meshes")
 
-DEFAULT_XOMTOOL = r"C:\Users\Jamin\Desktop\melange-wt-audio\build\agent-xom\xomtool.exe"
+DEFAULT_XOMTOOL = r"C:\Users\Jamin\Desktop\melange-wt-audio\dist\tools\xomtool.exe"
 DEFAULT_GAME_DATA = r"C:\Users\Jamin\Desktop\WUMFix\testenv\A\Data"
 
 # (source name, resource id, mod section, vanilla mesh whose shader is borrowed)

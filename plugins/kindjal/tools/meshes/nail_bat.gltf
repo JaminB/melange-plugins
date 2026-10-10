@@ -68,32 +68,32 @@
  "buffers": [
   {
    "uri": "nail_bat.bin",
-   "byteLength": 24208
+   "byteLength": 23200
   }
  ],
  "bufferViews": [
   {
    "buffer": 0,
    "byteOffset": 0,
-   "byteLength": 7404,
+   "byteLength": 7080,
    "target": 34962
   },
   {
    "buffer": 0,
-   "byteOffset": 7404,
-   "byteLength": 7404,
+   "byteOffset": 7080,
+   "byteLength": 7080,
    "target": 34962
   },
   {
    "buffer": 0,
-   "byteOffset": 14808,
-   "byteLength": 4936,
+   "byteOffset": 14160,
+   "byteLength": 4720,
    "target": 34962
   },
   {
    "buffer": 0,
-   "byteOffset": 19744,
-   "byteLength": 4464,
+   "byteOffset": 18880,
+   "byteLength": 4320,
    "target": 34963
   }
  ],
@@ -101,35 +101,35 @@
   {
    "bufferView": 0,
    "componentType": 5126,
-   "count": 617,
+   "count": 590,
    "type": "VEC3",
    "min": [
-    -2.862349033355713,
+    -3.156712293624878,
     -12.579999923706055,
-    -2.707151412963867
+    -3.139378786087036
    ],
    "max": [
-    2.899225950241089,
+    3.1672699451446533,
     13.295000076293945,
-    2.918916940689087
+    3.089934825897217
    ]
   },
   {
    "bufferView": 1,
    "componentType": 5126,
-   "count": 617,
+   "count": 590,
    "type": "VEC3"
   },
   {
    "bufferView": 2,
    "componentType": 5126,
-   "count": 617,
+   "count": 590,
    "type": "VEC2"
   },
   {
    "bufferView": 3,
    "componentType": 5123,
-   "count": 2232,
+   "count": 2160,
    "type": "SCALAR"
   }
  ]

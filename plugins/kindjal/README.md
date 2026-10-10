@@ -108,6 +108,46 @@ All of this is client-side and off by a setting; none of it touches the simulati
 
 In a match the overlay's Lua menu has *Preview acid*, *Preview melee* and *Acid +10 s* for a look at the effects.
 
+## With Bloodsand and Sunstone
+
+Kindjal needs neither, and all three can run together. Kindjal's acid pass runs after Bloodsand's skin, guts and gibs
+(order 54, against 51 to 53) and before Sunstone's occlusion and grade (100 and 300), and the hit-flash is the last
+thing drawn of Kindjal's (Final 900, after Sunstone's lens at 800 and Bloodsand's lens splatter at 60). The client finds
+the other two by their effect ids in `wum.postfx.list()` (checked at the start, at a match edge, when the mod list
+changes and every five seconds) and adapts. It only ever switches or sets effects named `kindjal/...`.
+
+- **Acid on Bloodsand's worms.** The acid's skin test is Bloodsand's (the same ratios of green and blue to red, hue and
+  saturation) with one more limit: a hue under about 6 degrees is not skin, so Bloodsand's red blood, the raw pink of a
+  wound and torn skin are left as they are and green-yellow acid does not paint over them. Bloodsand's green blood palette has
+  green well above red and is cut by the skin test's upper limit. A worm Bloodsand is gibbing (health gone, though the
+  game still calls it alive) loses its coat and wisps at once instead of steaming from nothing. The hit-flash is lowered to
+  0.6 of its peak, because Bloodsand adds its own red splat on the lens for a hard hit near the camera.
+- **Acid under Sunstone.** Sunstone's model lighting tints the sun side warm and the shade cold, which pushes skin in
+  shade to more blue over red than the game does. When any Sunstone effect is on, the acid's skin test widens: a higher
+  blue limit in the dark, a hue limit of 33 degrees instead of 30, a little more saturation, a lower brightness floor so skin in caves is still
+  found (every limit is a ratio or relative to the pixel's own brightness, so Sunstone's exposure does not matter), and
+  the acid is 15 percent more opaque (at the subtle intensity; at full it is already opaque). Both ease in over 0.3 s
+  when Sunstone is switched on or off, rather than stepping, since the check can notice the change up to five seconds late. Sunstone's tonemap
+  keeps a colour's hue and saturation and only moves brightness, so the acid's yellow-green (hue 64 to 80 degrees,
+  saturation 0.76 to 0.80) comes out at the same hue and saturation, a little brighter in the darks and whiter only on
+  the specular rim. Its colour grade at the default strength shifts it by about 2 degrees, and 4 in the darkest spots.
+- **Cost.** The acid pass is on only while a coated worm is within half a screen of the view. It rejects pixels off every
+  coated worm's body with a sphere test, then off its skin shell, and runs the colour test before the surface normal and
+  the long painting code. Estimated (counted from the operations, not measured) at about 0.1 ms at 1080p. At Sunstone's
+  Ultra 2x2 supersampling, which has four times the pixels, the estimate is about 0.3 to 0.4 ms, which is over the 0.3 ms
+  the pass was meant to stay under; treat that setting as unproven and read `gpuMs` in the Mirage/Post-FX panel. The cost
+  is assumed to be mostly the full-screen fetch, which is also a guess.
+
+What has been checked, and how: the effect orders, Sunstone's tints and tonemap (a Python port of its `display.glsl`
+and `Saturation`, with its `golden.png` and `dusk.png` colour grades decoded) and Bloodsand's skin test were read from
+the source, the new skin test was ported to Python and swept over 300 000 random colours (it admits no more than a wider
+blue, hue and brightness window, and loses only reds below 13 degrees), and the client's detection, the opacity and
+flash scaling, the gibbed-worm rule, the off-screen switch and the `kindjal/` check ran against a stub of the Lua API.
+Not checked: the shaders were not compiled (no GLSL compiler was at hand; they use only constructs the old version
+already did), nothing has been run in the game with all three plugins on, the real colours of skin under Sunstone
+are worked out from its constants and not measured on frames, the GPU times above are estimates, and whether
+the lowered flash still reads well next to Bloodsand's splat is a judgement for a person to make in play.
+
 ## Limits
 
 - Every peer needs the plugin; see above. A peer with a different version is refused by the host.
@@ -117,7 +157,8 @@ In a match the overlay's Lua menu has *Preview acid*, *Preview melee* and *Acid 
 - The sounds are synthesised; they have been checked for format and level, not auditioned by the author before the
   first release.
 - Verified in the game before the first release: the renames (panel and tag), every stat field applied, the three
-  clones in the panel with their icons, the 26 replaced panel and HUD icons, the acid coat, smoke, puddle and melee flourish, sounds playing, the Nail
+  clones in the panel with their icons, the 26 replaced panel and HUD icons, all three plugins (Kindjal, Bloodsand,
+  Sunstone) running together with every effect compiled and no Lua faults, the acid coat under Sunstone's grading, the acid coat, smoke, puddle and melee flourish, sounds playing, the Nail
   Bat, Acid Flask and Crucible models in hand, and a two-player LocalNet match with identical Wormsign hashes on both
   machines over six turns. Not yet seen in play: the three projectiles in flight, and whether the Rust Canister's
   blast and the Gibbet Turret's shot numbers take effect.

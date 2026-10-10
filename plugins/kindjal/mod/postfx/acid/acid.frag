@@ -2,10 +2,13 @@
 // Kindjal acid: corrosion that eats into a worm's skin. Uniform contract (all set by Kindjal's Lua with
 // wum.postfx.setTransient, so the parameters are hidden):
 //   p_worm0..p_worm15    vec3  world position of the middle of each worm's body; (0,0,0) = slot unused
-//   p_level0..p_level3   vec4  acid level 0..1 of slots 4k+0..3 (x, y, z, w); 0 = clean
+//   p_level0..p_level3   vec4  acid level 0..1 of slots 4k+0..3 (x, y, z, w); 0 = clean. Continuous (the client eases it and
+//                              sends it in steps of 1/256), and the whole effect is scaled by it, see Worm()
 //   p_spread0..p_spread3 vec4  how far the eaten pattern has grown, 0..1, of slots 4k+0..3 (spots at 0, a coat at 1)
 //   p_seed               float match seed, so no two matches or worms look alike
 //   p_strength           float 0..1 overall opacity; 0 or all levels 0 leaves the scene unchanged
+//   p_compat             float 0..1 how much of Sunstone's lighting and grade is on the scene (0 = the game's own look, 1 = Sunstone
+//                        running); it only widens SkinTone, see there
 // Built-ins used: mg_scene, mg_depth, mg_invProj, mg_view, mg_nearFar, mg_resolution, mg_time.
 //
 // The body is found the way Bloodsand's skin effect finds it (same capsule shell, same skin classifier, same depth-buffer
@@ -13,6 +16,13 @@
 // yellow skin: blood paints a pixel red (green over red far below 0.3), so Bloodsand's blood, wounds and gibs are left as
 // they are and the acid only eats what is still skin. Only a short test runs for every slot, to pick the one worm a pixel
 // belongs to, and Worm() runs once: a shader that expands the long routine once per slot can link and draw nothing.
+//
+// Cost (an estimate from counting operations, not a measurement: read gpuMs in the Mirage/Post-FX panel). The client switches the
+// pass on only while a coated worm is near the screen. Then a pixel away from every coated worm costs two fetches, one
+// unprojection and one sphere test per coated slot (an unused slot is one uniform branch), which is bandwidth-bound: about
+// 0.1 ms at 1080p, and about 0.3 to 0.4 ms at Sunstone's Ultra 2x2 supersampling (over the 0.3 ms aimed for there, unmeasured). Only a pixel on a coated worm's capsule shell goes
+// on, SkinTone runs for it first, and the normal (four more depth fetches) and the long Worm() code run only for the few that are
+// skin, so the long code adds well under 0.05 ms for four coated worms.
 uniform sampler2D mg_scene;
 uniform sampler2D mg_depth;
 uniform mat4 mg_invProj;
@@ -25,6 +35,7 @@ uniform vec4 p_level0, p_level1, p_level2, p_level3;
 uniform vec4 p_spread0, p_spread1, p_spread2, p_spread3;
 uniform float p_seed;
 uniform float p_strength;
+uniform float p_compat;
 varying vec2 mg_uv;
 
 float Hash(vec2 p) {
@@ -60,25 +71,40 @@ float SkinLimit(float u, float mx) {
 
 // How much a scene colour is a worm's skin, 0..1: a warm peach to yellow whose channel ratios light only scales. Hats,
 // helmets, glasses, eye whites and pupils fall outside the window, and so does blood: green over red below 0.3 is cut by the
-// first factor, so a pixel Bloodsand has painted red is not skin here. A poisoned worm's yellow skin passes (green below
-// about 1.2 times red). The limits are soft, so the edge is anti-aliased.
-float SkinTone(vec3 c) {
+// first factor, and a hue below about 6 degrees (red, raw dermis, the pink of a wound) by the lower hue limit, so a pixel
+// Bloodsand has painted is not skin here. Bloodsand's green blood has green well above red and is cut by the upper limit on u.
+// A poisoned worm's yellow skin passes (green below about 1.2 times red). The limits are soft, so the edge is anti-aliased.
+//
+// compat (0..1) is Sunstone. Its model lighting (shaders/FixedFunction.*Lit*.glsl) tints the sun side warm (1.06, 1, 0.9) and
+// the ambient side cold (0.85, 0.93, 1.14 against the sky and ground tints), so skin in shade gains up to about half again
+// as much blue over red as the game gives it (v 0.34 to 0.43 becomes 0.5 to 0.6), loses a little hue in the cold light
+// (about 15 degrees where the game's is 21 to 28), and gets darker in caves and under overhangs. Every limit below is a ratio
+// or relative to the pixel's own brightness mx, so the grade's exposure does not matter, and compat moves these:
+//   blue limit   +0.11 in shade, fading to nothing by mx 0.8 (the sun side is already inside the window)
+//   hue limit    30 degrees -> 33 (tangent 0.577 -> 0.657); sunlit skin in the warm tint reaches 24 to 29 degrees
+//   saturation   edges 0.72..0.76 -> 0.75..0.79 (the warm tint raises skin to about 0.62; an orange moustache starts at 0.76)
+//   dark floor   mx 0.03..0.09 -> 0.01..0.04, so a cave's skin is still classified
+// With compat 0 these four are Bloodsand's own limits exactly. The lower hue limit (tangent 0.10..0.22, 6 to 12 degrees) is new
+// and applies at both settings: by the tint arithmetic above skin stays at 15 degrees and up even in the coldest shade, while
+// blood and raw dermis (the pink of a wound) sit at 0 to 4 degrees, so it cuts them without touching skin. The tonemap that
+// Sunstone applies afterwards (order 300) keeps hue and saturation, so nothing here needs to undo it; see the README.
+float SkinTone(vec3 c, float compat) {
     float mx = max(c.r, max(c.g, c.b));
     float mn = min(c.r, min(c.g, c.b));
     float rr = max(c.r, 1e-3);
     float u = c.g / rr;
     float v = c.b / rr;
-    float vmax = SkinLimit(u, mx);
+    float vmax = SkinLimit(u, mx) + compat * 0.11 * (1.0 - smoothstep(0.35, 0.8, mx));
     float hole = smoothstep(0.415, 0.44, v) * (1.0 - smoothstep(0.505, 0.525, v)) * smoothstep(0.66, 0.70, u) * (1.0 - smoothstep(0.79, 0.84, u))
                * (1.0 - smoothstep(0.78, 0.86, mx));
     // The hue's tangent against a limit of 30 degrees that climbs toward 60 as sun clips the red (poison turns skin yellow).
     float tn = 1.7320508 * (c.g - c.b) / max(2.0 * c.r - c.g - c.b, 1e-3);
-    float tl = mix(0.577, 1.75, smoothstep(0.74, 0.9, mx));
-    float hue = 1.0 - smoothstep(tl, tl + 0.075, tn);
-    float sat = 1.0 - smoothstep(0.72, 0.76, (mx - mn) / max(mx, 1e-3));
+    float tl = mix(0.577, 1.75, smoothstep(0.74, 0.9, mx)) + 0.08 * compat;
+    float hue = (1.0 - smoothstep(tl, tl + 0.075, tn)) * smoothstep(0.10, 0.22, tn);
+    float sat = 1.0 - smoothstep(0.72 + 0.03 * compat, 0.76 + 0.03 * compat, (mx - mn) / max(mx, 1e-3));
     return smoothstep(0.30, 0.40, u) * (1.0 - smoothstep(1.12, 1.30, u))
          * (1.0 - smoothstep(vmax - 0.025, vmax + 0.025, v)) * (1.0 - hole) * smoothstep(0.16, 0.26, v)
-         * smoothstep(0.03, 0.09, mx) * smoothstep(0.03, 0.11, (c.g - c.b) / max(mx, 1e-3)) * hue * sat;
+         * smoothstep(0.03 - 0.02 * compat, 0.09 - 0.05 * compat, mx) * smoothstep(0.03, 0.11, (c.g - c.b) / max(mx, 1e-3)) * hue * sat;
 }
 
 // The view-space position of the pixel at uv, from the depth buffer.
@@ -118,7 +144,7 @@ vec3 SurfaceNormal(vec3 P, vec3 Cv, out float cover) {
 // Eats one worm's skin into col, which holds the scene's colour on the way in. P is the pixel's view-space position, n its
 // surface normal, lv the acid level and sp the spread (0..1). mg_view is the world-to-view matrix, so d * mat3(mg_view)
 // turns a view-space offset back into world axes (L, the pixel's offset from the body's middle, which moves with the worm).
-void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sp, float slotIdx, inout vec3 col) {
+void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sp, float slotIdx, float skin, inout vec3 col) {
     vec3 d = P - (mg_view * vec4(centre, 1.0)).xyz;
     vec3 L = d * mat3(mg_view);
     // The body is an upright ellipsoid, and the outer 15% fades out.
@@ -135,8 +161,8 @@ void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sp, float slotIdx, inout 
     float upright = 1.0 - smoothstep(0.55, 0.85, abs(nWorld.y)) * (1.0 - smoothstep(0.0, 2.0, abs(rv.y)));
     mask *= shell * upright * smoothstep(0.1, 0.5, dot(nWorld, rv / rl));
     if (mask <= 0.0) return;
-    // Only skin, and not blood: the colour test runs before the dearer tests.
-    mask *= SkinTone(col);
+    // Only skin, and not blood: main() has already run the colour test (before the normal was worked out) and passes it in.
+    mask *= skin;
     if (mask <= 0.0) return;
     // A worm stands clear of what is behind it: the depth falls away to one side of it by more than a couple of units.
     float ppx = 0.5 * mg_resolution.y / (abs(mg_invProj[1][1]) * max(-P.z, 1.0));
@@ -153,9 +179,13 @@ void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sp, float slotIdx, inout 
     float n1 = Noise3(L * 0.42 + so);
     float n2 = Noise3(L * 1.15 + so + 7.3);
     float f = 0.62 * n1 + 0.38 * n2;
-    float thr = mix(0.78, 0.2, sp);
+    // The coat does not just dim as it fades: its pattern draws back toward the first few spots as the level falls (spe is the
+    // spread the pattern is drawn with), and the level scales everything on top of that. So a fading coat shrinks and thins
+    // together and ends as nothing, with no step on the way (every term is a smooth function of lv and sp).
+    float spe = sp * (0.5 + 0.5 * smoothstep(0.0, 0.8, lv));
+    float thr = mix(0.78, 0.2, spe);
     float inner = clamp((f - thr) / max(1.0 - thr, 0.05), 0.0, 1.0);
-    float eaten = max(smoothstep(thr, thr + 0.05, f), smoothstep(0.7, 1.0, sp));
+    float eaten = max(smoothstep(thr, thr + 0.05, f), smoothstep(0.7, 1.0, spe));
     float cov = eaten * lv * mask;
     if (cov <= 0.0) return;
 
@@ -165,9 +195,14 @@ void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sp, float slotIdx, inout 
     acid = mix(acid, vec3(0.10, 0.14, 0.02), 0.85 * smoothstep(0.1, 0.8, inner));
     acid *= clamp(0.35 + 0.9 * lum, 0.3, 1.15);
 
-    // Bubbling: blisters where a third noise is high, pulsing on sin(time*3 + noise*6), each with a sparse bright rim.
-    float n3 = Noise3(L * 2.6 + so + vec3(0.0, mg_time * 0.35, 0.0));
-    float pulse = sin(mg_time * 3.0 + n3 * 6.0);
+    // Bubbling: blisters where a third noise is high, pulsing slowly, each with a sparse bright rim. The blisters drift through
+    // the noise on a slow circle and breathe on a 3 s pulse. Both come from one phase that wraps every 36 s (the circle goes
+    // round twice and the pulse twelve times in that), so the animation is seamless through the wrap and never loses precision
+    // however long the game has been running (mg_time itself grows without limit).
+    float ph = fract(mg_time * (1.0 / 36.0)) * 6.2831853;
+    vec3 drift = vec3(0.9 * cos(2.0 * ph), 0.6 * sin(2.0 * ph + 1.3), 0.9 * sin(2.0 * ph));
+    float n3 = Noise3(L * 2.6 + so + drift);
+    float pulse = sin(12.0 * ph + n3 * 6.0);
     float rim = Edge(0.0, 0.035, abs(n3 - 0.68 - 0.012 * pulse)) * smoothstep(0.3, 0.9, pulse + 0.4);
     acid *= 1.0 + 0.12 * pulse * smoothstep(0.62, 0.7, n3);
     acid = mix(acid, vec3(0.9, 1.0, 0.45), 0.7 * rim);
@@ -183,7 +218,7 @@ void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sp, float slotIdx, inout 
     float wet = 0.35 + 0.65 * smoothstep(0.0, 0.5, inner) + 0.4 * rim;
     acid += vec3(1.0, 1.0, 0.8) * spec * 0.8 * wet * (0.4 + lum) + vec3(0.5, 0.7, 0.1) * fres * 0.15;
 
-    col = mix(col, acid, clamp(cov * (0.55 + 0.45 * smoothstep(0.0, 0.5, inner + sp)), 0.0, 1.0));
+    col = mix(col, acid, clamp(cov * (0.55 + 0.45 * smoothstep(0.0, 0.5, inner + spe)), 0.0, 1.0));
 }
 
 // Chooses the worm a pixel belongs to (see the top). best is the smallest value so far of the body ellipsoid's equation
@@ -191,7 +226,14 @@ void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sp, float slotIdx, inout 
 void Pick(vec3 P, vec3 centre, float lv, float sp, float slotIdx, inout float best, inout vec3 wc, inout float wlv, inout float wsp, inout float wslot) {
     if (lv <= 0.0 || dot(centre, centre) < 1e-6) return;
     vec3 d = P - (mg_view * vec4(centre, 1.0)).xyz;
+    // Early outs, in order of cost: farther than the ellipsoid's longest semi-axis (16, with a margin) can never be on this
+    // worm; and a pixel off the capsule shell (2.4 to 8.1 units from the vertical axis, the same range Worm() fades to
+    // nothing outside) can take no acid, so it must not claim the pixel from a worm whose surface it is on.
+    if (dot(d, d) > 17.0 * 17.0) return;
     vec3 L = d * mat3(mg_view);
+    vec3 rv = vec3(L.x, L.y - clamp(L.y, -8.0, 8.0), L.z);
+    float rl2 = dot(rv, rv);
+    if (rl2 < 2.4 * 2.4 || rl2 > 8.1 * 8.1) return;
     float e = (L.x * L.x + L.z * L.z) / (9.5 * 9.5) + L.y * L.y / (16.0 * 16.0);
     if (e < best) {
         best = e;
@@ -233,9 +275,16 @@ void main() {
         gl_FragColor = scene;
         return;
     }
+    // The cheap colour test before the dear normal: most pixels on a worm's shell are not skin (hat, eyes, blood, Bloodsand's
+    // gore) and leave here.
+    float skin = SkinTone(scene.rgb, clamp(p_compat, 0.0, 1.0));
+    if (skin < 0.01) {
+        gl_FragColor = scene;
+        return;
+    }
     float cover;
     vec3 n = SurfaceNormal(P, (mg_view * vec4(wc, 1.0)).xyz, cover);
     vec3 col = scene.rgb;
-    Worm(P, n, wc, clamp(wlv, 0.0, 1.0), clamp(wsp, 0.0, 1.0), wslot, col);
+    Worm(P, n, wc, clamp(wlv, 0.0, 1.0), clamp(wsp, 0.0, 1.0), wslot, skin, col);
     gl_FragColor = vec4(mix(scene.rgb, col, p_strength * cover), scene.a);
 }

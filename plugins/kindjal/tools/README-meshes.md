@@ -1,27 +1,33 @@
 # Weapon meshes
 
-`make_meshes.py` builds Kindjal's four custom weapon meshes into `meshes/`. They live under `tools/` (not `mod/`)
-because they only ship once a mesh loader exists that can use them; everything here is ready for that.
+`make_meshes.py` builds Kindjal's four custom weapon meshes into `meshes/` (glTF + texture, the editable source). The
+generated `.xom` banks ship from `mod/assets/meshes/`: `mod/spice.json` lists them under `meshes`, and the weapon
+definitions use them as `WeaponGraphicsResourceID` / `PayloadGraphicsResourceID` (see "Building the banks" below).
 
-**Status: staged, not shipped.** Nothing in `mod/` references these files, and none of them has been loaded in game
-(xomtool's `LoadBank` cannot take mesh banks yet). When the mesh loader lands, convert each set to a `.xom` with the
-commands further down and place the result under `mod/`.
+**Status: shipped, but the look under the game's lighting is not yet verified in game.** The previews used while
+authoring were flat-lit, so check the contrast curve (`Texture(gain=, sat=)`) against a real screenshot.
 
     python make_meshes.py            write meshes/*
     python make_meshes.py --check    regenerate in memory, compare byte for byte with the files on disk (exit 1 on a difference)
 
 Stdlib only (json, struct, math, random, zlib), fixed seeds, deterministic. Every run also re-reads each glTF with a
 strict validator (accessor counts and alignment, buffer bounds, u16 index range, no unreferenced vertices, unit
-normals, uv in 0..1, POSITION min/max equal to the data, winding agrees with the normals, texture is a valid 128x128 RGB
+normals, uv in 0..1, POSITION min/max equal to the data, winding agrees with the normals, no directed edge used twice (an inside-out piece), texture is a valid 128x128 RGB
 PNG, bounding box within 10% of the vanilla asset, 300 to 900 triangles) and refuses to write anything that fails.
 The art is original; nothing comes from the game.
 
 | file set | replaces | vertices | triangles | texture |
 | --- | --- | --- | --- | --- |
-| `nail_bat.*` | `BaseballBat` | 617 | 744 | 128x128 dark wood, blood, taped grip, rusty nails |
-| `acid_flask.*` | `GasCanister` (the Acid Flask's payload) | 389 | 608 | 128x128 green glass, acid with bubbles, a painted crack |
-| `acid_round.*` | `Bazooka.Payload` (the Acid Spitter's round) | 397 | 560 | 128x128 olive steel, rust, acid runs, pits |
-| `crucible.*` | `HolyHandGrenade` | 460 | 720 | 128x128 charred black, ember cracks, glowing bowl |
+| `nail_bat.*` | `BaseballBat` | 590 | 720 | 128x128 near-black wood, blood, bright cloth tape and tail, steel-tipped rusty nails |
+| `acid_flask.*` | `GasCanister` (the Acid Flask's payload) | 530 | 820 | 128x128 bright toxic-green glass, acid with bubbles, a dark liquid line, skull plaque, cork |
+| `acid_round.*` | `Bazooka.Payload` (the Acid Spitter's round) | 596 | 836 | 128x128 olive steel, yellow and dark bands, rust, three pits with bright acid seeping in them |
+| `crucible.*` | `HolyHandGrenade` | 617 | 792 | 128x128 charred black, bright ember-orange cracks, iron rim ring and studs, glowing bowl |
+
+**Drawn for game distance.** A held weapon is about 60 px tall at the default camera, so fine detail is lost; the
+first set of meshes (12 small nails, hairline cracks) did not read. These are redone with big shapes and a broken
+silhouette, and every texture goes through a final contrast and saturation curve (`Texture(gain=, sat=)`) because the
+game's lighting flattens it. The art was checked with a throwaway software rasteriser (flat lit, textured,
+orthographic) at 256 px and at 64 px (longest side 60 px), iterating until the silhouettes were bold at 64 px.
 
 Each is `<name>.gltf` + `<name>.bin` + `<name>.png`: one node, one mesh, **one primitive** (POSITION, NORMAL, TEXCOORD_0
 as f32, u16 indices), one material with one `baseColorTexture`, identity node transform. UVs follow the glTF
@@ -48,45 +54,67 @@ Ours, from the generator's output:
 
 | mesh | x | y | z | size |
 | --- | --- | --- | --- | --- |
-| `nail_bat` | -2.862 .. 2.899 | -12.580 .. 13.295 | -2.707 .. 2.919 | 5.76 x 25.88 x 5.63 |
-| `acid_flask` | -4.5 .. 4.5 | -6.0 .. 6.0 | -4.5 .. 4.5 | 9.0 x 12.0 x 9.0 |
-| `acid_round` | -2.498 .. 2.5 | -2.5 .. 2.5 | -3.074 .. 3.619 | 5.0 x 5.0 x 6.69 |
-| `crucible` | -5.038 .. 4.938 | -5.056 .. 5.247 | -7.024 .. 6.800 | 9.98 x 10.30 x 13.82 |
+| `nail_bat` | -3.157 .. 3.167 | -12.580 .. 13.295 | -3.139 .. 3.090 | 6.32 x 25.88 x 6.23 |
+| `acid_flask` | -4.6 .. 4.6 | -6.0 .. 6.0 | -4.915 .. 4.915 | 9.2 x 12.0 x 9.83 |
+| `acid_round` | -2.62 .. 2.62 | -2.593 .. 2.593 | -3.074 .. 3.619 | 5.24 x 5.19 x 6.69 |
+| `crucible` | -5.033 .. 4.816 | -5.022 .. 4.851 | -6.928 .. 6.800 | 9.85 x 9.87 x 13.73 |
 
-All agree with the vanilla box within 7% on every axis (the crucible is the loosest: its x size is 9.98 against 10.64). The bat's nails are included in its box; the barrel itself is a
-little thinner (r 2.35) so the nails fit inside the vanilla radius.
+All agree with the vanilla box within 10% on every axis (the generator refuses anything looser). The loosest are the
+bat's x and z (+9.5% and +9.1%), the flask's z (+8.7%, the skull plaques) and the crucible's x (-7.4%). The bat's nails
+fill the vanilla radius (they reach r 3.1 .. 3.18); its barrel is slimmer than vanilla (r 1.8) so the nails, not
+the wood, set the width. The flask's bulb is r 4.6 and the plaques stand 0.32 proud on the +-Z faces.
 
 ## How each was built
 
 All four are surfaces of revolution (`revolve`) with a texture rectangle per strip; a "strip" is a run of profile points
-that is one smoothing group, so a profile break is a hard crease. Parts are closed, so the winding is fixed by the sign
+that is one smoothing group, so a profile break is a hard crease. Loose parts are added on top: `tube` (a closed tube
+along a polyline, for the bat's bent nails and the crucible's studs), `ribbon` (a thin flat strap, the bat's cloth
+tail) and `relief` (a displaced grid patch on the flask's bulb, the skull plaque). Parts are closed, so the winding is fixed by the sign
 of the enclosed volume. Normals are area-weighted per (group, position), so seams and poles are smooth where they
 should be. The paint is computed per pixel from periodic value noise (wraps around the axis) and from the **same
 analytic description** the geometry was carved with, so painted features line up with the relief.
 
-- **nail_bat** (12 segments, Y axis). Profile: a rounded grip knob, a thin handle, a slightly raised taped band at
-  y -6.7 .. -3.0 (its own strips, so the tape edges are creased), and a barrel growing to r 2.35 near y 9 with a
-  rounded end. 12 nails, each a closed 5-sided cone (r 0.30, 0.96 long, sunk 0.30 into the wood) on a golden-angle
-  spiral up the barrel at y 3.2 .. 11.4, tilted a few degrees; their positions come from one function that the
-  texture also reads, so every nail gets a puncture hole, a rusty rim and a blood run in the paint. Texture: dark wood
-  grain along the axis, a spiral cloth tape with a dark seam, dried blood and spatter on the barrel, end-grain rings at
-  the tip, a leather band on the knob; a separate rusty-iron patch for the nails.
-- **acid_flask** (16 segments, Y axis). A round-bottomed bulb (r 4.5 at y -1.6), shoulder, neck r 1.5, flared lip,
-  flat lip top and a cork (r 1.25 .. 1.45) with a rounded top. Texture: pale glass above, toxic green acid below a
-  wavy surface line with a bright meniscus, bubbles drawn as rings with a highlight dot, two window-light streaks, a
-  jagged **crack with two branches** painted pale with a dark edge on the shoulder running down into the liquid, and a bead
-  of acid at its lower end; cork with dark pores.
-- **acid_round** (20 segments, Z axis). Ogive nose to z 3.62, max r 2.5, a tapering tail with a recessed nozzle bell
-  (three small strips). 16 corrosion pits (random angle, z, radius 0.38 .. 0.72, depth 0.12 .. 0.24) are pressed
-  radially into the body as smooth bumps, and painted as dark holes with rust rims from the same list. Texture: olive
-  steel, worn stencil bands (yellow nose band, red band, dark band), rust patches, acid runs thickening toward the nose,
-  soot near the nozzle.
-- **crucible** (20 segments, Z axis). A sphere of r 5.2 centred on z -1.9 (the lower 145 degrees), a pinched neck, a
-  flared rim reaching z 6.8, and a hollow top (an inner bowl). The relief on the sphere is two things: a few
-  low-frequency lumps, and **carved cracks** - six random walks along great circles (some branch), each point pulled
-  inward by up to 0.5 within about 0.2 rad of the crack. The paint takes each pixel's direction on the sphere and lights the same cracks: a
-  white-hot core, orange edge, a faint heat glow into the char; loose embers; the lip glows from below and the bowl is
-  molten.
+- **nail_bat** (12 segments, Y axis). Profile: a rounded grip knob, a thin handle, a taped band that stands proud
+  (r 1.5 against a 0.92 handle, its own strip so the edges are creased) at y -6.6 .. -2.65, and a slim barrel growing
+  to r 1.8 near y 9.8 with a rounded end. **Seven nails**, each a closed 6-sided tube in the plane of the nail: sunk
+  into the wood, a short radial stub (r 0.75, 2.5x the old 0.30), a kink, then a long throw to the point (about 2.9
+  long in all against the old 0.96); six are thrown up the barrel and one down. Most sit on the two flanks (azimuth
+  about 0 and 0.5) so they break the silhouette from the side; their positions come from one function that the texture
+  also reads (a puncture hole, rusty rim and blood run at each). A **loose cloth tail** (a thin flat ribbon, 1.35 wide,
+  with its own flat-shaded faces) hangs off the top edge of the band and flares away from the wood. Texture: much
+  darker wood (so the nails and tape stand out), bright off-white tape with dark gaps between the turns, dried blood on
+  the barrel, end-grain rings, a lanyard band on the knob; the nail texture runs bright steel at the point (v = 0)
+  through dull iron to rust at the base, with a lit and a shaded side baked in; the tail is cloth with a red stripe on
+  each edge.
+- **acid_flask** (16 segments, Y axis). A fat round bulb (r 4.6 at y -0.7, nearly a sphere), a short thick neck (r 2.05
+  against the old 1.5), a flared lip and an **oversized cork** (r 2.5, wider than the neck) on top. **Skull plaque**:
+  on the +Z and -Z faces a 9x9 grid of cells (0.4 each) is pushed out of the bulb by a height function: a round plaque
+  0.16 proud, the skull (cranium and jaw) another 0.17, eye sockets and nose cut back to the plaque, and the outer ring
+  of vertices sunk 0.25 into the body so the plaque has a wall rather than an open edge. The same masks
+  (`skull_masks`) paint it: a bright ring, ivory bone, black holes and dark tooth slits, planar-mapped from its own
+  60x60 texel rect. The rest of the texture: bright toxic-green glass above, saturated acid below a bold **dark liquid
+  line** with a bright band under it, bubbles, white window-light streaks, a dark lip and a bright tan cork with dark
+  pores.
+- **acid_round** (22 segments, Z axis). A stubby shell: max r 2.5 held to z 1.85 and then a blunt dome to z 3.62 (the
+  old ogive tapered from z 1.4), a tail with a recessed nozzle bell (three small strips), and a **raised dark band**
+  (r 2.62) near the tail as its own strip. **Three large corrosion pits** (radius 1.05 .. 1.15, 0.52 .. 0.58 deep, 120
+  degrees apart at different heights so each flank shows one) are pressed into the front strip as flat-floored
+  craters with a slightly raised lip (`pit_field`); the rings in the pit area are 0.5 apart so a crater is about four
+  cells across. The paint takes the same list: a rusty ring, a dark wall and **bright green acid** seeping in the
+  floor. Texture: pushed-apart olive steel, a yellow stencil band, rust patches, acid runs, a black band with a thin
+  red stripe, soot near the nozzle and a hot orange nozzle rim.
+- **crucible** (24 segments, Z axis). A sphere of r 5.1 centred on z -1.9 (the lower 145 degrees), a one-step neck, a
+  **heavy rim ring** (r 4.4 and 2.6 tall with chamfers, against the old r 3.3 flare) reaching z 6.8, and a cone-shaped
+  molten bowl. The relief on the sphere is a few low-frequency lumps (0.05 .. 0.07) and the **carved cracks**: five
+  random walks along great circles (some branch), started at spread latitudes so every side has one, each point pulled
+  inward by up to **1.25** (the old cracks were 0.5) over a half-width of **0.27 rad** (old 0.21) with a flat 0.05 rad
+  floor, so they are real grooves that notch the silhouette. The paint lights the same description: a red-hot wall, a
+  bright **ember-orange floor** and a yellow-white core, with loose embers in the char. **Six iron studs** (two belts of
+  three, nudged along the belt to stay clear of the cracks) are 5-sided blunt cones standing 0.72 off the sphere, with
+  a bright steel point.
+
+The triangle budget (300 to 900) is the hard limit on all of this: the crucible and the round spend theirs on rings
+and segments so that a groove or a pit is more than one cell wide, the flask on the plaques, the bat on the nails.
 
 ## Turning them into mesh banks
 
@@ -116,8 +144,7 @@ Things to know when wiring them up:
   shaded by the scene lights on top of it.
 - Whether xomtool's `--texture` accepts 128x128 for a shader that vanilla fills with a 64x64 image depends on the
   version; it did in the build used here (`dist/tools/xomtool.exe` of the melange-wt-controls worktree).
-- Banks built this way are not loadable in game on their own: the game side needs the mesh loader that is being
-  prototyped. Nothing in `mod/` references these files yet.
+- This `--into` recipe is the old manual route; the shipped banks come from `build_meshes.py` (next section).
 
 Edit the profiles, seeds and palettes at the top of each section of `make_meshes.py`, run it, and commit the outputs
 together with the script.
@@ -137,7 +164,7 @@ The `--into` recipe above is superseded by `xomtool convert --bundle`, which wri
 
     python build_meshes.py            write the four banks
     python build_meshes.py --check    rebuild in a temp folder, compare byte for byte (exit 1 on a difference)
-    --xomtool <path>                  default: the melange-wt-audio agent-xom build (needs `convert --bundle`)
+    --xomtool <path>                  default: the melange-wt-audio `dist\tools\xomtool.exe` (needs `convert --bundle`)
     --game-data <Data folder>         default: WUMFix\testenv\A\Data (only Bundles\Bundl09.xom is read)
 
 Each section is used once because a bank is one mesh and the engine loads a section once per session. Re-run it, and

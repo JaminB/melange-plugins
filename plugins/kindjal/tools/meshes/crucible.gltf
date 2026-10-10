@@ -68,32 +68,32 @@
  "buffers": [
   {
    "uri": "crucible.bin",
-   "byteLength": 19040
+   "byteLength": 24496
   }
  ],
  "bufferViews": [
   {
    "buffer": 0,
    "byteOffset": 0,
-   "byteLength": 5520,
+   "byteLength": 7404,
    "target": 34962
   },
   {
    "buffer": 0,
-   "byteOffset": 5520,
-   "byteLength": 5520,
+   "byteOffset": 7404,
+   "byteLength": 7404,
    "target": 34962
   },
   {
    "buffer": 0,
-   "byteOffset": 11040,
-   "byteLength": 3680,
+   "byteOffset": 14808,
+   "byteLength": 4936,
    "target": 34962
   },
   {
    "buffer": 0,
-   "byteOffset": 14720,
-   "byteLength": 4320,
+   "byteOffset": 19744,
+   "byteLength": 4752,
    "target": 34963
   }
  ],
@@ -101,35 +101,35 @@
   {
    "bufferView": 0,
    "componentType": 5126,
-   "count": 460,
+   "count": 617,
    "type": "VEC3",
    "min": [
-    -5.037500858306885,
-    -5.055599212646484,
-    -7.024096965789795
+    -5.033364772796631,
+    -5.021988391876221,
+    -6.927538871765137
    ],
    "max": [
-    4.938187599182129,
-    5.246608257293701,
+    4.8163161277771,
+    4.850903034210205,
     6.800000190734863
    ]
   },
   {
    "bufferView": 1,
    "componentType": 5126,
-   "count": 460,
+   "count": 617,
    "type": "VEC3"
   },
   {
    "bufferView": 2,
    "componentType": 5126,
-   "count": 460,
+   "count": 617,
    "type": "VEC2"
   },
   {
    "bufferView": 3,
    "componentType": 5123,
-   "count": 2160,
+   "count": 2376,
    "type": "SCALAR"
   }
  ]
