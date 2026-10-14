@@ -138,7 +138,12 @@ local function sane(v, lo, hi, what)
         wum.log.warn("kindjal:", what, "is not a number, using 1.0")
         return 1.0
     end
-    if v < lo then v = lo elseif v > hi then v = hi end
+    if v < lo or v > hi then
+        local c = lo
+        if v > hi then c = hi end
+        wum.log.warn("kindjal:", what, v, "is outside", lo, "to", hi, "- using", c)
+        return c
+    end
     return v
 end
 KNOCKBACK = sane(KNOCKBACK, 0, 3, "KNOCKBACK")

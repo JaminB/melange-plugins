@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 26,
+  "serial": 27,
   "plugins": [
     {
       "id": "bloodsand",
@@ -361,7 +361,7 @@
       "authors": [
         "Melange"
       ],
-      "description": "Every weapon shifted a dimension darker: melee that maims and launches, explosives that hit harder and throw worms a little further than vanilla, three new weapons (Acid Spitter, Acid Flask, Crucible) whose acid smokes and clings to a worm's skin, new names, new sounds. Content mod: every player in an online match needs it.",
+      "description": "Every weapon shifted a dimension darker: melee that maims, explosives that hit harder and throw worms a little further than vanilla, three new weapons (Acid Spitter, Acid Flask, Crucible) whose acid smokes and clings to a worm's skin, new names, new sounds. Content mod: every player in an online match needs it.",
       "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kindjal",
       "licence": "MIT",
       "categories": [
