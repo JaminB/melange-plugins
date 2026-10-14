@@ -432,9 +432,15 @@ local function skinFrame()
         SKIN.resendAt = os.clock() + RESEND
         local d = SKIN.sunDir
         skinSend("sunDir", d[1], d[2], d[3], 0)
-        pcall(wum.postfx.setTransient, SKIN.id, "compat", SKIN.compat)
+        SKIN.compatSent = nil
     end
     SKIN.live = true
+    -- Cached like skinSend: only an accepted call is remembered, so a refusal is retried every frame, and the value
+    -- is sent again only when SKIN.compat changes (or the resend block above cleared it).
+    if SKIN.compatSent ~= SKIN.compat then
+        local okc, resc = pcall(wum.postfx.setTransient, SKIN.id, "compat", SKIN.compat)
+        if okc and resc ~= false then SKIN.compatSent = SKIN.compat end
+    end
     local okw, worms = pcall(wum.game.worms)
     local used = {}
     if okw and type(worms) == "table" then

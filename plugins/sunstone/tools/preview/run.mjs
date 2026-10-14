@@ -174,6 +174,7 @@ const scenarioPath = path.resolve(opt.scenario);
 const scenario = JSON.parse(fs.readFileSync(scenarioPath, 'utf8'));
 const mode = scenario.image ? 'image' : 'scene';
 let [W, H] = opt.size || scenario.size || [960, 540];
+if (![W, H].every((n) => Number.isInteger(n) && n > 0)) usage('size must be two positive integers, got ' + JSON.stringify([W, H]));
 const renderScale = scenario.renderScale || 1;
 W = Math.round(W * renderScale); H = Math.round(H * renderScale);
 const CENTRE_Y = 12;      // body centre above the reported worm position (Bloodsand/Kindjal CENTRE_Y)

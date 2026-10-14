@@ -2,10 +2,13 @@
 // Human skin on the worms. The game paints every worm in one flat cartoon peach; this re-renders the pixels that are a
 // worm's skin as a real human skin tone, keeping the light the game (and Sunstone's lighting) put on them, and adds what
 // makes skin read as skin in a photograph: a measured albedo, lower in saturation than the peach; light scattered under the
-// skin (a softer, red-orange terminator, warm, saturated shade, never grey, and a red glow at a backlit silhouette); a soft
-// sheen, oilier on the forehead and the nose, broken by the pores; broad melanin blotches, a finer mottle and freckles;
-// a fine relief of skin lines and pores, lit from the sun as a bump, at the scale it is seen at; and blood under the skin,
-// flushing the cheeks, the nose and the lips. All of it sits on the worm.
+// skin (the light blurred in the red, a softer, red-orange terminator, warm, saturated shade, never grey, and a thin red
+// rim at a backlit silhouette); a two-lobe sheen with a roughness that varies over the body, broken by the pores, and peach
+// fuzz at grazing angles; broad melanin blotches, a finer mottle, sparse freckles and moles; blood under the skin, flushing
+// the cheeks, the nose and the lips, with fine capillaries, and faint veins on light tones; and a relief with its slope
+// (pores, the skin's diamond of fine lines, the folds of the neck, the snout, the forehead and the body), lit from the sun
+// as a bump. Every band follows the pixel's footprint and hands what it cannot draw on to the coarser ones (see the
+// footprint below). All of it sits on the worm.
 // Uniform contract (all hidden, set by Sunstone's Lua with wum.postfx.setTransient):
 //   p_worm0..p_worm15     vec3  world position of the middle of each worm's body (12 above the reported position, as in
 //                               Bloodsand and Kindjal); (0,0,0) = slot unused
@@ -14,7 +17,8 @@
 //                               how far (world units) the body can be from the reported centre, from its speed
 //   p_sunDir              vec3  world direction toward the theme's sun (the one the grade's sun glow uses)
 //   p_compat              float 0..1 Sunstone's lighting on the scene: widens the skin test the way Kindjal's acid does
-//   p_strength, p_lightKeep, p_subsurface, p_sheen, p_pores, p_mottle: the look (overlay sliders)
+//   p_strength, p_lightKeep, p_subsurface, p_sheen, p_pores, p_mottle, p_detail, p_freckles, p_veins, p_fuzz: the look
+//                               (overlay sliders)
 // Built-ins used: mg_scene, mg_depth, mg_invProj, mg_view, mg_nearFar, mg_resolution.
 //
 // It runs at order 55, after Bloodsand's skin (51), guts (52) and gibs (53) and Kindjal's acid (54): both of those find the
@@ -52,8 +56,12 @@
 //
 // Cost: like Kindjal's acid, a pixel away from every worm is two fetches, one unprojection and a sphere test per used
 // slot. A pixel on a worm's shell runs SkinTone, the depth normal (four depth fetches), the gap test (two) and, only on a
-// skin edge, four more scene fetches; then the long code once (Pick() chooses the worm), with four evaluations of the
-// relief where it is drawn, and sixteen scene and depth taps inside the bruise's oval round the eyes and eight on the acid.
+// skin edge, four more scene fetches; then the long code once (Pick() chooses the worm): four scene and depth taps for the
+// light under the skin (close enough that a third of a unit is over a pixel), the relief evaluated once with its gradient
+// (26 exponentials for the 13 folds, 12 to 24 hashes for the lines, 6 for the pores, 12 for the specks) and the pigment's
+// value noise (6 to 9 Noise3, 8 hashes each): in all some hundred hashes, about what the previous relief cost with its
+// four finite-difference evaluations, plus eight fetches. 24 scene and depth taps inside the bruise's oval round
+// the eyes and eight on the acid.
 uniform sampler2D mg_scene;
 uniform sampler2D mg_depth;
 uniform mat4 mg_invProj;
@@ -71,6 +79,10 @@ uniform float p_subsurface;
 uniform float p_sheen;
 uniform float p_pores;
 uniform float p_mottle;
+uniform float p_detail;
+uniform float p_freckles;
+uniform float p_veins;
+uniform float p_fuzz;
 varying vec2 mg_uv;
 
 // Bloodsand's face constants (world units from the middle of the body, in the worm's own frame, +z forward): the eyes are
@@ -83,8 +95,18 @@ const float EYE_Y = 2.0;
 const vec3 PEACH = vec3(1.0, 0.66, 0.39);
 const vec3 LUMW = vec3(0.299, 0.587, 0.114);
 
+// Hashes without sin() (Hoskins'): sin() of a large argument loses precision on some GPUs and turns the pattern into a
+// visible grid; these stay exact for every coordinate used here.
 float Hash3(vec3 p) {
-    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+    p = fract(p * 0.1031);
+    p += dot(p, p.zyx + 31.32);
+    return fract((p.x + p.y) * p.z);
+}
+
+float Hash2(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
 }
 
 // Trilinear value noise, 0..1.
@@ -239,37 +261,92 @@ float ScorchTone(vec3 c, float mouth) {
          * (1.0 - Edge(0.09, 0.15, mx) * Edge(0.36, 0.43, sa));
 }
 
-// A pore at p (in pore cells): one soft dot of about a third of the cell, at a random place in it (never across its edge),
-// in about two cells of three. 0..1.
-float Pore(vec3 p) {
-    vec3 i = floor(p);
-    vec3 o = vec3(Hash3(i), Hash3(i + 31.7), Hash3(i + 63.1));
-    float d = length(fract(p) - 0.5 - 0.36 * (o - 0.5));
-    return (1.0 - smoothstep(0.09, 0.23, d)) * step(0.3, fract(o.x * 7.13 + o.y));
-}
-
 // Fractal value noise, two octaves, -0.5..0.5 (about -0.35..0.35 in practice).
 float Fbm(vec3 p) {
     return 0.65 * Noise3(p) + 0.35 * Noise3(p * 2.03 + 17.3) - 0.5;
 }
 
-// A thin line where the noise crosses its middle, 0..1 (1 on the line): ridged noise sharpened, for the lines of the skin.
+// A thin line where the noise crosses its middle, 0..1 (1 on the line): ridged noise sharpened.
 float Line(vec3 p) {
     float r = 1.0 - abs(2.0 * Noise3(p) - 1.0);
     r *= r;
     return r * r;
 }
 
-// The skin's fine relief at q (the worm's frame, world units), about 0 on the surface and negative in the hollows: shallow
-// lines running round the body (stretched along it, as on a forehead or a neck) at about half a unit, a finer crosshatch
-// turned against them (qr is q turned), the pores' pits and a faint grain. l1 and l2 fade the coarse and the fine bands in
-// with the screen size, so nothing finer than a few pixels is drawn (it would shimmer).
-float Relief(vec3 q, vec3 qr, float l1, float l2, float po) {
-    float h = -0.16 * l1 * Line(q * vec3(0.45, 1.6, 0.45) + 5.0);
-    h -= 0.12 * l2 * Line(qr * 2.6 + 9.0);
-    h -= 0.22 * l2 * po * max(Pore(q * 4.0 + 23.0), Pore(qr * 4.6 + 5.0));
-    h += 0.22 * l2 * (Noise3(q * 6.5 + 41.0) - 0.5) + 0.16 * l1 * (Noise3(q * 1.7 + 61.0) - 0.5);
+// 2D value noise with its gradient: x the value (0..1), yz its derivatives. The relief is built from these with their
+// gradients worked out alongside (no finite differences: one evaluation per layer, not four).
+vec3 NoiseD2(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    vec2 du = 6.0 * f * (1.0 - f);
+    float a = Hash2(i), b = Hash2(i + vec2(1.0, 0.0)), c = Hash2(i + vec2(0.0, 1.0)), d = Hash2(i + vec2(1.0, 1.0));
+    float k = a - b - c + d;
+    return vec3(a + (b - a) * u.x + (c - a) * u.y + k * u.x * u.y, du * vec2(b - a + k * u.y, c - a + k * u.x));
+}
+
+// A thin crease where 2D noise crosses its middle: x its depth 0..1 (1 on the line), yz the gradient of the depth.
+vec3 Crease2(vec2 p) {
+    vec3 n = NoiseD2(p);
+    float s = 2.0 * n.x - 1.0;
+    float r = 1.0 - abs(s);
+    float r3 = r * r * r;
+    return vec3(r3 * r, -8.0 * r3 * sign(s) * n.yz);
+}
+
+// The skin's fine lines in the surface's own coordinates t (x round the body, y up it, world units), the pattern real skin
+// has: shallow lines running round the body (tension lines, as on a forehead or a neck, about half a unit apart) and two
+// finer families crossing them at +-40 degrees, which cut the skin into the small diamonds seen on the back of a hand.
+// vL and vF fade the two bands with the screen size. x the height (negative in a line), yz its gradient in t.
+vec3 SkinLines(vec2 t, float vL, float vF) {
+    vec3 c0 = Crease2(vec2(t.x * 0.55, t.y * 2.3) + 5.0);
+    vec3 h = -0.022 * vL * vec3(c0.x, c0.y * 0.55, c0.z * 2.3);
+    const vec2 D1 = vec2(0.766, 0.643), N1 = vec2(-0.643, 0.766);
+    const vec2 D2 = vec2(0.766, -0.643), N2 = vec2(0.643, 0.766);
+    vec3 c1 = Crease2(vec2(dot(t, D1) * 1.2, dot(t, N1) * 4.2) + 17.0);
+    vec3 c2 = Crease2(vec2(dot(t, D2) * 1.2, dot(t, N2) * 4.2) + 41.0);
+    h -= 0.008 * vF * vec3(c1.x, c1.y * 1.2 * D1 + c1.z * 4.2 * N1);
+    h -= 0.008 * vF * vec3(c2.x, c2.y * 1.2 * D2 + c2.z * 4.2 * N2);
     return h;
+}
+
+// A pore at p (in pore cells): a soft pit of about size/3 of the cell at a random place in it, in about two cells of three.
+// x the pit 0..1, yzw its gradient (in cells).
+vec4 PoreD(vec3 p, float size) {
+    vec3 i = floor(p);
+    vec3 o = vec3(Hash3(i), Hash3(i + 31.7), Hash3(i + 63.1));
+    vec3 d = fract(p) - 0.5 - 0.36 * (o - 0.5);
+    float l = max(length(d), 1e-4);
+    float sz = size * (0.7 + 0.6 * o.z);
+    float r0 = 0.06 * sz, r1 = 0.2 * sz;
+    float x = clamp((l - r0) / (r1 - r0), 0.0, 1.0);
+    float on = step(0.3, fract(o.x * 7.13 + o.y));
+    return on * vec4(1.0 - x * x * (3.0 - 2.0 * x), (-6.0 * x * (1.0 - x) / (r1 - r0)) * d / l);
+}
+
+// A soft fold of the skin across x (world units from its line): a crease of width w with a roll of skin on its +x side,
+// prefiltered for a pixel footprint fp (the crease widens and grows fainter as it gets smaller than a pixel, so it turns
+// into a soft darker band from afar instead of shimmering or vanishing). x the height (crease -1), y d/dx, z the crease's
+// depth alone 0..1, for its colour.
+vec3 Fold(float x, float w, float fp) {
+    float w1 = sqrt(w * w + fp * fp);
+    float a1 = w / w1;
+    float e1 = a1 * exp(-x * x / (w1 * w1));
+    float w2 = sqrt(2.6 * w * w + fp * fp);
+    float x2 = x - 1.5 * w;
+    float e2 = 0.35 * (1.6 * w / w2) * exp(-x2 * x2 / (w2 * w2));
+    return vec3(-e1 + e2, 2.0 * x / (w1 * w1) * e1 - 2.0 * x2 / (w2 * w2) * e2, e1);
+}
+
+// Freckles (or moles) in cells of p, at most one a cell, in a share dens of the cells, of radius 0.07 to 0.19 of the cell;
+// px is the size of a cell in pixels: the edge is softened to a pixel, so a small one never flickers. 0..1.
+float Speck(vec3 p, float dens, float px) {
+    vec3 i = floor(p);
+    vec3 o = vec3(Hash3(i + 7.3), Hash3(i + 19.1), Hash3(i + 41.9));
+    float r = 0.07 + 0.12 * o.z * o.z;
+    float d = length(fract(p) - 0.5 - 0.5 * (o - 0.5));
+    float aa = 0.6 / max(px, 1e-3) + 0.03;
+    return (1.0 - smoothstep(r - aa, r + aa, d)) * step(Hash3(i + 3.7), dens) * (0.45 + 0.55 * fract(o.x * 13.1 + o.y));
 }
 
 // Wet paint on the body, 0..1: Bloodsand's blood and the wet red of an opening (hue near 0, green over red under 0.35,
@@ -336,8 +413,8 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
     // moves with it (nothing swims across the screen), and a seed per worm so no two have the same pores.
     float ch = cos(hs.x), sh = sin(hs.x);
     vec3 qu = vec3(L.x * ch - L.z * sh, L.y, L.x * sh + L.z * ch);
-    // (The seed's offset is kept within 40 units: the hash takes sin() of its input, which loses precision on some GPUs
-    // far from 0, so a seed of several hundred units would turn the pores into a visible pattern.)
+    // (The seed's offset is kept within 40 units, so the hash's inputs stay small and exact in single precision on every
+    // GPU at the finest scale the pattern uses.)
     vec3 qs = qu + 40.0 * fract(hs.y * vec3(0.0731, 0.0317, 0.0519));
 
     // The smooth body normal (the depth buffer's is faceted by the mesh; Bloodsand shades from the ellipsoid's the same way)
@@ -366,11 +443,14 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
 
     // Bloodsand's black eye is not kept as painted (a purple-black wash with the hard, swirled edges of its rings): it is
     // read as where and how heavy the bruise is, and the skin is drawn again under it as a bruise on this skin. Inside an
-    // oval round the eyes (Bloodsand's, a little larger), the bruise is the share of its colour in a disc of about a unit
-    // (sixteen taps on two rings, which softens its edges into the skin round it), and its weight how dark those taps are;
-    // the light on a bruised pixel is the skin's round it (the taps that are skin), or, in the middle of a large bruise,
-    // the body's shape lit as the game lights it. The pixel itself is redrawn only if it is skin or bruise, so the eye
-    // whites, pupils and blood beside it are untouched.
+    // oval round the eyes (Bloodsand's, a little larger), the bruise is its share of the colour in a disc of about a unit
+    // and a half, and its weight how dark those taps are; the light on a bruised pixel is the skin's round it (the taps
+    // that are skin), or, in the middle of a large bruise, the body's shape lit as the game lights it. The pixel itself is
+    // redrawn only if it is skin or bruise, so the eye whites, pupils and blood beside it are untouched.
+    // The disc is 24 taps on a golden-angle spiral, every tap at its own radius and weighted toward the middle (two rings
+    // of eight, as before, copied each hard edge of the paint, and the outline of the eye, as rings at their two radii).
+    // The share counts only taps that are skin or bruise, so the eye whites, pupils and blood in the disc do not thin the
+    // bruise near them (which drew the eye's outline again round it).
     vec2 bo = vec2((abs(qu.x) - EYE_X) / 6.6, (qu.y - EYE_Y) / (qu.y < EYE_Y ? 6.6 : 11.0));
     float zone = front0 * Edge(1.0, 1.4, length(bo));
     float bzc = zone * BruiseTone(col);
@@ -378,38 +458,43 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
     vec3 colL = col;
     if (zone > 0.0) {
         vec2 t = mg_resolution.zw;
-        float rr = clamp(1.5 * ppx, 2.0, 72.0);
-        vec2 d1 = vec2(1.0, 0.0);
-        vec2 d2 = vec2(0.9238795, 0.3826834);
+        float rr = clamp(1.6 * ppx, 2.0, 72.0);
         float bs = BruiseTone(col);
         float bl = bs * dot(col, LUMW);
-        vec3 sc = vec3(0.0);
-        float ws = 0.0;
-        for (int i = 0; i < 8; i++) {
-            vec2 u1 = mg_uv + d1 * rr * t, u2 = mg_uv + d2 * 0.5 * rr * t;
+        float vs = min(bs + k, 1.0);
+        vec3 sc = col * k;
+        float ws = k;
+        float wsum = 1.0;
+        vec2 dd = vec2(1.0, 0.0);
+        for (int i = 0; i < 24; i++) {
+            float rad = sqrt((float(i) + 0.5) / 24.0);
+            float wt = 1.0 - 0.55 * rad * rad;
+            vec2 u1 = mg_uv + dd * (rad * rr) * t;
             vec3 c1 = texture2D(mg_scene, u1).rgb;
-            vec3 c2 = texture2D(mg_scene, u2).rgb;
             // (Only taps on this body count: the sand beside a worm has the colour of skin.)
-            float o1 = Edge(1.5, 3.0, abs(ViewPos(u1).z - P.z)), o2 = Edge(1.5, 3.0, abs(ViewPos(u2).z - P.z));
-            float b1 = BruiseTone(c1) * o1, b2 = BruiseTone(c2) * o2;
-            bs += b1 + b2;
-            bl += b1 * dot(c1, LUMW) + b2 * dot(c2, LUMW);
-            float k1 = SkinTone(c1, strict, compat, 0.0, qu.y) * o1, k2 = SkinTone(c2, strict, compat, 0.0, qu.y) * o2;
-            sc += c1 * k1 + c2 * k2;
-            ws += k1 + k2;
-            d1 = vec2(d1.x * 0.7071068 - d1.y * 0.7071068, d1.x * 0.7071068 + d1.y * 0.7071068);
-            d2 = vec2(d2.x * 0.7071068 - d2.y * 0.7071068, d2.x * 0.7071068 + d2.y * 0.7071068);
+            float o1 = wt * Edge(1.5, 3.0, abs(ViewPos(u1).z - P.z));
+            float b1 = BruiseTone(c1) * o1;
+            float k1 = SkinTone(c1, strict, compat, 0.0, qu.y) * o1;
+            bs += b1;
+            bl += b1 * dot(c1, LUMW);
+            sc += c1 * k1;
+            ws += k1;
+            vs += min(b1 + k1, o1);
+            wsum += wt;
+            // (The next tap: turned by the golden angle, 137.5 degrees.)
+            dd = vec2(dd.x * -0.7373688 - dd.y * 0.6754903, dd.x * 0.6754903 + dd.y * -0.7373688);
         }
         // The light under the bruise: the skin round it, else the shape lit by sun and sky as vanilla skin.
         vec3 shapeCol = PEACH * (0.32 + 0.6 * clamp(ndl, 0.0, 1.0));
         vec3 skinCol = ws > 1e-3 ? sc / ws : shapeCol;
-        vec3 under = mix(shapeCol, skinCol, smoothstep(0.5, 3.0, ws));
-        // How heavy: the share of bruise round the pixel, times how much darker than that skin the bruise was painted
-        // (Bloodsand's wash is about a third of the skin's brightness, its socket and lid nearly black).
-        float cov = bs / 17.0;
+        vec3 under = mix(shapeCol, skinCol, smoothstep(0.4, 2.6, ws));
+        // How heavy: the share of bruise among the skin and bruise round the pixel (never fewer than a third of the disc,
+        // so a pixel boxed in by the eye whites is not decided by a tap or two), times how much darker than that skin the
+        // bruise was painted (Bloodsand's wash is about a third of the skin's brightness, its socket and lid nearly black).
+        float cov = bs / max(vs, 0.33 * wsum);
         float dark = 1.0 - (bl / max(bs, 1e-3)) / max(dot(under, LUMW), 0.02);
         // (Heavier from across the level, as Bloodsand's own is, so a black eye still reads at the distance the game is played.)
-        bru = zone * clamp(mix(1.6, 1.25, smoothstep(4.0, 12.0, ppx)) * cov * smoothstep(0.15, 0.85, dark), 0.0, 1.0);
+        bru = zone * clamp(mix(1.3, 1.0, smoothstep(4.0, 12.0, ppx)) * cov * smoothstep(0.15, 0.85, dark), 0.0, 1.0);
         colL = mix(col, under, smoothstep(0.02, 0.2, bzc));
         kw = max(kw, smoothstep(0.02, 0.2, bzc));
     }
@@ -475,50 +560,173 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
     float brow = front * smoothstep(EYE_Y + 2.0, EYE_Y + 4.5, qu.y) * Edge(EYE_Y + 7.0, EYE_Y + 10.0, qu.y) * exp(-Sq(qu.x / 4.0));
     float belly = front * Edge(-10.0, -2.0, qu.y);
 
-    // Detail that shows at the scale it is seen at: each band fades in only where the screen gives it a few pixels a cycle
-    // (it never shimmers), so from across the level the blotches and the mottling read, and close up the fine lines,
-    // freckles and pores come in as well.
-    float lod0 = smoothstep(2.0, 4.0, ppx / 0.8);
-    float lod1 = smoothstep(2.5, 5.0, ppx / 2.2);
-    float lod2 = smoothstep(2.5, 5.0, ppx / 4.4);
+    // Where on the body: the angle round it (0 straight ahead, growing toward the worm's +x), the unit vector round it, and
+    // how much the point faces forward. The seed's offset (so) moves every pattern; the geometry (folds) uses qu.
+    vec3 so = qs - qu;
+    float rq = max(length(qu.xz), 1.0);
+    float ang = atan(qu.x, qu.z);
+    vec3 T = vec3(qu.z, 0.0, -qu.x) / rq;
+    float fwd = qu.z / rq;
+
+    // The pixel's footprint on the skin (pixels per unit, fewer where the surface turns away), and how much of each band of
+    // detail it can hold: every band fades in only where it gets a few pixels a cycle (so it never shimmers), and what it
+    // can no longer draw is handed on: folds widen into soft darker bands, the slopes of the pores and lines go into the
+    // roughness of the highlight, and the broad blotches, flush and oily patches gain a little contrast, so from across the
+    // level the skin is still varied, not a flat colour.
+    float ppxE = ppx * sqrt(max(nv, 0.12));
+    float fp = 0.5 / max(ppxE, 0.05);
+    float vF = smoothstep(2.0, 4.0, 0.22 * ppxE);
+    float vL = smoothstep(2.0, 4.0, 0.45 * ppxE);
+    float vM = smoothstep(2.0, 4.0, 1.1 * ppxE);
     float mo = clamp(p_mottle, 0.0, 1.0);
     float po = clamp(p_pores, 0.0, 1.0);
+    float de = clamp(p_detail, 0.0, 1.0);
+    float lightTone = smoothstep(0.30, 0.62, lumA0);
+    float seedF = Hash3(vec3(hs.y, 1.7, 3.1));
+    float seedG = Hash3(vec3(hs.y, 5.3, 0.9));
+
+    // The relief, a height over the smooth body (world units) with its gradient, worked out together: in the surface's
+    // coordinates (gt: along the arc round the body, up it) for what follows the body, in the worm's frame (gq) otherwise.
+    vec2 gt = vec2(0.0);
+    vec3 gq = vec3(0.0);
+    float crease = 0.0;
+    float lineD = 0.0;
+    float pit = 0.0;
+    if (de > 0.0) {
+        // Folds. The crease under the head where the neck bends (and a fainter one below it), wavy in whole waves round the
+        // body so there is no seam at the back, deeper in front; the fold under the snout and the lines from its sides past
+        // the mouth; faint lines across the forehead, deeper on some worms than others; and knuckle-like folds in two
+        // groups down the body, in broken arcs.
+        float c = -5.3 + 0.28 * sin(2.0 * ang + so.x) + 0.12 * sin(5.0 * ang + so.z);
+        float dc = (0.56 * cos(2.0 * ang + so.x) + 0.6 * cos(5.0 * ang + so.z)) / rq;
+        float wn = de * (0.5 + 0.5 * smoothstep(-0.5, 0.7, fwd));
+        vec3 f1 = Fold(qu.y - c, 0.3, fp);
+        vec3 f2 = Fold(qu.y - c + 1.15, 0.2, fp);
+        float dy = wn * (0.24 * f1.y + 0.07 * f2.y);
+        gt += vec2(-dy * dc, dy);
+        crease += wn * (f1.z + 0.3 * f2.z);
+
+        float fs = de * front * Edge(1.8, 2.9, abs(qu.x));
+        float cs = EYE_Y - 3.6 + 0.12 * qu.x * qu.x;
+        vec3 f3 = Fold(qu.y - cs, 0.2, fp);
+        gq += fs * 0.1 * f3.y * vec3(-0.24 * qu.x, 1.0, 0.0);
+        crease += 0.6 * fs * f3.z;
+
+        // (The lines from the snout's sides: across the segment from (2.3, -2.0) to (3.2, -4.4) about the eye line, with
+        // the roll of the cheek on its outer side.)
+        vec2 pn = vec2(abs(qu.x) - 2.3, qu.y - (EYE_Y - 2.0));
+        float along = dot(pn, vec2(0.342, -0.940)) / 2.6;
+        float fn = de * front * smoothstep(-0.1, 0.15, along) * Edge(0.75, 1.05, along);
+        vec3 f4 = Fold(dot(pn, vec2(0.940, 0.342)), 0.28, fp);
+        gq += fn * 0.08 * f4.y * vec3(0.940 * sign(qu.x), 0.342, 0.0);
+        crease += 0.4 * fn * f4.z;
+
+        float ff = de * front * Edge(3.2, 4.8, abs(qu.x)) * (0.45 + 0.8 * seedG);
+        for (int i = 0; i < 3; i++) {
+            float fi = float(i);
+            float yi = EYE_Y + 5.4 + 0.95 * fi + 0.18 * sin(0.7 * qu.x + so.y + 1.7 * fi);
+            vec3 f5 = Fold(qu.y - yi, 0.12, fp);
+            float ai = ff * (0.06 - 0.012 * fi);
+            gq += ai * f5.y * vec3(-0.126 * cos(0.7 * qu.x + so.y + 1.7 * fi), 1.0, 0.0);
+            crease += 0.5 * ai / 0.06 * f5.z;
+        }
+
+        for (int g = 0; g < 2; g++) {
+            float fg = float(g);
+            float yg = -8.0 - 2.3 * fg + 0.15 * sin(3.0 * ang + so.x + 2.0 * fg);
+            float pa = de * smoothstep(0.1, 0.9, sin(3.0 * ang + so.z + 2.1 * fg)) * (0.6 + 0.4 * smoothstep(-0.5, 0.7, fwd));
+            vec3 k1 = Fold(qu.y - yg, 0.12, fp);
+            vec3 k2 = Fold(qu.y - yg - 0.38, 0.1, fp);
+            vec3 k3 = Fold(qu.y - yg - 0.8, 0.09, fp);
+            gt.y += pa * (0.045 * k1.y + 0.03 * k2.y + 0.02 * k3.y);
+            crease += pa * (0.35 * k1.z + 0.25 * k2.z + 0.15 * k3.z);
+        }
+
+        // The fine lines, the orange-peel undulation and a grain, in the coordinates round and up the body (round as the
+        // angle on a 5.6-unit body, so the pattern keeps its size); the angle's seam at the back is hidden by a second set
+        // with its seam in front, blended in near the back only. They give way on the top of the head, where the round
+        // coordinate closes up, and round the eyes.
+        float capF = Edge(8.5, 11.5, qu.y) * (1.0 - eye);
+        if (vL * capF > 0.0) {
+            vec3 l = SkinLines(vec2(ang * 5.6, qu.y) + so.xy, vL, vF);
+            float wB = smoothstep(2.6, 3.0, abs(ang));
+            if (wB > 0.0) l = mix(l, SkinLines(vec2(atan(-qu.x, -qu.z) * 5.6, qu.y) + so.zy + 20.0, vL, vF), wB);
+            l *= de * capF;
+            gt += vec2(l.y * 5.6 / rq, l.z);
+            lineD = clamp(-l.x / 0.025, 0.0, 1.0);
+        }
+    }
+    // The pores: two lattices turned against each other, larger and more open on the nose, the forehead and the cheeks;
+    // fewer and finer round the eyes. Their pits are also where the highlight breaks.
+    vec3 qr = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64) * qs;
+    if (vF * po > 0.0) {
+        mat3 R = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64);
+        float psz = 0.8 + 0.55 * max(nose, brow) + 0.3 * cheek;
+        vec4 p1 = PoreD(qs * 4.2 + 23.0, psz);
+        vec4 p2 = PoreD(qr * 4.9 + 5.0, psz);
+        vec3 pg = p1.x > p2.x ? p1.yzw * 4.2 : (p2.yzw * 4.9) * R;
+        pit = max(p1.x, p2.x) * vF * po * (1.0 - 0.7 * eye);
+        gq -= 0.016 * vF * po * (1.0 - 0.7 * eye) * pg;
+    }
+    gq += gt.x * T + vec3(0.0, gt.y, 0.0);
+
+    // The bumped normal: the gradient from the worm's frame back to the world (the turn about +Y undone), then to view
+    // space; only its part along the surface tilts the normal. The slopes of the bands too fine to draw (fp) widen the
+    // highlight instead (Toksvig).
+    vec3 gw = vec3(gq.x * ch + gq.z * sh, gq.y, -gq.x * sh + gq.z * ch);
+    vec3 gv = mat3(mg_view) * gw;
+    gv -= dot(gv, ns) * ns;
+    vec3 nb = normalize(ns - (0.7 + 0.5 * de) * gv);
+    float lostVar = 0.05 * po * (1.0 - vF) + 0.03 * de * (1.0 - vL);
+
     // Melanin, as an absorber (more of it takes more blue than green than red, so the skin goes browner and darker, never
-    // green): broad soft blotches (about 6 units), a mottle of about a unit, and small freckles where the finer noise peaks.
-    float mel = 0.8 * Fbm(qs * 0.17) + 0.1 + 0.65 * (Noise3(qs * 0.9 + 11.0) - 0.5) * lod0;
-    float frk = smoothstep(0.66, 0.8, Noise3(qs * 2.4 + 29.0)) * lod1 * (0.6 + 0.6 * max(cheek, max(nose, brow)));
-    mel += 0.45 * frk;
+    // green): broad soft blotches (about 6 units, with more contrast from afar), a mottle of about a unit. Freckles,
+    // sparse and of varied size and depth, more on the cheeks, the nose and the forehead, as many as the slider, the worm
+    // (its seed: some have many, most a few) and the tone give (fewer and fainter on a deep tone, as in life); a few small
+    // moles. Each speck's edge is softened to a pixel and it fades out below about a pixel, so none twinkles.
+    float farV = 1.0 - vM;
+    float mel = (0.8 + 0.35 * farV) * Fbm(qs * 0.17) + 0.1 + 0.65 * (Noise3(qs * 0.9 + 11.0) - 0.5) * vM;
+    float frq = clamp(p_freckles, 0.0, 1.0);
+    float frk = 0.0;
+    float mole = 0.0;
+    float fv = smoothstep(0.6, 1.6, 0.12 * ppxE);
+    if (frq * fv > 0.0) {
+        float dens = frq * mix(0.08, 0.7, seedF * seedF) * mix(0.35, 1.0, lightTone)
+                   * (0.45 + 1.3 * max(cheek, nose) + 0.6 * brow + 0.3 * smoothstep(4.0, 10.0, qu.y)) * (1.0 - 0.6 * eye);
+        frk = max(Speck(qs * 1.8 + 3.0, dens, 0.55 * ppxE), 0.8 * Speck(qr * 1.4 + 9.0, 0.6 * dens, 0.7 * ppxE)) * fv;
+        mole = Speck(qs * 0.62 + 13.0, frq * (0.03 + 0.06 * seedG), 1.6 * ppxE) * fv;
+    }
+    mel += 0.9 * frk + 0.25 * crease;
     // Blood under the skin (haemoglobin takes green, then blue): patches of a couple of units, redder, gathered on the
     // cheeks, the nose, the lips and the belly; never much less red than the albedo, which would turn the skin sallow.
-    float hb = max(0.65 * (Noise3(qs.zxy * 0.45 + 3.1) - 0.4), -0.05) + 0.6 * cheek + 0.5 * nose + 0.9 * mouth + 0.1 * belly
-             + 0.35 * (Noise3(qs * 1.3 + 51.0) - 0.5) * lod0;
+    // Redder in the creases, and, on the cheeks and the nose, fine broken capillaries where they can be drawn (fainter on a
+    // deep tone, where melanin hides them).
+    float hb = max((0.65 + 0.2 * farV) * (Noise3(qs.zxy * 0.45 + 3.1) - 0.4), -0.05) + 0.6 * cheek + 0.5 * nose + 0.9 * mouth
+             + 0.1 * belly + 0.35 * (Noise3(qs * 1.3 + 51.0) - 0.5) * vM + 0.5 * crease;
+    float flushZ = max(cheek, nose);
+    if (vL * flushZ > 0.02) {
+        float capl = Line(qs * 1.9 + 71.0);
+        hb += 0.6 * vL * flushZ * capl * capl * mix(0.35, 1.0, lightTone);
+    }
     vec3 a = alb * exp(-mo * (mel * vec3(0.24, 0.36, 0.50) + hb * vec3(-0.05, 0.14, 0.10)));
+    // (Moles: a darker, slightly redder brown, whatever the mottle slider.)
+    a *= exp(-2.2 * mole * vec3(0.30, 0.42, 0.52));
     // (The lips are a little darker as well as redder.)
     a *= 1.0 - 0.12 * mo * mouth;
-
-    // The fine relief: lines, crosshatch, pores, as a height in the worm's frame, differenced along its three axes for a
-    // bump on the smooth normal. Its hollows (the lines and the pores) are a little darker and warmer, as a crease is.
-    vec3 qr = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64) * qs;
-    float poe = po * (1.0 - eye);
-    vec3 nb = ns;
-    float hc = 0.0;
-    if (lod1 > 0.0) {
-        const float EPS = 0.035;
-        mat3 R = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64);
-        hc = Relief(qs, qr, lod1, lod2, poe);
-        vec3 g = vec3(Relief(qs + vec3(EPS, 0.0, 0.0), qr + R * vec3(EPS, 0.0, 0.0), lod1, lod2, poe),
-                      Relief(qs + vec3(0.0, EPS, 0.0), qr + R * vec3(0.0, EPS, 0.0), lod1, lod2, poe),
-                      Relief(qs + vec3(0.0, 0.0, EPS), qr + R * vec3(0.0, 0.0, EPS), lod1, lod2, poe)) - hc;
-        g /= EPS;
-        // From the worm's frame back to the world (the turn about +Y undone), then to view space; only its part along the
-        // surface tilts the normal.
-        vec3 gw = vec3(g.x * ch + g.z * sh, g.y, -g.x * sh + g.z * ch);
-        vec3 gv = mat3(mg_view) * gw;
-        gv -= dot(gv, ns) * ns;
-        nb = normalize(ns - 0.035 * (0.5 + po) * gv);
+    // Veins: faint blue-green lines under thin skin, on the temples, the sides of the neck and the chest, on light tones
+    // only (melanin hides them on a deeper one), where they can be drawn.
+    float vei = clamp(p_veins, 0.0, 1.0) * lightTone * smoothstep(3.0, 7.0, ppxE) * (1.0 - eye);
+    if (vei > 0.0) {
+        float vz = smoothstep(0.35, 0.8, abs(qu.x) / rq) * smoothstep(EYE_Y - 1.0, EYE_Y + 1.0, qu.y) * Edge(EYE_Y + 6.0, EYE_Y + 8.0, qu.y)
+                 + smoothstep(-8.0, -6.0, qu.y) * Edge(-4.6, -3.6, qu.y) * (0.5 + 0.5 * abs(qu.x) / rq)
+                 + 0.5 * front * Edge(-8.5, -6.5, qu.y);
+        if (vz > 0.0) {
+            float vn = max(Line(qs * vec3(0.55, 0.22, 0.55) + 91.0), 0.7 * Line(qs * vec3(1.2, 0.5, 1.2) + 37.0));
+            a *= mix(vec3(1.0), vec3(0.76, 0.87, 1.04), 0.9 * vei * min(vz, 1.0) * smoothstep(0.45, 0.95, vn));
+        }
     }
-    float cav = clamp(-hc, 0.0, 1.0);
-    a *= 1.0 - cav * vec3(0.10, 0.16, 0.18);
+    // The hollows (pores, lines, creases) are a little darker and warmer, as a crease is.
+    a *= 1.0 - pit * vec3(0.06, 0.10, 0.11) - lineD * vec3(0.05, 0.08, 0.09) - min(crease, 1.0) * vec3(0.07, 0.12, 0.13);
     a = max(a * BruiseFilter(bru), vec3(0.0));
     float lumA = max(dot(a, LUMW), 1e-3);
 
@@ -527,13 +735,41 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
     float yOut = Y * pow(lumA / lumP, 0.75);
     vec3 skin = (a / lumA) * tint * yOut;
 
+    // Light under the skin travels before it comes out, the red furthest: the light read off the scene is blurred over a
+    // third of a unit (four taps on this body's skin), fully in the red, less in the green, not in the blue. A shadow's
+    // edge (a hat's, the snout's, the terminator) bleeds red into the shade and the game's own texture softens in the red,
+    // as on a photograph of skin. Only where a third of a unit is more than a pixel.
+    float ssw0 = clamp(p_subsurface, 0.0, 1.0);
+    float rS = 0.35 * ppx;
+    if (rS > 0.75 && kl > 0.5 && ssw0 > 0.0) {
+        vec2 t = mg_resolution.zw;
+        float eb = eY, wb = 1.0;
+        vec2 dd = vec2(0.7071068, 0.7071068) * min(rS, 24.0);
+        for (int i = 0; i < 4; i++) {
+            vec2 u1 = mg_uv + dd * t;
+            vec3 c1 = texture2D(mg_scene, u1).rgb;
+            float o1 = Edge(1.0, 2.5, abs(ViewPos(u1).z - P.z)) * SkinTone(c1, strict, compat, 0.0, qu.y);
+            eb += o1 * dot(c1, LUMW) / lumP;
+            wb += o1;
+            dd = vec2(-dd.y, dd.x);
+        }
+        eb /= wb;
+        vec3 irr = vec3(mix(eY, eb, 0.8 * ssw0), mix(eY, eb, 0.35 * ssw0), eY) / max(eY, 1e-3);
+        skin *= clamp(mix(vec3(1.0), irr, smoothstep(0.5, 0.9, kl)), 0.6, 1.8);
+    }
+
     // The relief's shading: how much more or less light the bumped normal takes than the smooth one, from the sun where it
     // is lit and from the sky above where it is not. Light under the skin blurs the relief in the red far more than in the
-    // blue, so the lines and pores are soft and warm, not grey scratches.
+    // blue, so the lines and pores are soft and warm, not grey scratches; the hollows also see less of the sky.
     float lit = smoothstep(0.35, 0.75, eY) * smoothstep(-0.1, 0.3, ndl);
-    vec3 Lm = normalize(mix(mat3(mg_view) * vec3(0.0, 1.0, 0.0), Ls, lit));
-    float bsh = clamp((max(dot(nb, Lm), 0.0) + 0.3) / (max(dot(ns, Lm), 0.0) + 0.3), 0.6, 1.25);
-    skin *= vec3(1.0) + (bsh - 1.0) * vec3(0.55, 0.85, 1.0);
+    // (The sky is a hemisphere: half-Lambert, so a surface facing sideways in the shade does not divide by nearly nothing
+    // and turn every small tilt into a bright streak.)
+    vec3 up = mat3(mg_view) * vec3(0.0, 1.0, 0.0);
+    float bSun = (max(dot(nb, Ls), 0.0) + 0.25) / (max(dot(ns, Ls), 0.0) + 0.25);
+    float bSky = (dot(nb, up) + 1.6) / (dot(ns, up) + 1.6);
+    float bsh = clamp(mix(bSky, bSun, lit), 0.5, 1.35);
+    skin *= vec3(1.0) + (bsh - 1.0) * vec3(0.6, 0.85, 1.0);
+    skin *= 1.0 - 0.12 * min(crease, 1.0) - 0.08 * pit;
 
     // Subsurface scattering: light that enters the skin comes out redder and further on, which is what shade and the
     // terminator (the band where the surface turns away from the sun) show most. There the falloff is softened (the band
@@ -542,32 +778,39 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
     // body's shape; the shade from the light read off the pixel (a cast shadow too), except round the eyes, where a black
     // eye darkens the skin as much as shade does and would be read as shade: there only the shape counts. And where the
     // sun is behind the worm, its thin silhouette glows red-orange, as an ear does against the light.
-    float ssw = clamp(p_subsurface, 0.0, 1.0) * smoothstep(0.02, 0.1, eY);
+    float ssw = ssw0 * smoothstep(0.02, 0.1, eY);
     float shade = mix(1.0 - smoothstep(0.25, 0.85, eY), 1.0 - smoothstep(-0.1, 0.5, ndl), zone);
     float band = smoothstep(-0.35, 0.0, ndl) * Edge(0.1, 0.5, ndl) * smoothstep(0.05, 0.2, eY);
     float ys = dot(skin, LUMW);
-    skin = max(vec3(ys) + (skin - vec3(ys)) * (1.0 + ssw * (0.35 * shade + 0.25 * band)), vec3(0.0));
-    vec3 warm = vec3(1.26, 0.93, 0.74);
+    skin = max(vec3(ys) + (skin - vec3(ys)) * (1.0 + ssw * (0.35 * shade + 0.3 * band)), vec3(0.0));
+    vec3 warm = vec3(1.3, 0.92, 0.72);
     warm /= dot(warm, LUMW);
-    skin *= mix(vec3(1.0), warm, ssw * (0.35 * shade + 0.45 * band)) * (1.0 + 0.18 * ssw * band);
-    float back = pow(clamp(dot(-V, Ls), 0.0, 1.0), 3.0) * Sq(1.0 - nv);
-    skin += ssw * 0.35 * back * a * vec3(1.0, 0.38, 0.18) * max(eY, 0.3) * tint;
+    skin *= mix(vec3(1.0), warm, ssw * (0.35 * shade + 0.5 * band)) * (1.0 + 0.2 * ssw * band);
+    float backL = clamp(dot(-V, Ls), 0.0, 1.0);
+    float rim = Sq(Sq(1.0 - nv));
+    skin += ssw * (0.25 * Sq(1.0 - nv) * backL * backL * backL + 0.5 * rim * backL * backL) * a * vec3(1.0, 0.36, 0.16) * max(eY, 0.3) * tint;
 
-    // Sheen: skin is rough and a little oily, so its highlight is soft and broad, with a tighter, brighter core where it is
-    // oiliest (the forehead and the nose, then the cheeks) that the pores and lines break up; on the bumped normal, toward
-    // the sun, only where the pixel is lit, in the light's colour; the same on every tone, so it reads best on a deep one,
-    // as it does in a photograph. Plus a soft grazing sheen (the fine hairs and the oil) toward the silhouette.
+    // Specular: skin's thin film of oil and its rough surface give two lobes, a sharp one and a broad one (normalised, so
+    // a rougher patch is dimmer as well as wider), at skin's 2.8% reflectance rising to the rim (Fresnel). Its roughness
+    // varies: oilier on the forehead, the nose and the top (the T-zone), then the cheeks, drier elsewhere, in oily and dry
+    // patches of a couple of units that stay from afar; the pores' pits do not reflect, so close up the highlight is broken
+    // into the skin's texture, and from afar what they no longer draw widens it. On the bumped normal, toward the sun, only
+    // where the pixel is lit, in the light's colour; the same on every tone, so it reads best on a deep one, as in a photo.
     vec3 H = normalize(V + Ls);
     float nh = max(dot(nb, H), 0.0);
-    float oil = 0.55 + 0.9 * max(brow, nose) + 0.35 * cheek - 0.3 * eye;
-    float broken = clamp(1.0 + 2.0 * hc, 0.15, 1.2);
-    float fres = 0.04 + 0.96 * pow(clamp(1.0 - dot(V, H), 0.0, 1.0), 5.0);
-    // (Seen from afar the pores and lines are under a pixel and the oily core spreads into the broad lobe, as it does on film.)
-    float near = smoothstep(2.0, 12.0, ppx);
-    float spec = (0.15 * pow(nh, 7.0) + mix(0.25, 0.6, near) * oil * pow(nh, mix(18.0, 36.0, near)) * broken) * (0.8 + 2.0 * fres) * lit;
-    float graze = pow(clamp(1.0 - nv, 0.0, 1.0), 3.0) * smoothstep(0.2, 0.7, eY) * (0.5 + 0.5 * max(ndl, 0.0));
-    float shine = clamp(p_sheen, 0.0, 1.0) * (spec + 0.07 * graze) * (1.0 - bru * 0.5);
-    skin += shine * mix(vec3(1.0), tint, 0.6) * min(eY, 1.2);
+    float oilN = Noise3(qs * 0.55 + 77.0);
+    float oil = clamp(0.2 + 0.8 * max(brow, nose) + 0.35 * cheek + 0.2 * smoothstep(5.0, 11.0, qu.y) - 0.35 * eye
+                      + 0.45 * (oilN - 0.5), 0.0, 1.0);
+    float rough = sqrt(Sq(mix(0.5, 0.24, oil)) + lostVar);
+    float n1 = 2.0 / Sq(0.7 * rough) - 2.0, n2 = 2.0 / Sq(1.45 * rough) - 2.0;
+    float D = 0.45 * (n1 + 2.0) * pow(nh, n1) + 0.55 * (n2 + 2.0) * pow(nh, n2);
+    float fres = 0.028 + 0.972 * pow(clamp(1.0 - dot(V, H), 0.0, 1.0), 5.0);
+    float spec = 0.159 * D * fres * max(dot(nb, Ls), 0.0) * (1.0 - 0.8 * pit) * (1.0 - 0.4 * lineD) * lit;
+    // Peach fuzz: the fine hairs catch the light at grazing angles, a soft pale sheen toward the silhouette on the lit
+    // side, brighter against the light.
+    float fz = clamp(p_fuzz, 0.0, 1.0) * Sq(Sq(1.0 - nv)) * smoothstep(-0.2, 0.6, ndl) * (0.6 + 0.8 * backL) * smoothstep(0.15, 0.5, eY);
+    float shine = clamp(p_sheen, 0.0, 1.0) * 11.0 * spec * (1.0 - bru * 0.5);
+    skin += (shine * mix(vec3(1.0), tint, 0.6) + 0.1 * fz * mix(vec3(1.0), a / lumA, 0.4)) * min(eY, 1.2);
 
     // Bright skin rolls toward white rather than clipping one channel to a yellow or pink flat: above 0.8 the largest
     // channel is compressed into the last 0.2 and the colour eases toward white, as on film.

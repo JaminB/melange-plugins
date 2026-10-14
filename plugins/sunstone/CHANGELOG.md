@@ -2,17 +2,21 @@
 
 - A new **Worm skin** setting (Game / Fair / Medium / Olive / Deep / Mixed, default Game) re-renders the worms' cartoon
   peach as near photo-real human skin: a measured skin tone in the light the scene already has, with subsurface
-  scattering (a soft, red-orange terminator and warm, saturated shade), a soft sheen that is oilier on the forehead and
-  nose and broken by the pores, melanin blotches, mottling, freckles and a fine relief of skin lines and pores lit by
-  the sun, each shown at the distance it can be seen at, a red glow at a backlit silhouette, and a flush on the cheeks,
-  nose and lips, all moving and turning with the worm. Mixed gives every worm its own tone, from its name, so a worm
+  scattering (light blurred under the skin, red at a shadow's edge, a soft, red-orange terminator, warm, saturated shade
+  and a thin red rim against the sun), a two-lobe sheen whose roughness varies over the body (oily forehead and nose,
+  drier elsewhere) broken by the pores, peach fuzz at grazing angles, melanin blotches, mottling, sparse freckles and
+  moles (per worm, fewer on deep tones), a flush and fine capillaries on the cheeks and nose, faint veins on light
+  tones, and a relief lit by the sun: pores, the skin's diamond pattern of fine lines, and folds (the neck, under the
+  snout, past the mouth, the forehead, knuckle-like folds down the body). Detail follows each pixel's footprint, so it
+  never shimmers, and fades into soft folds, blotches and a broader highlight from afar instead of vanishing; all of it
+  moves and turns with the worm. New sliders: folds and skin lines, freckles and moles, veins, peach fuzz. Mixed gives every worm its own tone, from its name, so a worm
   keeps it from match to match. Game is the game's own peach; Quality Off also turns it off.
 - Works with Bloodsand and Kindjal unchanged: the new `skin` effect runs after Bloodsand's skin, guts and gibs (51 to
   53) and Kindjal's acid (54), so both still paint the peach they know, and it then recolours only what is still skin.
   Blood, wounds, the charred crust, guts and acid keep their colours, a thin wipe of blood reads as blood on the new
   skin, and no peach rim is left round them; the scorch's singed, cooked skin comes out as Bloodsand would paint it on
   that skin, and a black eye is redrawn as a real bruise on that tone (yellow fringe, red-purple, deep blue-purple, soft
-  edges), not a black mask. Blood and acid take a wet highlight, and the acid's pattern is smoothed. Hats, helmets, the
+  edges, with no echo of the eyes' outline or of Bloodsand's rings), not a black mask. Blood and acid take a wet highlight, and the acid's pattern is smoothed. Hats, helmets, the
   eyes and the sand stay untouched.
 - Costs nothing on Game (the effect is off). On a tone it runs only in a match, and only pixels on a worm's surface do
   more than a sphere test per worm (not yet measured in game).

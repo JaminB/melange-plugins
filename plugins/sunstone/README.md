@@ -57,22 +57,34 @@ body centre, albedo, heading and how far it moved since the last game tick. It w
   albedos (sRGB: fair 0.94/0.80/0.71, light 0.88/0.70/0.58, medium 0.78/0.57/0.42, olive 0.70/0.53/0.36, tan
   0.62/0.44/0.30, brown 0.45/0.30/0.20, deep 0.30/0.19/0.13), all redder than the sand; a deep tone is darker than the
   peach, softened so it keeps its shading in the shade.
-- **Realism.** Subsurface scattering: along the terminator (found from the body's shape and the theme's sun) the
-  falloff is softened and turns red-orange, shade is a deeper, warmer, saturated colour, never grey, and a silhouette
-  against the sun glows red as an ear does. A visible but soft sheen toward the theme's sun: a broad lobe and a tighter
-  core, stronger on the oily forehead and nose (then the cheeks), rising toward grazing angles and broken up by the
-  pores and skin lines, plus a soft grazing sheen; from across the level the core spreads into the broad lobe. Melanin
-  and blood under the skin work as absorbers (more melanin is browner and darker, more blood redder, never green):
-  broad blotches and patches that read from across the level, a mottle of about a unit, freckles, a flush on the
-  cheeks and the nose, redder and slightly darker lips under the snout. Close up, a fine relief (shallow skin lines
-  round the body, a finer crosshatch, pores and grain) is lit from the sun as a bump on the smooth body normal, softer
-  and warmer in the red as light under the skin blurs it, with its hollows a little darker. Every band fades in only
-  where the screen gives it a few pixels (it never shimmers). The pattern lives in the worm's own frame, so it moves
-  and turns with the worm and never swims across the screen. Bright skin rolls toward white instead of clipping one
-  channel.
+- **Realism.** Subsurface scattering: the light read off the scene is blurred over about a third of a unit, fully in
+  the red, less in the green and not in the blue, so a shadow's edge bleeds red into the shade and the game's texture
+  softens as on a photograph of skin; along the terminator (found from the body's shape and the theme's sun) the falloff
+  is softened and turns red-orange, shade is a deeper, warmer, saturated colour, never grey, and a thin rim of the
+  silhouette glows red against the sun as an ear does. Specular: two normalised lobes, a sharp one and a broad one, at
+  skin's 2.8% reflectance rising to the rim, with a roughness that varies over the body (oilier on the forehead, the nose
+  and the top of the head, then the cheeks, drier elsewhere, in oily and dry patches that stay from afar), broken up by
+  the pores, which do not reflect; plus a soft, pale peach-fuzz sheen at grazing angles, brighter against the light.
+  Melanin and blood under the skin work as absorbers (more melanin is browner and darker, more blood redder, never
+  green): broad blotches and patches, a mottle of about a unit, sparse freckles and a few small moles (how many depends
+  on the worm and the slider, fewer and fainter on deep tones), a flush on the cheeks and the nose with fine broken
+  capillaries close up, redder and slightly darker lips under the snout and redder creases, and on light tones faint
+  blue-green veins on the temples, the sides of the neck and the chest. The relief is a real height with its slope, lit
+  from the sun (or the sky in the shade) as a bump on the smooth body normal, softer and warmer in the red as light under
+  the skin blurs it, its hollows a little darker: pores (larger on the nose, the forehead and the cheeks), the skin's
+  fine lines (tension lines round the body crossed by two finer families at about 40 degrees, the diamond pattern of real
+  skin), an orange-peel undulation and a grain, and the folds of the body (the neck's crease under the head, the fold
+  under the snout and the lines from its sides past the mouth, faint forehead lines, knuckle-like folds in broken arcs
+  down the body). Detail follows the pixel's footprint on the skin: every band fades in only where it gets a few pixels
+  a cycle (it never shimmers), and what it can no longer draw is handed on, not dropped: the folds widen into soft darker
+  bands, the slopes of the pores and lines widen the highlight, and the broad blotches, flush and oily patches gain a
+  little contrast, so a worm 60 pixels tall still has a face, a neck and varied skin. The pattern lives in the worm's
+  own frame, so it moves and turns with the worm and never swims across the screen. Bright skin rolls toward white
+  instead of clipping one channel.
 
 The *Mirage/Post-FX* panel lists it as *Human skin*, with sliders for the opacity, how much of the light's colour is
-kept, subsurface warmth, sheen, pores and mottling.
+kept, subsurface warmth, sheen, pores, mottling and blush, folds and skin lines (`detail`), freckles and moles
+(`freckles`), veins (`veins`) and peach fuzz (`fuzz`).
 
 **With Bloodsand and Kindjal.** Bloodsand's skin (order 51), guts (52) and gibs (53) and Kindjal's acid (54) find the
 skin by its peach colour too. Sunstone's skin runs after all of them, so they classify and paint the game's skin exactly
@@ -84,8 +96,9 @@ and comes out as red on the new tone, darker on a deep one; and a pixel on the r
 up to the skin beside it, so no peach rim is left. What Bloodsand paints by multiplying the skin (the scorch's singed
 halo and cooked leather) takes the skin's gain per channel; its charred crust passes through as painted. Its black eye
 is not kept as a purple-black paint: inside the bruise's oval round the eyes, Sunstone reads from it where the bruise
-is and how heavy (the share of bruise colour within about a unit and a half, and how much darker than the skin round it
-it was painted), then draws the skin again under it with a bruise filter: a faint yellow fringe, a red-purple, and a
+is and how heavy (the share of bruise colour among the skin and bruise within about a unit and a half, sampled on a
+spiral of 24 taps so the hard, swirled edges of Bloodsand's rings and the outline of the eyes leave no echo, and how
+much darker than the skin round it it was painted), then draws the skin again under it with a bruise filter: a faint yellow fringe, a red-purple, and a
 deep blue-purple at its heaviest, softened into the skin round it, so a black eye is a bruise on that tone (a dark
 brown-purple on a deep one, never a black mask), heavier from across the level so it still reads. The eye whites,
 pupils and blood beside it are untouched. Blood and Kindjal's acid take a wet highlight from the sun, and the acid's
@@ -98,8 +111,11 @@ peach there. While a worm flies fast its body can be a few units from the report
 speed, but at the edge of a very fast worm a rim of peach can flash for a frame. A purple hat or headband inside the
 bruise's oval round the eyes is redrawn as bruised skin, as a black eye is. Bloodsand's own skin pass can leave a thin
 line of unpainted peach down the middle of a worm that fills a large screen (its depth-gap test); Sunstone's skin
-recolours that line like the skin round it, and inside a black eye bruises it with its neighbours. Cost: a pixel away from every worm is two fetches and a
-sphere test per worm; only pixels on a worm's surface do more.
+recolours that line like the skin round it, and inside a black eye bruises it with its neighbours. Cost: a pixel away
+from every worm is two fetches and a sphere test per worm; only pixels on a worm's surface do more. A skin pixel is about
+sixteen texture fetches (its own two, four for the depth normal, two for the gap test, eight for the four taps of the
+light under the skin) and, all told, some hundred hashes and thirty-odd exponentials, about what the previous relief cost
+with its four evaluations; the bruise's oval adds 48 fetches, the acid 16.
 
 ## Texture clarity
 
