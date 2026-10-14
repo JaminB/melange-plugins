@@ -8,7 +8,7 @@ derived from one.
 ## What it does
 
 - **A Kanly game style**: a short, hard match. It is the Standard style with a five minute round, after which sudden
-  death starts and the water rises fast, and a loadout where every weapon is available from the start.
+  death starts and the water rises fast, and a loadout whose weapons unlock as the match goes on and run out after a few uses.
 - **A Kanly Melee game style**: the same timings, but only close-range weapons, grenades, utilities and tools; the
   ranged and strike weapons are banned and never drop from crates.
 - **Four Weapon Factory presets**: Kanly Red, Kanly Blue, Kanly Green and Kanly Yellow, each a vanilla preset with a
@@ -38,68 +38,107 @@ round clock runs out the water starts to rise, and it rises fast.
 
 ### Loadout
 
-Every weapon has no delay. Ammo per weapon:
+Weapons are not all there from the start. Each has an unlock turn (the scheme's `Delay`) and a small ammo count, so the
+match opens with basics and escalates, and a weapon is gone once its ammo is used up. Nothing is unlimited. Crates stay
+on, so more can still be found.
 
-| Weapon | Ammo |
-| --- | --- |
-| Airstrike | 2 |
-| BananaBomb | 2 |
-| BaseballBat | 10 |
-| Bazooka | 10 |
-| ClusterGrenade | 2 |
-| ConcreteDonkey | 1 |
-| CrateShower | 2 |
-| CrateSpy | 5 |
-| DoubleDamage | 2 |
-| Dynamite | 10 |
-| FirePunch | 2 |
-| GasCanister | 10 |
-| Girder | 5 |
-| Grenade | 2 |
-| HolyHandGrenade | 2 |
-| HomingMissile | 2 |
-| Jetpack | 5 |
-| Landmine | 10 |
-| NinjaRope | 5 |
-| OldWoman | 10 |
-| Parachute | 5 |
-| Prod | 2 |
-| SelectWorm | 2 |
-| Sheep | 10 |
-| Shotgun | 10 |
-| SkipGo | 2 |
-| SuperSheep | 2 |
-| Redbull | 2 |
-| Flood | 1 |
-| Armour | 2 |
-| WeaponFactoryWeapon | 2 |
-| AlienAbduction | 2 |
-| Fatkins | 2 |
-| Scouser | 10 |
-| NoMoreNails | 2 |
-| PoisonArrow | 2 |
-| SentryGun | 2 |
-| SniperRifle | 2 |
-| SuperAirstrike | 2 |
-| BubbleTrouble | 2 |
-| Starburst | 2 |
-| Surrender | 3 |
-| Binoculars | 5 |
+| Tier | Unlocks at | Weapons |
+| --- | --- | --- |
+| Basics and utilities | Start | Bazooka, Grenade, Shotgun, Baseball Bat, Fire Punch, Prod, Landmine, Girder, Ninja Rope, Parachute, Jetpack, Binoculars, Skip Go, Surrender, Select Worm, Crate Spy |
+| Mid | Turn 1 | Cluster Grenade, Dynamite, Sheep, Gas Canister, Homing Missile, Airstrike, Sniper Rifle, Poison Arrow, Redbull, Armour, Double Damage |
+| Heavy | Turn 2 | Holy Hand Grenade, Banana Bomb, Super Sheep, Old Woman, Scouser, No More Nails, Bubble Trouble, Sentry Gun, Crate Shower |
+| Super | Turn 3 | Concrete Donkey, Super Airstrike, Fatkins, Starburst, Flood, Alien Abduction, Weapon Factory weapon |
 
-Weapons Standard gives 0 or 1 of (the super weapons) get 2, except Concrete Donkey and Flood, which get 1. Utilities
-(Girder, Jetpack, Parachute, Ninja Rope, Binoculars, Crate Spy) get 5. Surrender keeps its 3. Everything else gets 10.
-The 15 mystery crate entries get 10 ammo and no delay (the `"*"` entry applies to all 58 entries). Weapons Standard gives unlimited uses (Baseball Bat, Shotgun,
-Girder, Parachute) now have a finite count.
+Basics get 3 to 4 uses (utilities 2 to 3), the mid tier 2 (the power-ups 1), the heavy and super tiers 1, so those
+vanish after one use.
+
+| Weapon | Unlocks at (turn) | Ammo |
+| --- | --- | --- |
+| BaseballBat | 0 | 4 |
+| Bazooka | 0 | 4 |
+| Binoculars | 0 | 2 |
+| CrateSpy | 0 | 2 |
+| FirePunch | 0 | 3 |
+| Girder | 0 | 3 |
+| Grenade | 0 | 4 |
+| Jetpack | 0 | 2 |
+| Landmine | 0 | 3 |
+| NinjaRope | 0 | 3 |
+| Parachute | 0 | 3 |
+| Prod | 0 | 3 |
+| SelectWorm | 0 | 2 |
+| Shotgun | 0 | 4 |
+| SkipGo | 0 | 2 |
+| Surrender | 0 | 2 |
+| Airstrike | 1 | 2 |
+| Armour | 1 | 1 |
+| ClusterGrenade | 1 | 2 |
+| DoubleDamage | 1 | 1 |
+| Dynamite | 1 | 2 |
+| GasCanister | 1 | 2 |
+| HomingMissile | 1 | 2 |
+| PoisonArrow | 1 | 2 |
+| Redbull | 1 | 1 |
+| Sheep | 1 | 2 |
+| SniperRifle | 1 | 2 |
+| BananaBomb | 2 | 1 |
+| BubbleTrouble | 2 | 1 |
+| CrateShower | 2 | 1 |
+| HolyHandGrenade | 2 | 1 |
+| NoMoreNails | 2 | 1 |
+| OldWoman | 2 | 1 |
+| Scouser | 2 | 1 |
+| SentryGun | 2 | 1 |
+| SuperSheep | 2 | 1 |
+| AlienAbduction | 3 | 1 |
+| ConcreteDonkey | 3 | 1 |
+| Fatkins | 3 | 1 |
+| Flood | 3 | 1 |
+| Starburst | 3 | 1 |
+| SuperAirstrike | 3 | 1 |
+| WeaponFactoryWeapon | 3 | 1 |
+
+The 15 mystery crate entries are not named in the file; the `"*"` entry (applied to all 58 entries first) gives them
+1 ammo and unlock turn 1. The unlock turn is the game's turn count, as in Standard where the Holy Hand Grenade reads
+"Delayed" until the third turn; the tiers are kept short (1, 2 and 3) so that even if
+the count is per team, the super weapons arrive inside the five minute round rather than after the water starts rising. This is the scheme's `Delay` field and its exact counting (global or per team)
+has not been verified in game. Whether a crate hands out a weapon that is still delayed has also not been verified.
 
 ## Kanly Melee
 
-A melee-only variant of Kanly. Round time, sudden death and water speed are as in Kanly above; everything else is
-Standard. Crates and mystery boxes stay on. The 15 mystery entries keep their Standard values.
+A melee-only variant of Kanly. Round time, sudden death and water speed are as in Kanly above, and the same unlock and
+ammo idea applies (nothing unlimited, weapons vanish when used up); everything else is Standard. Crates and mystery
+boxes stay on. The 15 mystery entries keep their Standard values. There is no super tier: the strongest allowed weapons
+(Holy Hand Grenade, Banana Bomb, Old Woman) unlock at turn 2 with 1 use.
 
-Allowed weapons (no delay, ammo as in Kanly except Fire Punch and Prod, which get 5): Baseball Bat 10, Fire Punch 5,
-Prod 5, Grenade 2, Cluster Grenade 2, Holy Hand Grenade 2, Banana Bomb 2, Dynamite 10, Gas Canister 10, Landmine 10,
-Sheep 10, Old Woman 10, Jetpack 5, Parachute 5, Ninja Rope 5, Girder 5, Skip Go 2, Select Worm 2, Binoculars 5,
-Crate Spy 5, Redbull 2, Armour 2, Double Damage 2, Surrender 3. Their crate weight is as in Standard.
+Allowed weapons (crate weight as in Standard):
+
+| Weapon | Unlocks at (turn) | Ammo |
+| --- | --- | --- |
+| BaseballBat | 0 | 4 |
+| Binoculars | 0 | 2 |
+| CrateSpy | 0 | 2 |
+| FirePunch | 0 | 3 |
+| Girder | 0 | 3 |
+| Grenade | 0 | 4 |
+| Jetpack | 0 | 2 |
+| Landmine | 0 | 3 |
+| NinjaRope | 0 | 3 |
+| Parachute | 0 | 3 |
+| Prod | 0 | 3 |
+| SelectWorm | 0 | 2 |
+| SkipGo | 0 | 2 |
+| Surrender | 0 | 2 |
+| Armour | 1 | 1 |
+| ClusterGrenade | 1 | 2 |
+| DoubleDamage | 1 | 1 |
+| Dynamite | 1 | 2 |
+| GasCanister | 1 | 2 |
+| Redbull | 1 | 1 |
+| Sheep | 1 | 2 |
+| BananaBomb | 2 | 1 |
+| HolyHandGrenade | 2 | 1 |
+| OldWoman | 2 | 1 |
 
 Banned weapons (ammo 0, and crate weight 0 so crates never drop them): Bazooka, Homing Missile, Shotgun, Sniper Rifle,
 Poison Arrow, Sentry Gun, No More Nails, Bubble Trouble, Starburst, Super Sheep, Weapon Factory weapon, Airstrike,
@@ -170,13 +209,13 @@ The music files are the author's own work.
 `"kind": "client-only"` in `spice.json` (the script only reads game state, draws, and sets Melange's input options), with no permissions (`unsafe` is false, `filesystem` is `none`). The plugin
 declares two `schemes` entries and four `factoryWeapons` entries, which Melange adds to the game's own lists at the
 frontend. A host's style reaches the other players by the vanilla protocol, and a team stores only the preset's name,
-so a team's preset needs no plugin on the peers, but the style list positions shift with the plugin's styles, so the host and every peer should run the same Kanly version (1.2.0 or later) to agree on which style is chosen. A peer without it may see the raw key (`FETXT.Scheme.Kanly` or `FETXT.Scheme.KanlyMelee`) as the style name in the
+so a team's preset needs no plugin on the peers, but the style list positions shift with the plugin's styles, so the host and every peer should run the same Kanly version (1.3.0 or later) to agree on which style is chosen. A peer without it may see the raw key (`FETXT.Scheme.Kanly` or `FETXT.Scheme.KanlyMelee`) as the style name in the
 lobby; this has not been verified.
 
 ## Limits
 
 - Needs Melange 0.8.0 or later and game build 1077.
-- Adding a style shifts the positions in the game style list, so on netplay the host and every peer need the same Kanly version (1.2.0 or later).
+- Adding a style shifts the positions in the game style list, so on netplay the host and every peer need the same Kanly version (1.3.0 or later).
 - The styles appear as permanent built-in styles: they cannot be edited or deleted in game.
 - The style's settings are fixed in the plugin's files; to change them edit `mod/schemes/kanly.json` or `mod/schemes/kanly-melee.json`.
 - The music is only heard by players with the plugin. Tracks are joined with a hard cut. Only the sudden-death slot

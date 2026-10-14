@@ -252,7 +252,7 @@
       "authors": [
         "Melange"
       ],
-      "description": "Adds the Kanly game style (five-minute rounds, then fast-rising water, a generous loadout) and Kanly Melee (the same timings, melee weapons, grenades and utilities only), four Kanly Weapon Factory presets and Kanly sudden-death music. Also fixes controls (camera and aim invert, mouse sensitivity) and shows short on-screen control hints and a controls legend. Client-side.",
+      "description": "Adds the Kanly game style (five-minute rounds, then fast-rising water, weapons that unlock as the match goes on) and Kanly Melee (the same timings, melee weapons, grenades and utilities only), four Kanly Weapon Factory presets and Kanly sudden-death music. Also fixes controls (camera and aim invert, mouse sensitivity) and shows control hints and a legend. Client-side.",
       "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kanly",
       "licence": "MIT",
       "categories": [
@@ -361,7 +361,7 @@
       "authors": [
         "Melange"
       ],
-      "description": "Every weapon shifted a dimension darker: melee that maims and launches, explosives that hit harder and throw worms much further, three new weapons (Acid Spitter, Acid Flask, Crucible) whose acid smokes and clings to a worm's skin, new names, new sounds. Content mod: every player in an online match needs it.",
+      "description": "Every weapon shifted a dimension darker: melee that maims and launches, explosives that hit harder and throw worms a little further than vanilla, three new weapons (Acid Spitter, Acid Flask, Crucible) whose acid smokes and clings to a worm's skin, new names, new sounds. Content mod: every player in an online match needs it.",
       "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kindjal",
       "licence": "MIT",
       "categories": [

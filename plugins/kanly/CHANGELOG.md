@@ -1,3 +1,16 @@
+## 1.3.0
+
+Weapons now unlock as the match progresses and run out after a few uses, in both styles.
+
+- Kanly: weapons have an unlock turn (Delay) in four tiers, start, turn 1, turn 2 and turn 3. The match opens with basics
+  and utilities; mid-tier weapons come at turn 1, heavy ones at turn 2, and the super weapons (Concrete Donkey, Super
+  Airstrike, Fatkins, Starburst, Flood, Alien Abduction, Weapon Factory weapon) at turn 3.
+- Ammo is cut hard: basics 3 to 4, utilities 2 to 3, mid tier 2 (power-ups 1), heavy and super weapons 1. Nothing is
+  unlimited and crates stay on.
+- The 15 mystery crate entries now get 1 ammo and unlock at turn 1.
+- Kanly Melee: the same tiers for the allowed weapons (no super tier), same bans.
+- Netplay: the host and every peer need Kanly 1.3.0.
+
 ## 1.2.0
 
 Adds a second game style, Kanly Melee.

@@ -1,10 +1,10 @@
 {
   "spiceVersion": 1,
   "id": "kanly",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "name": "Kanly",
   "authors": ["Melange"],
-  "description": "Adds the Kanly game style (five-minute rounds, then fast-rising water, a generous loadout) and Kanly Melee (the same timings, melee weapons, grenades and utilities only), four Kanly Weapon Factory presets and Kanly sudden-death music. Also fixes controls (camera and aim invert, mouse sensitivity) and shows short on-screen control hints and a controls legend. Client-side.",
+  "description": "Adds the Kanly game style (five-minute rounds, then fast-rising water, weapons that unlock as the match goes on) and Kanly Melee (the same timings, melee weapons, grenades and utilities only), four Kanly Weapon Factory presets and Kanly sudden-death music. Also fixes controls (camera and aim invert, mouse sensitivity) and shows control hints and a legend. Client-side.",
   "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kanly",
   "kind": "client-only",
   "melange": { "range": ">=0.8.0" },
