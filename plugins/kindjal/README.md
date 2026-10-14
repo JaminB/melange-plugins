@@ -100,6 +100,20 @@ of Kindjal's content hash, so **every player in an online match must have the sa
 differ has a different Kindjal, and the host refuses to start, the same as for a different version. Offline, edit and
 play.
 
+### Presets
+
+Two small add-on plugins change the knockback without editing any file:
+
+- **Kindjal Heavy** (`kindjal-heavy`) multiplies the knockback Kindjal sets by 1.4 and its reach by 1.15, about 1.7
+  times vanilla knockback.
+- **Kindjal Brutal** (`kindjal-brutal`) restores Kindjal 1.0.0's original knockback, two to three times vanilla.
+
+To use one, enable it on the Mods page next to Kindjal (each needs Kindjal 1.1.0 or later). Enable at most one; they
+conflict with each other. Each is a content mod like Kindjal, so **every player in an online match must enable the
+same one** (or none): a player with a different set of add-ons has a different content hash and the host refuses to
+start. They stack on the multipliers above only in the sense that Heavy scales whatever Kindjal wrote; Brutal writes its
+own absolute numbers and ignores them.
+
 ## What you see and hear
 
 All of this is client-side and off by a setting; none of it touches the simulation.

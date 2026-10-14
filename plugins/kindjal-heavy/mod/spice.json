@@ -1,0 +1,28 @@
+{
+  "spiceVersion": 1,
+  "id": "kindjal-heavy",
+  "version": "1.0.0",
+  "name": "Kindjal Heavy",
+  "authors": [
+    "Melange"
+  ],
+  "description": "Kindjal add-on: throws worms harder. Multiplies the knockback Kindjal sets by 1.4 and its reach by 1.15, about 1.7 times vanilla knockback. Enable at most one Kindjal knockback preset. Content mod: every player in an online match needs it.",
+  "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kindjal-heavy",
+  "kind": "content",
+  "melange": {
+    "range": ">=0.9.0"
+  },
+  "permissions": {
+    "unsafe": false,
+    "filesystem": "none"
+  },
+  "dependencies": [
+    "kindjal >= 1.1.0"
+  ],
+  "conflicts": [
+    "kindjal-brutal"
+  ],
+  "entry": {
+    "sim": "sim/main.lua"
+  }
+}

@@ -7,6 +7,8 @@
 - Knockback is tunable: `KNOCKBACK`, `REACH` and `MELEE` at the top of `mod/sim/main.lua` scale every knockback and
   reach, the three new weapons included. They live in the sim script, not on the Mods page, because the match cannot
   read Mods-page settings; the file is content-hashed, so every online player must have the same values.
+- Two optional add-on plugins pick a different knockback power: Kindjal Heavy (about 1.7 times vanilla) and Kindjal
+  Brutal (the 1.0.0 numbers). Enable one; every online player must enable the same one.
 - Weapon descriptions no longer promise worms thrown across the map.
 
 ## 1.0.0
