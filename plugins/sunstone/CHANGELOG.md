@@ -1,3 +1,22 @@
+## 2.1.0
+
+- A new **Worm skin** setting (Game / Fair / Medium / Olive / Deep / Mixed, default Game) re-renders the worms' cartoon
+  peach as near photo-real human skin: a measured skin tone in the light the scene already has, with subsurface
+  scattering (a soft, red-orange terminator and warm, saturated shade), a soft sheen that is oilier on the forehead and
+  nose and broken by the pores, melanin blotches, mottling, freckles and a fine relief of skin lines and pores lit by
+  the sun, each shown at the distance it can be seen at, a red glow at a backlit silhouette, and a flush on the cheeks,
+  nose and lips, all moving and turning with the worm. Mixed gives every worm its own tone, from its name, so a worm
+  keeps it from match to match. Game is the game's own peach; Quality Off also turns it off.
+- Works with Bloodsand and Kindjal unchanged: the new `skin` effect runs after Bloodsand's skin, guts and gibs (51 to
+  53) and Kindjal's acid (54), so both still paint the peach they know, and it then recolours only what is still skin.
+  Blood, wounds, the charred crust, guts and acid keep their colours, a thin wipe of blood reads as blood on the new
+  skin, and no peach rim is left round them; the scorch's singed, cooked skin comes out as Bloodsand would paint it on
+  that skin, and a black eye is redrawn as a real bruise on that tone (yellow fringe, red-purple, deep blue-purple, soft
+  edges), not a black mask. Blood and acid take a wet highlight, and the acid's pattern is smoothed. Hats, helmets, the
+  eyes and the sand stay untouched.
+- Costs nothing on Game (the effect is off). On a tone it runs only in a match, and only pixels on a worm's surface do
+  more than a sphere test per worm (not yet measured in game).
+
 ## 2.0.3
 
 Runs on Melange 0.7 and every later version: the plugin no longer names an upper Melange version, so a new

@@ -9,8 +9,9 @@ ever shipped.
 A **Quality** setting (Off / Low / Subtle / Bold / Ultra) on the Mods page turns Sunstone's effects on together with
 sensible parameters; a **Look** setting (Golden / Dusk) picks which of the two colour-grading LUTs the grade
 leans toward, **Sunstone lighting** and **Sunstone water** turn the lighting and the water below on or off on their
-own, and **Distance blur**, **Film grain** and **Lens effects** (dirt, flare and colour fringes) turn those off. All
-apply live, no restart. Every effect still has its own toggle and parameters in the overlay's *Mirage/Post-FX* panel
+own, **Distance blur**, **Film grain** and **Lens effects** (dirt, flare and colour fringes) turn those off, and
+**Worm skin** gives the worms human skin (below). All apply live, no restart. Every effect still has its own toggle
+and parameters in the overlay's *Mirage/Post-FX* panel
 (and in `Melange.ini [MiragePostFX]`) if you want to go off the preset — a manual change there survives until you
 next change Quality or a match with a different theme starts.
 
@@ -31,6 +32,74 @@ reduced-resolution passes at half the usual scale. Pixel-sized blurs, sharpening
 so Ultra keeps Bold's look. The HUD and text render at the higher resolution too. Switching back to another preset
 restores the game's own `/SSAA` and FXAA settings. A Melange without `wum.graphics.setSupersample` renders Ultra as
 Bold.
+
+## Worm skin
+
+The **Worm skin** setting (Game / Fair / Medium / Olive / Deep / Mixed; default Game) re-renders the worms' skin as
+human skin. Game keeps the game's cartoon peach and the effect stays off. A tone gives every worm that skin, with a few
+percent of variation per worm; Mixed gives each worm one of seven tones (fair, light, medium, olive, tan, brown, deep),
+picked from its name, so a worm keeps its tone from match to match. Quality Off also turns it off.
+
+It is a Post-FX effect, **`skin`** (PostWorld, order 55), driven every frame by `mod/client/init.lua`: each living worm's
+body centre, albedo, heading and how far it moved since the last game tick. It works in screen space:
+
+- **Finding the skin.** A pixel is a worm's skin when it lies on the surface of that worm's body (the same ellipsoid,
+  capsule shell, upright and facing tests and the same depth-gap test against the background that Bloodsand and
+  Kindjal use) and has the colour of the game's skin (the same classifier: Bloodsand's measured window of hue,
+  saturation and channel ratios, with Kindjal's lower hue limit that cuts blood and its widening for Sunstone's tinted
+  shade while Sunstone's lighting is on). Hats, helmets, glasses, the eyes and moustaches fall outside it, a little
+  more strictly above the eye line and round the mouth; above the eye line, where a hat is, the hue and saturation
+  limits are Bloodsand's own, without Kindjal's widening (a sunlit cowboy hat's brown reaches into it).
+- **The new skin.** The light on each pixel is read as if it were bare game skin (its colour over the game's peach,
+  per channel) and put on the new albedo, so the shading, the game's skin texture and Sunstone's sun and shade come
+  through. Most of the light's colour is kept; a real face in cold shade stays warmer than a peach, so part of the cold
+  tint is let go (only where there is light enough to read, so a dark blend keeps its own colour). Measured skin
+  albedos (sRGB: fair 0.94/0.80/0.71, light 0.88/0.70/0.58, medium 0.78/0.57/0.42, olive 0.70/0.53/0.36, tan
+  0.62/0.44/0.30, brown 0.45/0.30/0.20, deep 0.30/0.19/0.13), all redder than the sand; a deep tone is darker than the
+  peach, softened so it keeps its shading in the shade.
+- **Realism.** Subsurface scattering: along the terminator (found from the body's shape and the theme's sun) the
+  falloff is softened and turns red-orange, shade is a deeper, warmer, saturated colour, never grey, and a silhouette
+  against the sun glows red as an ear does. A visible but soft sheen toward the theme's sun: a broad lobe and a tighter
+  core, stronger on the oily forehead and nose (then the cheeks), rising toward grazing angles and broken up by the
+  pores and skin lines, plus a soft grazing sheen; from across the level the core spreads into the broad lobe. Melanin
+  and blood under the skin work as absorbers (more melanin is browner and darker, more blood redder, never green):
+  broad blotches and patches that read from across the level, a mottle of about a unit, freckles, a flush on the
+  cheeks and the nose, redder and slightly darker lips under the snout. Close up, a fine relief (shallow skin lines
+  round the body, a finer crosshatch, pores and grain) is lit from the sun as a bump on the smooth body normal, softer
+  and warmer in the red as light under the skin blurs it, with its hollows a little darker. Every band fades in only
+  where the screen gives it a few pixels (it never shimmers). The pattern lives in the worm's own frame, so it moves
+  and turns with the worm and never swims across the screen. Bright skin rolls toward white instead of clipping one
+  channel.
+
+The *Mirage/Post-FX* panel lists it as *Human skin*, with sliders for the opacity, how much of the light's colour is
+kept, subsurface warmth, sheen, pores and mottling.
+
+**With Bloodsand and Kindjal.** Bloodsand's skin (order 51), guts (52) and gibs (53) and Kindjal's acid (54) find the
+skin by its peach colour too. Sunstone's skin runs after all of them, so they classify and paint the game's skin exactly
+as before and need no change, and it then recolours only what is still skin, before Sunstone's occlusion (100) and grade
+(300), which treat the new skin like the rest of the scene. The classifier gives a soft likelihood, not a hard mask, and
+the recolouring is a continuous function of the colour (in effect a gain per channel): full blood, raw wounds, the
+charred crust, intestines and acid are not skin and keep their colours; a thin wipe of blood is a blend of red and peach
+and comes out as red on the new tone, darker on a deep one; and a pixel on the rim of any of them takes the recolouring
+up to the skin beside it, so no peach rim is left. What Bloodsand paints by multiplying the skin (the scorch's singed
+halo and cooked leather) takes the skin's gain per channel; its charred crust passes through as painted. Its black eye
+is not kept as a purple-black paint: inside the bruise's oval round the eyes, Sunstone reads from it where the bruise
+is and how heavy (the share of bruise colour within about a unit and a half, and how much darker than the skin round it
+it was painted), then draws the skin again under it with a bruise filter: a faint yellow fringe, a red-purple, and a
+deep blue-purple at its heaviest, softened into the skin round it, so a black eye is a bruise on that tone (a dark
+brown-purple on a deep one, never a black mask), heavier from across the level so it still reads. The eye whites,
+pupils and blood beside it are untouched. Blood and Kindjal's acid take a wet highlight from the sun, and the acid's
+pattern is smoothed over about two thirds of a unit so its noise lattice does not show as squares. Kindjal reads any
+enabled `sunstone/*` effect as Sunstone being on; the skin effect is off with Quality Off, so that stays right.
+
+**Limits.** It recolours what the camera sees as skin, so it cannot add what the model does not have (lips, nails,
+hair). Skin the game lights to a colour outside the classifier's window (an unusual theme light, very dark caves) stays
+peach there. While a worm flies fast its body can be a few units from the reported position; the test widens with its
+speed, but at the edge of a very fast worm a rim of peach can flash for a frame. A purple hat or headband inside the
+bruise's oval round the eyes is redrawn as bruised skin, as a black eye is. Bloodsand's own skin pass can leave a thin
+line of unpainted peach down the middle of a worm that fills a large screen (its depth-gap test); Sunstone's skin
+recolours that line like the skin round it, and inside a black eye bruises it with its neighbours. Cost: a pixel away from every worm is two fetches and a
+sphere test per worm; only pixels on a worm's surface do more.
 
 ## Texture clarity
 

@@ -1,0 +1,11 @@
+{
+  "name": "closeup",
+  "size": [960, 540],
+  "seed": 417,
+  "ground": "sand",
+  "camera": { "pos": [6, 20, 44], "target": [0, 14, 0], "fov": 40 },
+  "worms": [
+    { "slot": 3, "pos": [0, 0, 0], "yawDeg": 12, "hat": "none",
+      "blood": 0.45, "hitFromDeg": 160, "wound": 0.35, "eye": 0.45 }
+  ]
+}
