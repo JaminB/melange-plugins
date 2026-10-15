@@ -9,5 +9,29 @@
   "gameBuilds": [
     "1077"
   ],
-  "screenshots": []
+  "screenshots": [],
+  "versions": [
+    {
+      "version": "1.0.0",
+      "released": "2026-10-15",
+      "melange": ">=0.9.0",
+      "kind": "content",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [
+        "kindjal >= 1.1.0"
+      ],
+      "conflicts": [
+        "kindjal-heavy"
+      ],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/kindjal-brutal-v1.0.0/kindjal-brutal-1.0.0.zip",
+      "sha256": "ba7d4829e0b424d1ab09f01575499f41aa9d9b1dde0d90fe3284649fab799479",
+      "size": 2735,
+      "unpackedSize": 4989,
+      "files": 3,
+      "changelog": "First release. Needs Melange 0.9.0 or later and Kindjal 1.1.0 or later."
+    }
+  ]
 }
