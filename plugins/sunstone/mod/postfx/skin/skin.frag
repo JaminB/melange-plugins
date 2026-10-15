@@ -9,16 +9,24 @@
 // (pores, the skin's diamond of fine lines, the folds of the neck, the snout, the forehead and the body), lit from the sun
 // as a bump. Every band follows the pixel's footprint and hands what it cannot draw on to the coarser ones (see the
 // footprint below). All of it sits on the worm.
+// The same pass draws the worms' hair (moustaches, and with the experimental Hair hats option hair-type headwear) as real
+// hair: see Hair() below. It shares Pick()'s worm and the early-outs, and touches no pixel the skin path owns.
 // Uniform contract (all hidden, set by Sunstone's Lua with wum.postfx.setTransient):
 //   p_worm0..p_worm15     vec3  world position of the middle of each worm's body (12 above the reported position, as in
 //                               Bloodsand and Kindjal); (0,0,0) = slot unused
 //   p_worm0b..p_worm15b   vec3  that worm's skin albedo, a display colour 0..1 (the tone, or one of the mixed tones)
 //   p_worm0c..p_worm15c   vec3  x heading (radians about +Y, facing (sin, 0, cos)), y a seed for its own pattern, z slack:
-//                               how far (world units) the body can be from the reported centre, from its speed
+//                               how far (world units) the body can be from the reported centre, from its speed; the
+//                               y is the seed (0..996) plus 1000 times the worm's hair colour (0 = the item's own colour
+//                               family, 1..9 a natural colour, see HairAlbedo), unpacked in main()
 //   p_sunDir              vec3  world direction toward the theme's sun (the one the grade's sun glow uses)
 //   p_compat              float 0..1 Sunstone's lighting on the scene: widens the skin test the way Kindjal's acid does
-//   p_strength, p_lightKeep, p_subsurface, p_sheen, p_pores, p_mottle, p_detail, p_freckles, p_veins, p_fuzz: the look
-//                               (overlay sliders)
+//   p_skinOn              float 1 = re-render the skin (a tone is set), 0 = leave the game's peach (hair only)
+//   p_hair                float 0 = the game's hair, 1 = natural (realistic, each item's own colour family), 2 = mixed
+//                               (realistic, a natural colour per worm in the y of p_wormNc)
+//   p_wigs                float 1 = also treat hair hats (experimental, see WigCol), 0 = moustaches only
+//   p_strength, p_lightKeep, p_subsurface, p_sheen, p_pores, p_mottle, p_detail, p_freckles, p_veins, p_fuzz,
+//   p_hairSheen, p_hairDetail: the look (overlay sliders)
 // Built-ins used: mg_scene, mg_depth, mg_invProj, mg_view, mg_nearFar, mg_resolution.
 //
 // It runs at order 55, after Bloodsand's skin (51), guts (52) and gibs (53) and Kindjal's acid (54): both of those find the
@@ -61,7 +69,9 @@
 // (26 exponentials for the 13 folds, 12 to 24 hashes for the lines, 6 for the pores, 12 for the specks) and the pigment's
 // value noise (6 to 9 Noise3, 8 hashes each): in all some hundred hashes, about what the previous relief cost with its
 // four finite-difference evaluations, plus eight fetches. 24 scene and depth taps inside the bruise's oval round
-// the eyes and eight on the acid.
+// the eyes, eight on the acid, and on the lower face 20 to 28 for the mouth's opening (four directions of five, and two
+// more where one finds it). Where the gap test fails (a worm beside another, or sand), it also tests its two taps
+// against every used slot's body.
 uniform sampler2D mg_scene;
 uniform sampler2D mg_depth;
 uniform mat4 mg_invProj;
@@ -83,6 +93,11 @@ uniform float p_detail;
 uniform float p_freckles;
 uniform float p_veins;
 uniform float p_fuzz;
+uniform float p_skinOn;
+uniform float p_hair;
+uniform float p_wigs;
+uniform float p_hairSheen;
+uniform float p_hairDetail;
 varying vec2 mg_uv;
 
 // Bloodsand's face constants (world units from the middle of the body, in the worm's own frame, +z forward): the eyes are
@@ -188,10 +203,50 @@ float BodyE(vec3 Pv, vec3 Cv, float slack) {
     return (L.x * L.x + L.z * L.z) / (rh * rh) + L.y * L.y / (rv * rv);
 }
 
+// Whether a view-space point Pv is on a worm other than the one centred at self (world): within 7 units of its capsule's
+// axis (the body is 5.6 in radius, straight for 8 units up and down; a neighbour's slack is not known here), or in the
+// volume over its head where its hat is (Pick()'s hair-hat volume, above its eyes: an afro reaches 11.5 out).
+float OnOther(vec3 Pv, vec3 c, vec3 self) {
+    vec3 d = c - self;
+    if (dot(c, c) < 1e-6 || dot(d, d) < 1e-4) return 0.0;
+    vec3 L = (Pv - (mg_view * vec4(c, 1.0)).xyz) * mat3(mg_view);
+    float hat = step(EYE_Y + 2.0, L.y) * step((L.x * L.x + L.z * L.z) / 132.25 + Sq(L.y - 11.0) / 121.0, 1.0);
+    L.y -= clamp(L.y, -8.0, 8.0);
+    return max(step(dot(L, L), 49.0), hat);
+}
+
+// A worm stands clear of what is behind it: about a body's width to either side the depth falls away. A face of ground
+// in front of a worm goes on at its own depth to both sides. (The offset is 7.6 units, more than the body's radius, at
+// any size: capped at a few hundred pixels only, as a fixed cap of 160 left both taps on the body of a worm that fills
+// the screen, and the middle of it, where both fall least, failed as a thin vertical line.) A tap that lands on another
+// worm's body counts as clear, wherever it is: what is behind there cannot be seen (a worm standing beside a nearer one,
+// or with that one's flank at its own depth, had a strip of its body on that side left as the game drew it). P is the
+// pixel's view-space position, ppx pixels a unit there, self the worm's centre (world). 0..1. (A tap on a neighbour's hat
+// counts too: a mohawk's worm beside an afro's had the side of its head toward the afro left as the game drew it, the one
+// tap on the afro, the other on its own crest.)
+float Clear(vec3 P, float ppx, vec3 self) {
+    float sxo = clamp(7.6 * ppx, 4.0, max(160.0, 0.45 * mg_resolution.x)) * mg_resolution.z;
+    vec3 PL = ViewPos(mg_uv - vec2(sxo, 0.0));
+    vec3 PR = ViewPos(mg_uv + vec2(sxo, 0.0));
+    float cl = max(smoothstep(1.2, 3.5, P.z - PL.z), smoothstep(1.2, 3.5, P.z - PR.z));
+    if (cl >= 1.0) return cl;
+    for (int s = 0; s < 2; s++) {
+        vec3 Q = s == 0 ? PL : PR;
+        float o = OnOther(Q, p_worm0, self) + OnOther(Q, p_worm1, self) + OnOther(Q, p_worm2, self) + OnOther(Q, p_worm3, self)
+                + OnOther(Q, p_worm4, self) + OnOther(Q, p_worm5, self) + OnOther(Q, p_worm6, self) + OnOther(Q, p_worm7, self)
+                + OnOther(Q, p_worm8, self) + OnOther(Q, p_worm9, self) + OnOther(Q, p_worm10, self) + OnOther(Q, p_worm11, self)
+                + OnOther(Q, p_worm12, self) + OnOther(Q, p_worm13, self) + OnOther(Q, p_worm14, self) + OnOther(Q, p_worm15, self);
+        cl = max(cl, step(0.5, o));
+    }
+    return cl;
+}
+
 // The surface normal at the pixel (view space, facing the camera) from the depth of its four neighbours, Bloodsand's way:
 // in each direction the difference is taken on the side where the depth changes less, so a silhouette is never
 // differenced across (screen derivatives work over 2x2 blocks and are garbage there). cover falls toward 0 at the outer
-// silhouette, by 0.45 for each neighbour far behind and outside the body: about a pixel of anti-aliasing.
+// silhouette, by a quarter for each neighbour far behind and outside the body: about a pixel of anti-aliasing. (By 0.45
+// each, an outline pixel at a step of the aliased edge, with two such neighbours, kept nine tenths of the game's peach:
+// a thin peach line round a worm of a deeper tone, most of all where two worms stand close.)
 vec3 SurfaceNormal(vec3 P, vec3 Cv, float slack, out float cover) {
     vec2 t = mg_resolution.zw;
     vec3 Pr = ViewPos(mg_uv + vec2(t.x, 0.0));
@@ -201,7 +256,7 @@ vec3 SurfaceNormal(vec3 P, vec3 Cv, float slack, out float cover) {
     float jump = 0.02 * -P.z + 0.3;
     vec4 dz = vec4(Pr.z, Pl.z, Pu.z, Pd.z) - P.z;
     vec4 outside = max(step(0.95, vec4(BodyE(Pr, Cv, slack), BodyE(Pl, Cv, slack), BodyE(Pu, Cv, slack), BodyE(Pd, Cv, slack))), step(8.0, -dz));
-    cover = clamp(1.0 - 0.45 * dot(outside, step(jump, -dz)), 0.0, 1.0);
+    cover = clamp(1.0 - 0.25 * dot(outside, step(jump, -dz)), 0.0, 1.0);
     vec3 dx = abs(dz.x) < abs(dz.y) ? Pr - P : P - Pl;
     vec3 dy = abs(dz.z) < abs(dz.w) ? Pu - P : P - Pd;
     vec3 n = cross(dx, dy);
@@ -233,15 +288,23 @@ float Mouth(vec3 qu) {
 // 0..1: red over green, blue over red above the skin's (0.40 to 0.48), a hue below the skin's lower limit (where k gives
 // up, so the two overlap and no blend of skin and bruise is left out of both), and some saturation. Eye whites (grey or
 // pink, unsaturated), pupils (neutral black), blood (no blue) and a blue beanie (green over red) are not; Bloodsand's
-// near-black lid (purple at a brightness of 0.02 or so) is. Only used inside the bruise oval (see Worm()).
-float BruiseTone(vec3 c) {
+// near-black lid (purple at a brightness of 0.02 or so) is; a near-black that is not purple (blue no higher than green:
+// a black afro's 8-bit noise over the brow) is not. ms 0..1 is how near an open mouth the pixel is: there the colours of
+// the mouth (a lit tongue, the opening's dark-red rim, the lips' inner edge), which pass the test above, are cut by
+// their blue: for its green over red, any blend of Bloodsand's wash (0.40, 0.15, 0.44) with the skin has a blue over red
+// of at least 0.39 + 2.5 (0.66 - g/r) (0.2 to 0.35 of slack for the light's colour), and a tongue or the rim about half
+// that. A blend of the wash with blood (green over red under 0.3) is not cut. Only used inside the bruise oval (see
+// Worm()).
+float BruiseTone(vec3 c, float ms) {
     float mx = max(c.r, max(c.g, c.b));
     float mn = min(c.r, min(c.g, c.b));
     float rr = max(c.r, 1e-3);
     float tn = 1.7320508 * (c.g - c.b) / max(2.0 * c.r - c.g - c.b, 1e-3);
     return Edge(0.10, 0.26, tn) * smoothstep(0.40, 0.48, c.b / rr) * Edge(2.0, 2.6, c.b / rr)
          * smoothstep(0.04, 0.12, (c.r - c.g) / max(mx, 1e-3)) * smoothstep(0.25, 0.35, (mx - mn) / max(mx, 1e-3))
-         * smoothstep(0.005, 0.014, mx);
+         * smoothstep(0.005, 0.014, mx)
+         * (1.0 - Edge(0.06, 0.1, mx) * Edge(0.1, 0.2, (c.b - c.g) / max(mx, 1e-3)))
+         * mix(1.0, smoothstep(-0.35, -0.2, c.b / rr - (0.39 + 2.5 * (0.66 - c.g / rr))), ms * smoothstep(0.3, 0.38, c.g / rr));
 }
 
 // How much a scene colour is Bloodsand's scorching that multiplies the skin (the reddened halo, the cooked brown leather and
@@ -364,6 +427,21 @@ vec2 WetTone(vec3 c) {
     return vec2(blood, acid);
 }
 
+// Whether the scene at u is the mouth's opening, 0..1, seen from a lip pixel at view depth z of brightness mx0: on this
+// body (the cavity can be some three units deep), and either not skin and much darker than the lip (the cavity, its rim)
+// or unsaturated (the teeth), or of any colour but a fifth of the lip's brightness or less (a closed mouth's seam,
+// skin-coloured in its shade; no shadow on the face is that much darker than the light beside it). Never blood or the
+// inside of one of Bloodsand's wounds (green over red under about 0.17: a gash is not a mouth), nor a black eye's wash.
+// (By colour only: a test on the depth, a pixel sunk behind the face, also fired at the side of a turned head.)
+float OpenAt(vec2 u, float mx0, float z, float strict, float compat, float qy) {
+    vec3 c = texture2D(mg_scene, u).rgb;
+    float m = max(c.r, max(c.g, c.b));
+    float sa = (m - min(c.r, min(c.g, c.b))) / max(m, 1e-3);
+    float r = m / max(mx0, 1e-3);
+    return max((1.0 - SkinTone(c, strict, compat, 1.0, qy)) * max(Edge(0.3, 0.45, r), Edge(0.22, 0.35, sa)), Edge(0.16, 0.26, r))
+         * smoothstep(0.14, 0.2, c.g / max(c.r, 1e-3)) * (1.0 - BruiseTone(c, 1.0)) * Edge(3.0, 4.5, abs(ViewPos(u).z - z));
+}
+
 // The colour a bruise lends the skin over it, a filter on the albedo for a bruise of t 0..1: a yellow-green fringe where it is
 // faint, then a dusky red-purple, then a deep blue-purple at its heaviest. A filter, so it takes the skin's own depth: on a
 // deep tone it is a dark brown-purple, never the near-black of a painted ring.
@@ -397,15 +475,9 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
     float upright = 1.0 - smoothstep(0.55, 0.85, abs(nWorld.y)) * (1.0 - smoothstep(0.0, 2.0, abs(rv.y)));
     mask *= shell * upright * smoothstep(0.1, 0.5, dot(nWorld, rv / rl));
     if (mask <= 0.0) return col;
-    // A worm stands clear of what is behind it: about a body's width to either side the depth falls away. A face of ground
-    // in front of a worm goes on at its own depth to both sides. (The offset is 7.6 units, more than the body's radius, at
-    // any size: capped at a few hundred pixels only, as a fixed cap of 160 left both taps on the body of a worm that fills
-    // the screen, and the middle of it, where both fall least, failed as a thin vertical line.)
+    // Clear of what is behind it (Clear()).
     float ppx = 0.5 * mg_resolution.y / (abs(mg_invProj[1][1]) * max(-P.z, 1.0));
-    float sxo = clamp(7.6 * ppx, 4.0, max(160.0, 0.45 * mg_resolution.x)) * mg_resolution.z;
-    float gapL = P.z - ViewPos(mg_uv - vec2(sxo, 0.0)).z;
-    float gapR = P.z - ViewPos(mg_uv + vec2(sxo, 0.0)).z;
-    mask *= max(smoothstep(1.2, 3.5, gapL), smoothstep(1.2, 3.5, gapR));
+    mask *= Clear(P, ppx, centre);
     if (mask <= 0.0) return col;
     w = mask;
 
@@ -441,6 +513,47 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
     vec3 gainC = (alb / PEACH) * (gainY * lumP / lumA0);
     vec3 painted = col * mix(vec3(1.0), gainC, ScorchTone(col, Mouth(qu)));
 
+    // The lips: skin next to the mouth's opening. Under the nose, five taps go up, down and to both sides along the worm's
+    // own vertical as it is on the screen, a quarter of a unit apart (see stU), looking for the opening (OpenAt()); where
+    // one finds it, two halvings put its edge to a quarter of a step, so the lip's edge is smooth close up. A pixel within about half a unit of it is lip
+    // (lipW): the redness then goes where the lips are, wherever the mouth is and however wide it opens, rather than on a
+    // fixed line (which fell inside an open mouth and left the upper lip as plain skin). Where no opening is seen (a worm
+    // drawn without one) the fixed line stays (open, 0 there). Found before the bruise below, which leaves the mouth alone.
+    float lipW = 0.0, open = 0.0;
+    float mzL = Mouth(qu) * Edge(EYE_Y - 2.6, EYE_Y - 1.8, qu.y) * smoothstep(EYE_Y - 9.0, EYE_Y - 8.0, qu.y) * Edge(4.0, 4.6, abs(qu.x));
+    if (mzL > 0.0) {
+        vec2 upS = (mat3(mg_view) * vec3(0.0, 1.0, 0.0)).xy;
+        upS = upS / max(length(upS), 1e-4) * ppx * mg_resolution.zw;
+        float mx0 = max(col.r, max(col.g, col.b));
+        float dist = 2.0;
+        // (A step of a quarter of a unit, or a pixel and a half where that is less, so a closed mouth's thin seam is not
+        // stepped over from afar.)
+        float stU = clamp(1.5 / max(ppx, 1e-3), 0.12, 0.25);
+        for (int sd = 0; sd < 4; sd++) {
+            vec2 st = (sd == 0 ? upS : sd == 1 ? -upS : sd == 2 ? vec2(upS.y, -upS.x) : vec2(-upS.y, upS.x)) * stU;
+            float lo = 0.0, hi = 0.0;
+            for (int i = 1; i <= 5; i++) {
+                if (hi == 0.0 && OpenAt(mg_uv + st * float(i), mx0, P.z, strict, compat, qu.y) > 0.5) {
+                    lo = float(i) - 1.0;
+                    hi = float(i);
+                }
+            }
+            if (hi > 0.0) {
+                for (int j = 0; j < 2; j++) {
+                    float m = 0.5 * (lo + hi);
+                    if (OpenAt(mg_uv + st * m, mx0, P.z, strict, compat, qu.y) > 0.5) hi = m;
+                    else lo = m;
+                }
+                dist = min(dist, 0.5 * stU * (lo + hi));
+            }
+        }
+        // (Both fade out before the taps' reach, 4.875 steps at the most: close up, where a step is 0.12 of a unit and the
+        // reach under 0.6, the lip ended at half weight and the fixed line came back at full, a one-pixel seam of colour
+        // round the mouth where the opening went out of reach.)
+        float reachF = Edge(3.5 * stU, 4.5 * stU, dist);
+        open = mzL * reachF;
+        lipW = mzL * Edge(0.4, 0.8, dist) * reachF;
+    }
     // Bloodsand's black eye is not kept as painted (a purple-black wash with the hard, swirled edges of its rings): it is
     // read as where and how heavy the bruise is, and the skin is drawn again under it as a bruise on this skin. Inside an
     // oval round the eyes (Bloodsand's, a little larger), the bruise is its share of the colour in a disc of about a unit
@@ -452,14 +565,15 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
     // The share counts only taps that are skin or bruise, so the eye whites, pupils and blood in the disc do not thin the
     // bruise near them (which drew the eye's outline again round it).
     vec2 bo = vec2((abs(qu.x) - EYE_X) / 6.6, (qu.y - EYE_Y) / (qu.y < EYE_Y ? 6.6 : 11.0));
-    float zone = front0 * Edge(1.0, 1.4, length(bo));
-    float bzc = zone * BruiseTone(col);
+    float zone = front0 * Edge(1.0, 1.4, length(bo)) * (1.0 - open * Edge(EYE_Y - 4.2, EYE_Y - 3.4, qu.y) * Edge(3.2, 4.0, abs(qu.x)));
+    float msB = front0 * Edge(EYE_Y - 3.0, EYE_Y - 2.0, qu.y);
+    float bzc = zone * BruiseTone(col, msB);
     float bru = 0.0;
     vec3 colL = col;
     if (zone > 0.0) {
         vec2 t = mg_resolution.zw;
         float rr = clamp(1.6 * ppx, 2.0, 72.0);
-        float bs = BruiseTone(col);
+        float bs = BruiseTone(col, msB);
         float bl = bs * dot(col, LUMW);
         float vs = min(bs + k, 1.0);
         vec3 sc = col * k;
@@ -473,7 +587,7 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
             vec3 c1 = texture2D(mg_scene, u1).rgb;
             // (Only taps on this body count: the sand beside a worm has the colour of skin.)
             float o1 = wt * Edge(1.5, 3.0, abs(ViewPos(u1).z - P.z));
-            float b1 = BruiseTone(c1) * o1;
+            float b1 = BruiseTone(c1, msB) * o1;
             float k1 = SkinTone(c1, strict, compat, 0.0, qu.y) * o1;
             bs += b1;
             bl += b1 * dot(c1, LUMW);
@@ -543,9 +657,11 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
     float Y = dot(colL, LUMW);
     float eY = Y / lumP;
     vec3 tint = (colL / PEACH) / max(eY, 1e-4);
+
     // (Only where there is light enough to read: a dark pixel, such as a blend of the skin with Bloodsand's charred crust,
-    // keeps its own colour, so char stays brown-black and is not turned a neutral grey.)
-    tint = mix(vec3(1.0), tint, mix(1.0, clamp(p_lightKeep, 0.0, 1.0), kl * smoothstep(0.1, 0.25, eY)));
+    // keeps its own colour, so char stays brown-black and is not turned a neutral grey. A lip keeps all of its colour as
+    // the game drew it: its pink is the lip's own, not the light's.)
+    tint = mix(vec3(1.0), tint, mix(1.0, clamp(p_lightKeep, 0.0, 1.0), kl * smoothstep(0.1, 0.25, eY) * (1.0 - lipW)));
     // Where the sun clips the red the ratios no longer measure the light (a clipped peach reads as green-yellow light), so
     // the tint goes toward white as the red reaches 1.
     tint = mix(tint, vec3(1.0), smoothstep(0.93, 1.0, colL.r) * kl);
@@ -556,7 +672,7 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
     float eye = front * exp(-Sq((abs(qu.x) - EYE_X) / 2.2) - Sq((qu.y - EYE_Y) / 2.6));
     float cheek = front * exp(-Sq((abs(qu.x) - (EYE_X + 1.8)) / 2.3) - Sq((qu.y - (EYE_Y - 3.2)) / 2.4));
     float nose = front * exp(-Sq(qu.x / 2.0) - Sq((qu.y - (EYE_Y - 1.7)) / 1.6));
-    float mouth = front * exp(-Sq(qu.x / 2.8) - Sq((qu.y - (EYE_Y - 4.7)) / 0.8));
+    float mouth = max(front * exp(-Sq(qu.x / 2.8) - Sq((qu.y - (EYE_Y - 4.7)) / 0.8)) * (1.0 - open), 0.45 * lipW);
     float brow = front * smoothstep(EYE_Y + 2.0, EYE_Y + 4.5, qu.y) * Edge(EYE_Y + 7.0, EYE_Y + 10.0, qu.y) * exp(-Sq(qu.x / 4.0));
     float belly = front * Edge(-10.0, -2.0, qu.y);
 
@@ -741,6 +857,11 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
     // as on a photograph of skin. Only where a third of a unit is more than a pixel.
     float ssw0 = clamp(p_subsurface, 0.0, 1.0);
     float rS = 0.35 * ppx;
+    // (occ: round the mouth, how much darker this pixel is than the skin round it, 0..1: a crevice the light does not
+    // reach, such as the fold under the upper lip, where the blur would light it red-orange from the skin beside it. Near
+    // the mouth's opening (open) every dark pixel is taken as one: the lips' folds and the corners are dark from the
+    // mouth, not from the shade the warmth below is for. Elsewhere a shadow's edge, a hat's, keeps its red bleed.)
+    float occ = open * Edge(0.3, 0.55, eY);
     if (rS > 0.75 && kl > 0.5 && ssw0 > 0.0) {
         vec2 t = mg_resolution.zw;
         float eb = eY, wb = 1.0;
@@ -754,8 +875,9 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
             dd = vec2(-dd.y, dd.x);
         }
         eb /= wb;
+        occ = max(occ, mzL * smoothstep(1.4, 2.4, eb / max(eY, 1e-3)));
         vec3 irr = vec3(mix(eY, eb, 0.8 * ssw0), mix(eY, eb, 0.35 * ssw0), eY) / max(eY, 1e-3);
-        skin *= clamp(mix(vec3(1.0), irr, smoothstep(0.5, 0.9, kl)), 0.6, 1.8);
+        skin *= clamp(mix(vec3(1.0), irr, smoothstep(0.5, 0.9, kl) * (1.0 - 0.85 * occ)), 0.6, 1.8);
     }
 
     // The relief's shading: how much more or less light the bumped normal takes than the smooth one, from the sun where it
@@ -778,7 +900,7 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
     // body's shape; the shade from the light read off the pixel (a cast shadow too), except round the eyes, where a black
     // eye darkens the skin as much as shade does and would be read as shade: there only the shape counts. And where the
     // sun is behind the worm, its thin silhouette glows red-orange, as an ear does against the light.
-    float ssw = ssw0 * smoothstep(0.02, 0.1, eY);
+    float ssw = ssw0 * smoothstep(0.02, 0.1, eY) * (1.0 - 0.8 * occ);
     float shade = mix(1.0 - smoothstep(0.25, 0.85, eY), 1.0 - smoothstep(-0.1, 0.5, ndl), zone);
     float band = smoothstep(-0.35, 0.0, ndl) * Edge(0.1, 0.5, ndl) * smoothstep(0.05, 0.2, eY);
     float ys = dot(skin, LUMW);
@@ -823,16 +945,497 @@ vec3 Worm(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, vec3 col, float k, flo
     return mix(painted, clamp(skin, 0.0, 1.0), kw);
 }
 
+// ---------------------------------------------------------------- hair
+// The worms' moustaches (and, as an experimental option, their hair hats) re-rendered as real hair. Nothing tells the
+// shader (or the Lua) which attachment a worm wears, so hair is found the way the skin is: by its colour where it can be.
+//   - Moustaches: Bloodsand's two kinds (MoustTone), round the mouth only (Bloodsand's mouth zone, Mouth()). The orange
+//     one has the skin's hue at a saturation above it, the brown one is the gap Bloodsand's skin window leaves for it.
+//   - Hair hats (WigCol): a hair-brown (hue 8 to 29 degrees, between the skin's saturation and none) or a near-black above
+//     the eyes, judged on the colour round the pixel (not the pixel alone, whose 8-bit colour flickers on dark hair), where
+//     the surface has the busy texture of hair and not the smooth one of a hat (the second difference of the brightness
+//     0.7 of a unit either side, which the shading of a smooth hat, near linear at that scale, hardly has). The taps are
+//     a fixed distance on the worm, not in pixels, so a wig is judged the same close up and from afar. Off unless the
+//     Hair hats setting is on, since no hat or wig of the game has been measured (see the README).
+// Each is drawn as dense hair combed one way in the worm's frame: locks (broad light and dark bands) and strands, thin
+// fibres along the comb drawn at the finest scale the pixel can hold (about 3 pixels a strand, between two octaves so
+// the scale never jumps, in two layers at a slight angle), each strand with its own melanin, width and tilt, ending and
+// starting again along its length;
+// darker between the locks and toward the roots, lit by the light read off the pixel (as the skin is), with the two
+// highlights of a hair fibre (Kajiya-Kay: a white one shifted toward the tip, a coloured one shifted toward the root),
+// broken into glints by each strand's tilt and lying on the fibres, not the gaps; light through the tips against the
+// sun. A moustache's edge is cut along the comb: toward the roots the skin shows between the hairs, and past the tips
+// and the sides the outer hairs cross onto the skin. What the pixel cannot hold fades, so from afar it is a shaded hair
+// colour with a sheen across it, not noise.
+
+// The game's moustache albedos (its colour in white light), from Bloodsand's measured ratios: orange has the skin's hue
+// at saturation 0.80, brown is green/red 0.76, blue/red 0.47. The light on a moustache pixel is read against them.
+const vec3 VAN_OR = vec3(0.96, 0.52, 0.19);
+const vec3 VAN_BR = vec3(0.60, 0.455, 0.285);
+// What melanin takes, per channel (eumelanin's absorption, red to blue, d'Eon et al.): more of it is browner, then black.
+const vec3 MEL = vec3(0.419, 0.697, 1.37);
+
+// Where a moustache can be: the front of the head under the nose. Bloodsand's mouth zone (Mouth()), with its top held
+// below the eyes (the dark line where an eye meets the skin has the brown moustache's colour), at 1.0 under the eye line.
+float MoustZone(vec3 qu) {
+    return Mouth(qu) * Edge(EYE_Y - 1.6, EYE_Y - 1.0, qu.y);
+}
+
+// How much a scene colour is one of Bloodsand's moustaches, 0..1: x orange (the skin's hue, 18 to 32 degrees, saturation
+// from 0.75: above the skin's window, which is pulled in to 0.73 round the mouth), y brown (Bloodsand's window: green/red
+// 0.66 to 0.84, blue/red 0.415 to 0.525, darker than 0.8). k is the skin likelihood, which wins where both pass. Blood
+// (green/red under 0.3, hue near 0), the scorch's red (below 21 degrees) and its char, the eyes and hats are neither.
+vec2 MoustTone(vec3 c, float k, float compat) {
+    float mx = max(c.r, max(c.g, c.b));
+    float mn = min(c.r, min(c.g, c.b));
+    float rr = max(c.r, 1e-3);
+    float u = c.g / rr;
+    float v = c.b / rr;
+    float sa = (mx - mn) / max(mx, 1e-3);
+    float tn = 1.7320508 * (c.g - c.b) / max(2.0 * c.r - c.g - c.b, 1e-3);
+    float orange = smoothstep(0.745, 0.785, sa) * smoothstep(0.35, 0.5, u) * Edge(0.85, 0.95, u) * smoothstep(0.1, 0.2, mx)
+                 * smoothstep(0.33, 0.40, tn) * Edge(0.62, 0.72, tn);
+    // (Sunstone's cold shade lifts the blue of the brown one's shaded side past Bloodsand's 0.525, as it does the skin's:
+    // the limit moves out by up to 0.035 in shade while Sunstone's lighting is on.)
+    float vb = 0.035 * compat * Edge(0.3, 0.6, mx);
+    float brown = smoothstep(0.415, 0.44, v) * Edge(0.505 + vb, 0.525 + vb, v) * smoothstep(0.66, 0.70, u) * Edge(0.79, 0.84, u)
+                * Edge(0.78, 0.86, mx) * smoothstep(0.05, 0.12, mx);
+    return vec2(orange, brown) * (1.0 - k);
+}
+
+// How much a scene colour is hair-brown or near-black hair for a hair hat, 0..1, by colour alone (Hair() takes it on the
+// colour round the pixel and adds the texture test). Brown: hue 8 to 29 degrees (the cowboy hat is 34 to 40, a sunlit
+// one down to 30, and 32.5 at the least in the preview; the helmet's olive 47 to 51), saturation 0.22 to 0.88, not
+// bright enough to be sand or a brim in full sun (above 0.75), and nothing brighter than about 0.2 that the skin's loose
+// window takes (a dark brown is the colour of the skin in deep shade; the texture test tells them apart). Near-black:
+// darker than 0.09 at any warm or neutral hue (a black wig's shaded side turns blue-grey under Sunstone's cold shade),
+// not saturated (blood, the scorch, the acid are), never green or blue over red by much. Grey, white and blond wigs and
+// one of the skin's own colour cannot be told from helmets, caps, the eyes, the sand or the head, and are left alone.
+float WigCol(vec3 c, float compat) {
+    float mx = max(c.r, max(c.g, c.b));
+    float mn = min(c.r, min(c.g, c.b));
+    float sa = (mx - mn) / max(mx, 1e-3);
+    float tn = 1.7320508 * (c.g - c.b) / max(2.0 * c.r - c.g - c.b, 1e-3);
+    float brown = smoothstep(0.14, 0.20, tn) * Edge(0.525, 0.56, tn) * smoothstep(0.22, 0.30, sa) * Edge(0.84, 0.90, sa)
+                * smoothstep(0.02, 0.05, mx) * Edge(0.66, 0.76, mx)
+                * (1.0 - SkinTone(c, 0.0, compat, 1.0, -100.0) * smoothstep(0.18, 0.3, mx));
+    float rr = max(c.r, 1e-3);
+    float dark = smoothstep(0.012, 0.025, mx) * Edge(0.09, 0.13, mx) * Edge(0.45, 0.6, sa)
+               * Edge(1.15, 1.35, c.b / rr) * Edge(1.1, 1.3, c.g / rr);
+    return max(brown, dark);
+}
+
+// A natural hair albedo (display colour) for a hair colour index 1..9: black, dark brown, brown, light brown, dark blonde,
+// blonde, auburn, ginger, grey. Measured hair reflectances, set along melanin's absorption.
+vec3 HairAlbedo(float i) {
+    if (i < 1.5) return vec3(0.055, 0.045, 0.040);
+    if (i < 2.5) return vec3(0.14, 0.09, 0.06);
+    if (i < 3.5) return vec3(0.30, 0.20, 0.115);
+    if (i < 4.5) return vec3(0.45, 0.31, 0.19);
+    if (i < 5.5) return vec3(0.58, 0.45, 0.28);
+    if (i < 6.5) return vec3(0.76, 0.63, 0.42);
+    if (i < 7.5) return vec3(0.40, 0.16, 0.08);
+    if (i < 8.5) return vec3(0.72, 0.36, 0.14);
+    return vec3(0.52, 0.50, 0.48);
+}
+
+// Kajiya-Kay: a hair fibre's highlight is a cone round its tangent, bright where the half vector is across the fibre.
+float StrandSpec(vec3 T, vec3 H, float e) {
+    float th = dot(T, H);
+    return pow(sqrt(max(1.0 - th * th, 0.0)), e) * smoothstep(-1.0, 0.0, th);
+}
+
+// One octave of strands: x across the comb in strands, y along it (world units). Each strand has its own place in its
+// cell, width and colour (y of the result, 0..1), and breaks off and starts again along its length. x of the result is
+// how much of the pixel is on a fibre, 0..1 (the gaps between are the shadow of the hair under it).
+vec2 Strand1(float x, float y, float seed) {
+    float id = floor(x);
+    float h = Hash2(vec2(id, seed));
+    float w = 0.16 + 0.14 * Hash2(vec2(id, seed + 3.1));
+    float d = abs(fract(x) - 0.5 - 0.3 * (h - 0.5));
+    float on = Edge(0.35 * w, w, d);
+    on *= 0.3 + 0.7 * smoothstep(0.3, 0.6, Noise3(vec3(id * 1.37, y * 0.7 + 9.0 * h, seed)));
+    return vec2(on, h);
+}
+
+// Two layers of strands, the second a little finer and crossing the first at a slight angle, as hair lies in layers
+// (one layer alone reads as a regular comb or corduroy).
+vec2 Strands(float x, float y, float seed) {
+    vec2 a = Strand1(x, y, seed);
+    vec2 b = Strand1(x * 1.27 + 0.11 * y + 0.37, y, seed + 17.0);
+    float on = 1.0 - (1.0 - a.x) * (1.0 - 0.8 * b.x);
+    return vec2(on, b.x > a.x ? b.y : a.y);
+}
+
+// The hair at this pixel, over base (the scene after the skin pass). col is the scene as the other plugins left it, k
+// its skin likelihood, qu its place in the worm's frame, mz the mouth zone (moustache) and wz the hat zone (hair hats,
+// 0 unless they are on), hidx the worm's hair colour (0 = the item's own family). Returns the colour of the pixel.
+vec3 Hair(vec3 P, vec3 n, vec3 centre, vec3 alb, vec3 hs, float hidx, vec3 base, vec3 col, float k, vec3 qu,
+          float mz, float wz, float strict, float compat, float cover) {
+    bool wig = wz > 0.0 && mz <= 0.0;
+    vec2 mk = wig ? vec2(0.0) : MoustTone(col, k, compat) * mz;
+    float hk = min(mk.x + mk.y, 1.0);
+
+    // Where: the body ellipsoid for a moustache, a volume over the head for a hat (as Pick()), and clear of what is behind
+    // it (Clear(), as Worm()).
+    float slack = hs.z;
+    vec3 L = (P - (mg_view * vec4(centre, 1.0)).xyz) * mat3(mg_view);
+    float e = wig ? (L.x * L.x + L.z * L.z) / Sq(11.5 + slack) + Sq(L.y - 11.0) / Sq(11.0 + slack)
+                  : (L.x * L.x + L.z * L.z) / Sq(9.5 + slack) + L.y * L.y / Sq(16.0 + slack);
+    float mask = 1.0 - smoothstep(0.85, 1.0, e);
+    if (mask <= 0.0) return base;
+    float ppx = 0.5 * mg_resolution.y / (abs(mg_invProj[1][1]) * max(-P.z, 1.0));
+    mask *= Clear(P, ppx, centre);
+    if (mask <= 0.0) return base;
+
+    // The comb, in the worm's frame: sa runs along the strands, sb across them (both about world units), tq is the strand
+    // direction (root to tip) and oq the surface's outward normal. A moustache grows down from the upper lip and fans out
+    // toward the sides (the streamlines of (0.25 x, -1): x e^(0.25 (y - 0.5)) is constant along a hair, so the hairs are
+    // near parallel and never cross); hair falls from the crown, round the head. A slow noise waves them (more on a hat),
+    // and a per-worm offset moves the pattern. All in the worm's frame, so nothing swims.
+    float ch = cos(hs.x), sh = sin(hs.x);
+    vec3 so = 40.0 * fract(hs.y * vec3(0.0731, 0.0317, 0.0519));
+    vec3 oq, tq;
+    float sa, sb;
+    if (wig) {
+        vec3 dh = qu - vec3(0.0, 9.0, -0.5);
+        oq = normalize(dh + vec3(0.0, 1e-4, 0.0));
+        sa = acos(clamp(oq.y, -1.0, 1.0)) * 8.0;
+        sb = atan(oq.x, oq.z + 1e-4) * 7.0 * sqrt(max(1.0 - oq.y * oq.y, 0.04));
+        tq = vec3(oq.x * oq.y, oq.y * oq.y - 1.0, oq.z * oq.y);
+        tq = dot(tq, tq) > 1e-4 ? normalize(tq) : vec3(0.0, 0.0, -1.0);
+    } else {
+        sa = -qu.y;
+        sb = qu.x * exp(0.25 * (qu.y - 0.5));
+        // (A moustache is a roll, not a flat patch: its upper part faces up and out, its lower part down and in, and its
+        // hairs follow it, out from the lip and curving down and back toward the tips. That turns the strands against
+        // the light from the roots to the tips, so the highlight runs across the moustache as a band, as on real hair,
+        // rather than lying flat or catching one corner.)
+        float r01 = smoothstep(EYE_Y - 5.2, EYE_Y - 2.8, qu.y);
+        oq = normalize(vec3(0.3 * qu.x, -0.25 + 1.6 * (r01 - 0.5), 1.0));
+        tq = vec3(normalize(vec2(0.25 * qu.x, -1.0)), 0.0);
+        tq = normalize(tq - dot(tq, oq) * oq + vec3(0.0, -1e-4, 0.0));
+    }
+    float wv = Noise3(vec3(sa * 0.5, sb * 0.3, 0.0) + so) - 0.5;
+    sb += (wig ? 0.5 : 0.35) * wv;
+    sa += so.x;
+    sb += so.y;
+    vec3 bq = normalize(cross(oq, tq));
+    // (The wave also turns the strands' direction, as it bends them.)
+    float wa = (wig ? 0.4 : 0.3) * (Noise3(vec3(sa * 0.6, sb * 0.4, 7.0)) - 0.5);
+    tq = normalize(tq * cos(wa) + bq * sin(wa));
+
+    // Normals and light in view space: the depth normal steadied by the shape's (the depth buffer is faceted).
+    vec3 oqw = vec3(oq.x * ch + oq.z * sh, oq.y, -oq.x * sh + oq.z * ch);
+    vec3 tqw = vec3(tq.x * ch + tq.z * sh, tq.y, -tq.x * sh + tq.z * ch);
+    // (On a hat mostly the shape's: a wig's mesh is lumpy, and lone pixels on its lumps caught the highlight as glitter.)
+    vec3 ns = normalize(mix(n, mat3(mg_view) * oqw, wig ? 0.85 : 0.5));
+    vec3 Tv = mat3(mg_view) * tqw;
+    Tv = normalize(Tv - dot(Tv, ns) * ns + vec3(0.0, 1e-5, 0.0));
+    vec3 V = -normalize(P);
+    vec3 Ls = normalize(mat3(mg_view) * p_sunDir);
+    float nv = max(dot(ns, V), 0.0);
+    float ndl = dot(ns, Ls);
+
+    // The strands, at the finest scale the pixel holds: about 3 pixels a strand (4 to 64 strands a unit), between two
+    // octaves; fading out where even 4 a unit cannot be drawn. And the locks, broad bands 1.5 a unit across.
+    float ppxE = ppx * sqrt(max(nv, 0.12));
+    float de = clamp(p_hairDetail, 0.0, 1.0);
+    float d1 = smoothstep(2.0, 4.0, ppxE / 1.5);
+    float fq = clamp(ppxE / 3.0, 4.0, 64.0);
+    float lf = log2(fq / 4.0);
+    float oc = floor(lf);
+    float fr = lf - oc;
+    float f0 = 4.0 * exp2(oc);
+    float amp = smoothstep(2.0, 3.5, ppxE / 4.0);
+
+    // The hair round the pixel, on this body only (a tap more than 1.5 units off its depth is something else).
+    //   Moustache: four taps a third of a unit away (a pixel at least): their share of hair is the coverage that fills
+    //   the moustache's holes and softens its stair-stepped edge, their kind (orange or brown) the colour of a stray
+    //   hair. Three more back along the comb toward the roots cut the edge along the hair (below).
+    //   Hat: eight taps 0.7 of a unit away (four opposite pairs): the hair colour round the pixel (the hat is judged
+    //   on their mean, which holds still where a dark wig's own pixels flicker in and out of the window), how many are
+    //   hair-coloured, and how busy the texture is (the second difference of the brightness across each pair, over the
+    //   mean brightness, floored so a dark hat's 8-bit steps do not count).
+    vec2 t = mg_resolution.zw;
+    float Y0 = dot(col, LUMW);
+    float cov = hk;
+    vec2 kind = mk;
+    float cu = 0.0, nUp = 0.0, hsk = 2.0, kSk = 0.0, dIn = 10.0, dOut = 10.0, su = 0.2;
+    vec3 cSk = col;
+    if (wig) {
+        float rr = clamp(0.7 * ppx, 1.0, 20.0);
+        vec3 cm = col;
+        float nC = 1.0, nW = 0.0, busy = 0.0, nP = 0.0, yA = 0.0, oA = 0.0;
+        for (int i = 0; i < 8; i++) {
+            vec2 dd = i == 0 ? vec2(1.0, 0.0) : i == 1 ? vec2(-1.0, 0.0) : i == 2 ? vec2(0.0, 1.0) : i == 3 ? vec2(0.0, -1.0)
+                    : i == 4 ? vec2(0.7071, 0.7071) : i == 5 ? vec2(-0.7071, -0.7071) : i == 6 ? vec2(0.7071, -0.7071)
+                    : vec2(-0.7071, 0.7071);
+            vec2 u1 = mg_uv + dd * rr * t;
+            vec3 c1 = texture2D(mg_scene, u1).rgb;
+            float o1 = Edge(1.5, 3.0, abs(ViewPos(u1).z - P.z));
+            float y1 = dot(c1, LUMW);
+            cm += c1 * o1;
+            nC += o1;
+            nW += WigCol(c1, compat) * o1;
+            if (i == 1 || i == 3 || i == 5 || i == 7) {
+                float op = o1 * oA;
+                busy += abs(y1 + yA - 2.0 * Y0) * op;
+                nP += op;
+            }
+            yA = y1;
+            oA = o1;
+        }
+        cm /= nC;
+        float ym = dot(cm, LUMW);
+        // (The skin pass reads a near-black hair pixel, whose 8-bit ratios are noise, as skin in deep shade now and then and
+        // lights it from the skin round it (orange flecks and lines on a black wig) or darkens it as a deep tone (black
+        // dashes). Where the colour round the pixel is hair and the texture is even faintly hair's, or the pixel is itself
+        // hair-coloured beside hair and the skin pass brightened it, or darkened a near-black, it goes back to the scene's
+        // colour. Nothing is recoloured.)
+        float ct = busy / (max(nP, 0.5) * max(ym, 0.08));
+        float yb = dot(base, LUMW);
+        float bri = max(smoothstep(0.01, 0.04, yb - 1.3 * Y0), smoothstep(0.004, 0.012, Y0 - yb) * Edge(0.08, 0.12, Y0));
+        float rv = max(WigCol(cm, compat) * smoothstep(3.5, 6.0, nW) * max(bri, smoothstep(0.006, 0.015, ct)),
+                       WigCol(col, compat) * smoothstep(1.5, 3.0, nW) * bri) * wz;
+        base = mix(base, col, rv);
+        hk = WigCol(cm, compat) * smoothstep(0.01, 0.025, ct) * smoothstep(3.5, 6.0, nW) * smoothstep(1.5, 3.0, nP) * wz;
+        cov = hk;
+        Y0 = mix(Y0, ym, 0.5);
+    } else {
+        float rr = clamp(0.3 * ppx, 1.0, 6.0);
+        for (int i = 0; i < 4; i++) {
+            vec2 dd = i == 0 ? vec2(1.0, 0.0) : i == 1 ? vec2(-1.0, 0.0) : i == 2 ? vec2(0.0, 1.0) : vec2(0.0, -1.0);
+            vec2 u1 = mg_uv + dd * rr * t;
+            vec3 c1 = texture2D(mg_scene, u1).rgb;
+            float o1 = Edge(1.5, 3.0, abs(ViewPos(u1).z - P.z));
+            vec2 m1 = MoustTone(c1, 0.0, compat) * o1 * mz;
+            float h1 = min(m1.x + m1.y, 1.0);
+            cov += h1;
+            kind += m1;
+        }
+        cov /= 5.0;
+        // (Back along the comb toward the roots, as the strand runs on screen: four taps a fifth of a unit apart, at most
+        // 24 pixels in all. Where the moustache's colour crosses a half along them (between two taps, by their values, so
+        // to a fraction of a pixel and smooth from pixel to pixel) is how far the pixel lies inside its root edge (dIn,
+        // units), or, for a pixel outside it, how far past the tips or the sides (dOut). Each strand's own length is
+        // applied to them below, so the edge ends strand by strand; the taps themselves are the same for every strand (a
+        // length per strand in the taps made blocks where neighbouring strands' taps fell on either side of the edge).)
+        float sp = 0.2;
+        vec2 sd = normalize(Tv.xy + vec2(0.0, -1e-4)) * sp * ppx;
+        sd *= min(1.0, 6.0 / max(length(sd), 1e-3));
+        // (A tap's step in units: a fifth of a unit, less where the 6-pixel cap shortens it close up.)
+        su = length(sd) / max(ppx, 1e-3);
+        float zu = MoustZone(qu + vec3(0.0, 0.5, 0.0));
+        // (g: how far a tap is on the pixel's own side of the half, so the crossing is where it turns negative.)
+        float sg = hk >= 0.5 ? 1.0 : -1.0;
+        float gp = sg * (hk - 0.5), lo = 0.0, glo = gp, ghi = 1.0;
+        bool found = false;
+        for (int i = 1; i <= 4; i++) {
+            vec2 uu = mg_uv - sd * t * float(i);
+            vec3 cq = texture2D(mg_scene, uu).rgb;
+            vec2 mu = MoustTone(cq, 0.0, compat) * Edge(1.5, 3.0, abs(ViewPos(uu).z - P.z)) * zu;
+            float h1 = min(mu.x + mu.y, 1.0);
+            nUp += 0.75 * h1;
+            kind += mu * 0.3;
+            float g1 = sg * (h1 - 0.5);
+            if (!found && g1 < 0.0) {
+                found = true;
+                lo = float(i) - 1.0;
+                glo = gp;
+                ghi = g1;
+            }
+            gp = g1;
+            // (The nearest of them that is not moustache: what lies past the root edge.)
+            if (h1 < 0.5 && hsk > 1.0) {
+                hsk = 0.0;
+                cSk = cq;
+            }
+        }
+        // (The game's edge is hard, so the two taps round the crossing are mostly all or nothing and their values alone put
+        // it in steps of a tap: three halvings of that step find it to an eighth, about a pixel.)
+        if (found) {
+            float hi = lo + 1.0;
+            for (int j = 0; j < 3; j++) {
+                float m = 0.5 * (lo + hi);
+                vec2 uu = mg_uv - sd * t * m;
+                vec2 mu = MoustTone(texture2D(mg_scene, uu).rgb, 0.0, compat) * Edge(1.5, 3.0, abs(ViewPos(uu).z - P.z)) * zu;
+                float gm = sg * (min(mu.x + mu.y, 1.0) - 0.5);
+                if (gm >= 0.0) {
+                    lo = m;
+                    glo = gm;
+                } else {
+                    hi = m;
+                    ghi = gm;
+                }
+            }
+            float dc = su * (lo + (hi - lo) * glo / max(glo - ghi, 1e-3));
+            if (sg > 0.0) dIn = dc;
+            else dOut = dc;
+        } else if (sg > 0.0) {
+            dIn = 4.0 * su + 0.2;
+        }
+        // (The root edge is only cut where skin lies past it, not blood, paint or the end of the mouth zone.)
+        if (hsk < 1.0) kSk = SkinTone(cSk, strict, compat, 0.0, qu.y + 0.4);
+        cu = nUp / 3.0;
+    }
+    if (hk < 0.01 && cov < 0.03 && cu < 0.03) return base;
+
+    vec2 sA = Strands(sb * f0, sa, f0);
+    vec2 sB = Strands(sb * 2.0 * f0, sa, 2.0 * f0);
+    float line = mix(sA.x, sB.x, fr);
+    float sh1 = mix(sA.y, sB.y, fr);
+    // (On a hat, whose own texture is the game's hair, half as strong.)
+    float ta = de * (wig ? 0.5 : 1.0);
+    float clump = NoiseD2(vec2(sb * 1.5, sa * 0.3) + 3.0).x;
+    // Each strand's own melanin, and the dark between locks and strands (their shadow on each other), deeper toward the
+    // roots: on a moustache its upper part, under the nose.
+    float mel = ta * (0.3 * d1 * (clump - 0.5) + 0.35 * amp * (sh1 - 0.5));
+    // (Not at the root edge itself, where the skin shows between the hairs: darkened there too it drew a hard dark line
+    // along the moustache's top.)
+    float root = wig ? 0.0 : smoothstep(EYE_Y - 5.2, EYE_Y - 2.8, qu.y) * smoothstep(0.0, 0.35, dIn);
+    float occ = (1.0 - ta * 0.3 * d1 * Edge(0.15, 0.6, clump))
+              * (1.0 + ta * amp * 0.5 * (line - 0.45))
+              - 0.14 * root * (0.4 + 0.6 * Edge(0.2, 0.7, clump));
+
+    // The albedo. Mixed: the worm's own natural colour; natural (or a hat, which is never recoloured): the item's own
+    // family, made real (an orange moustache ginger, a brown one a natural brown), its depth varied per worm along the
+    // melanin ramp.
+    float j = Hash3(vec3(hs.y, 9.1, 2.7)) - 0.5;
+    float fo = kind.x / max(kind.x + kind.y, 1e-3);
+    vec3 ha;
+    if (wig) ha = col;
+    else if (hidx > 0.5) ha = HairAlbedo(hidx);
+    else ha = mix(vec3(0.45, 0.30, 0.17), vec3(0.84, 0.45, 0.17), fo);
+    ha *= exp(-((wig ? 0.0 : 0.4) * j + 1.2 * mel) * MEL);
+
+    // The light, read off the pixel against what it is in the game (the moustache's albedo, or the peach on a skin pixel
+    // where a stray hair crosses), as the skin's remap reads it: its brightness and, with lightKeep, its colour.
+    vec3 ref = wig ? col : (mk.x + mk.y + k > 1e-3 ? (VAN_OR * mk.x + VAN_BR * mk.y + PEACH * k) / (mk.x + mk.y + k)
+                                                    : mix(VAN_BR, VAN_OR, fo));
+    float lumR = max(dot(ref, LUMW), 1e-3);
+    float eY = Y0 / lumR;
+    vec3 tint0 = wig ? vec3(1.0) : (col / max(ref, vec3(1e-3))) / max(eY, 1e-4);
+    vec3 tint = mix(vec3(1.0), tint0, mix(1.0, clamp(p_lightKeep, 0.0, 1.0), smoothstep(0.1, 0.25, eY)));
+    tint = mix(tint, vec3(1.0), smoothstep(0.93, 1.0, col.r));
+    vec3 hc;
+    float lumA = max(dot(ha, LUMW), 1e-3);
+    // (On a hat, the texture keeps the hair's mean brightness: the game's own texture is already there, and where the hat
+    // test lets go (a smooth patch of the texture) no darker or lighter spot is left.)
+    if (wig) hc = ha * occ / (1.0 - 0.09 * ta * d1 + ta * amp * 0.05);
+    else hc = (ha / lumA) * tint * (eY * lumR) * pow(lumA / lumR, 0.45) * occ;
+
+    // The highlights. The white one off the fibre's surface, shifted toward the tip; the coloured one through the fibre
+    // and back, shifted toward the root, broader. Each strand tilts both its own way (so the band breaks into glints along
+    // the strands), and they lie on the fibres. Sharp where the strands are drawn, broader where they are not (their
+    // spread goes into the highlight's width). From the sun where the pixel is lit, faintly from the sky where it is
+    // not; in the light's colour.
+    vec3 Hn = normalize(V + Ls);
+    float jt = ta * (0.35 * amp * (sh1 - 0.5) + 0.2 * d1 * (clump - 0.5));
+    vec3 T1 = normalize(Tv + (0.08 + jt) * ns);
+    vec3 T2 = normalize(Tv + (-0.14 + jt) * ns);
+    float e1 = mix(30.0, 160.0, amp), e2 = mix(10.0, 36.0, amp);
+    float lit = smoothstep(0.3, 0.75, eY) * smoothstep(-0.15, 0.3, ndl);
+    float glints = mix(1.0, 0.4 + 1.5 * line, amp * ta);
+    vec3 up = mat3(mg_view) * vec3(0.0, 1.0, 0.0);
+    vec3 Hs = normalize(V + up);
+    float sky = StrandSpec(T1, Hs, 0.5 * e1) * smoothstep(-0.2, 0.4, dot(ns, up));
+    float shine = clamp(p_hairSheen, 0.0, 1.0);
+    vec3 lc = mix(vec3(1.0), tint, 0.6);
+    // (Dark hair: its coloured lobe is all but gone, and what is left is the white one off the cuticle, which reads cool
+    // against the black (the sky in it) and stands out more than on light hair. A black moustache without it was flat.)
+    float dkH = wig ? 0.0 : 1.0 - smoothstep(0.04, 0.2, lumA);
+    vec3 lc1 = lc * mix(vec3(1.0), vec3(0.86, 0.93, 1.1), 0.8 * dkH) * (1.0 + 0.5 * dkH);
+    vec3 spec = (0.75 * sqrt(e1 / 160.0) * StrandSpec(T1, Hn, e1) * glints * lc1
+                 + 0.7 * sqrt(e2 / 36.0) * StrandSpec(T2, Hn, e2) * mix(1.0, glints, 0.6) * sqrt(ha) * lc)
+                * lit * min(eY, 1.2)
+              + 0.06 * sky * (1.0 - lit) * min(eY, 1.0) * lc;
+    // (On a hat about a third as strong and only as bright as the hair round it allows: what it is (an afro's tight
+    // curls, a crest) is unknown, curls scatter the highlight, and a black wig's pixel may be black for its shade, not
+    // its colour, where a white highlight would read as grey noise.)
+    float wsp = 0.25 * smoothstep(0.4, 0.9, hk) * sqrt(clamp(Y0 / 0.25, 0.0, 1.0));
+    hc += shine * spec * (0.7 + 0.3 * occ) * (wig ? wsp : 1.0);
+    // Light through the hair against the sun, strongest at the thin tips and the silhouette, coloured by the fibre.
+    float backL = clamp(dot(-V, Ls), 0.0, 1.0);
+    hc += 0.5 * Sq(1.0 - nv) * backL * backL * backL * ha * tint * max(eY, 0.3) * (1.0 - 0.5 * cov) * (wig ? 0.3 : 1.0);
+    // (Bright hair rolls toward white as the skin does.)
+    float hmx = max(hc.r, max(hc.g, hc.b));
+    if (hmx > 0.8) hc *= (0.8 + 0.2 * (1.0 - exp(-(hmx - 0.8) * 5.0))) / hmx;
+    hc = clamp(hc, 0.0, 1.0);
+
+    // How much of the pixel is hair. A hat: its likelihood (already the hair round it, so soft and still). A moustache:
+    // the pixel's own share and the coverage round it (which fills holes, where its colour falls out of the window in deep
+    // shade or under the game's texture, and softens the game's stair-stepped edge), then cut along the comb where the
+    // strands can be drawn: at the root edge (the nearest rootward tap is skin, not blood or paint) the skin shows between
+    // the hairs; past the tips and the sides (rootward is moustache, the pixel is not) the thinner strands go on over the
+    // skin, fewer and fainter the further out. Strays go only onto skin (never over blood, the eyes or paint).
+    // (The coverage fills only a pixel that could be moustache in shade: never blood, the acid, or a blend with the acid's
+    // green at the moustache's edge, which it painted dark hair speckled with green.)
+    vec2 wt = WetTone(col);
+    float fillOk = (1.0 - max(wt.x, wt.y)) * Edge(0.86, 0.95, col.g / max(col.r, 1e-3));
+    float hkf = wig ? hk : max(mix(hk, cov, 0.45 * fillOk), (cov - 0.35) * 1.6 * fillOk);
+    // (A moustache's edge over a little more of the likelihood, so the game's hard outline is softened by a pixel.)
+    float hA = wig ? smoothstep(0.15, 0.6, hkf) : smoothstep(0.08, 0.72, hkf);
+    vec3 skinU = base;
+    if (!wig) {
+        float ds = amp * de;
+        // (Each strand's own length, 0..1, for both octaves, blended as they are: the root edge and the strays end strand
+        // by strand, and nothing jumps where one octave gives way to the next.)
+        float rlen = mix(Hash2(vec2(floor(sb * f0), f0 + 0.5)), Hash2(vec2(floor(sb * 2.0 * f0), 2.0 * f0 + 0.5)), fr);
+        // (Where the strands cannot be drawn every strand is the mean one, and the root edge thins to a partial cover (the
+        // pixel at the edge then reads as a blend of hair and skin, as a real moustache's edge does) rather than to strands,
+        // so it is soft at any distance without each pixel taking its own strand's length.)
+        rlen = mix(0.5, rlen, ds);
+        // (The thinning runs 0.15 to 0.55 of a unit in from the edge, and never more than two pixels: from afar a wider one
+        // ate the moustache's top.)
+        // (Where the strands are drawn, the full band, up to the taps' reach (rootward of that the hair is whole).)
+        float reach = 4.0 * su;
+        float dens = smoothstep(0.0, min(mix(2.0 / max(ppx, 1e-3), 0.15 + 0.4 * rlen, ds), reach), dIn);
+        float thin = mix(0.7, 0.05 + 0.95 * smoothstep(0.4, 0.8, line), ds);
+        float inner = hA * mix(1.0, thin, 0.9 * (1.0 - dens) * kSk);
+        // (Close up, where the taps reach less than the longest strays, the strays are shortened to end within it.)
+        float sf = min(1.0, reach / (0.3 + 0.45 * rlen));
+        float stray = (1.0 - hA) * smoothstep(0.45, 0.85, line) * Edge((0.15 + 0.25 * rlen) * sf, (0.3 + 0.45 * rlen) * sf, dOut) * 0.8
+                    * smoothstep(0.2, 0.6, k) * ds;
+        hA = clamp(inner + stray, 0.0, 1.0) * smoothstep(0.0, 0.3, hkf + k) * (1.0 - max(wt.x, wt.y));
+        // Where a hair pixel loses its hair, the skin under it: this worm's tone (or the game's peach), in the light of
+        // the skin past the root edge where there is some, read as the skin pass reads it.
+        vec3 sAlb = p_skinOn > 0.5 ? alb : PEACH;
+        float lumS = max(dot(sAlb, LUMW), 1e-3);
+        float lumP = dot(PEACH, LUMW);
+        vec3 cS = mix(PEACH * tint * (eY * lumR / lumP), cSk, kSk);
+        skinU = clamp((sAlb / lumS) * cS / PEACH * lumP * pow(lumS / lumP, 0.75), 0.0, 1.0);
+    }
+    // The pixel's share that was hair (hk) is now hair (hA) or, where the edge was cut back, skin; a stray hair (hA above
+    // hk) covers what was there. The rest (blood, skin, paint) keeps the colour it had.
+    float hh = max(hk, hA);
+    vec3 o = base * (1.0 - hh) + hc * hA + skinU * (hh - hA);
+    // (A hat stands off the body, so the body's silhouette test (cover) means nothing there: every neighbour is outside
+    // the body, and an afro's bumps put some behind; its own taps already fade it at its silhouette.)
+    return mix(base, o, clamp(p_strength, 0.0, 1.0) * mask * (wig ? 1.0 : cover));
+}
+
 // Chooses the worm a pixel belongs to: the slot with the smallest body-ellipsoid value whose capsule shell the pixel lies on
 // (Kindjal's test, which settles two overlapping worms better than the ellipsoid alone). Worm() is long, so it runs once,
 // for the slot picked here, and not once per slot (a program that large can link and then draw nothing on some drivers).
-void Pick(vec3 P, vec3 centre, vec3 alb, vec3 hs, inout float best, inout vec3 wc, inout vec3 wa, inout vec3 wh) {
+void Pick(vec3 P, vec3 centre, vec3 alb, vec3 hs, inout float best, inout vec3 wc, inout vec3 wa, inout vec3 wh,
+          inout float bestW, inout vec3 wcW, inout vec3 waW, inout vec3 whW) {
     if (dot(centre, centre) < 1e-6) return;
     vec3 d = P - (mg_view * vec4(centre, 1.0)).xyz;
     float slack = hs.z;
-    float reach = 17.0 + slack;
+    // (With hair hats on, a volume over the head as well: an afro or a crest stands taller and wider than the body's
+    // shell, up to about 22 units above the middle and 11.5 out.)
+    float reach = (p_wigs > 0.5 ? 24.0 : 17.0) + slack;
     if (dot(d, d) > reach * reach) return;
     vec3 L = d * mat3(mg_view);
+    if (p_wigs > 0.5) {
+        float ew = (L.x * L.x + L.z * L.z) / Sq(11.5 + slack) + Sq(L.y - 11.0) / Sq(11.0 + slack);
+        if (ew < bestW && L.y > EYE_Y + 2.0) {
+            bestW = ew;
+            wcW = centre;
+            waW = alb;
+            whW = hs;
+        }
+    }
     vec3 rv = vec3(L.x, L.y - clamp(L.y, -8.0 - slack, 8.0 + slack), L.z);
     float rl2 = dot(rv, rv);
     float r0 = max(2.4 - slack, 0.0), r1 = 8.1 + slack;
@@ -856,31 +1459,46 @@ void main() {
         gl_FragColor = scene;
         return;
     }
-    float best = 1.0;
+    float best = 1.0, bestW = 1.0;
     vec3 wc = vec3(0.0), wa = vec3(0.0), wh = vec3(0.0);
-    Pick(P, p_worm0, p_worm0b, p_worm0c, best, wc, wa, wh);
-    Pick(P, p_worm1, p_worm1b, p_worm1c, best, wc, wa, wh);
-    Pick(P, p_worm2, p_worm2b, p_worm2c, best, wc, wa, wh);
-    Pick(P, p_worm3, p_worm3b, p_worm3c, best, wc, wa, wh);
-    Pick(P, p_worm4, p_worm4b, p_worm4c, best, wc, wa, wh);
-    Pick(P, p_worm5, p_worm5b, p_worm5c, best, wc, wa, wh);
-    Pick(P, p_worm6, p_worm6b, p_worm6c, best, wc, wa, wh);
-    Pick(P, p_worm7, p_worm7b, p_worm7c, best, wc, wa, wh);
-    Pick(P, p_worm8, p_worm8b, p_worm8c, best, wc, wa, wh);
-    Pick(P, p_worm9, p_worm9b, p_worm9c, best, wc, wa, wh);
-    Pick(P, p_worm10, p_worm10b, p_worm10c, best, wc, wa, wh);
-    Pick(P, p_worm11, p_worm11b, p_worm11c, best, wc, wa, wh);
-    Pick(P, p_worm12, p_worm12b, p_worm12c, best, wc, wa, wh);
-    Pick(P, p_worm13, p_worm13b, p_worm13c, best, wc, wa, wh);
-    Pick(P, p_worm14, p_worm14b, p_worm14c, best, wc, wa, wh);
-    Pick(P, p_worm15, p_worm15b, p_worm15c, best, wc, wa, wh);
-    if (best >= 1.0) {
+    vec3 wcW = vec3(0.0), waW = vec3(0.0), whW = vec3(0.0);
+    Pick(P, p_worm0, p_worm0b, p_worm0c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm1, p_worm1b, p_worm1c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm2, p_worm2b, p_worm2c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm3, p_worm3b, p_worm3c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm4, p_worm4b, p_worm4c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm5, p_worm5b, p_worm5c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm6, p_worm6b, p_worm6c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm7, p_worm7b, p_worm7c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm8, p_worm8b, p_worm8c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm9, p_worm9b, p_worm9c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm10, p_worm10b, p_worm10c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm11, p_worm11b, p_worm11c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm12, p_worm12b, p_worm12c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm13, p_worm13b, p_worm13c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm14, p_worm14b, p_worm14c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    Pick(P, p_worm15, p_worm15b, p_worm15c, best, wc, wa, wh, bestW, wcW, waW, whW);
+    // A pixel off every body's shell can still be a hair hat over a head.
+    bool onBody = best < 1.0;
+    bool hairOn = p_hair > 0.5;
+    bool wigsOn = hairOn && p_wigs > 0.5;
+    if (!onBody && !(wigsOn && bestW < 1.0)) {
         gl_FragColor = scene;
         return;
     }
+    if (!onBody) {
+        wc = wcW;
+        wa = waW;
+        wh = whW;
+    }
+    // The seed carries the worm's hair colour in its thousands (see the uniform contract).
+    float hidx = floor(wh.y / 1000.0 + 1e-4);
+    wh.y -= 1000.0 * hidx;
 
     // The cheap colour test before the dear normal: on a worm's shell, a hat, the eyes, blood and the other plugins' paint
     // mostly leave here. A pixel just outside the window but beside skin (a rim) goes on for Feather(), found by a loose test.
+    // Hair goes on where it has a moustache's colour round the mouth (or skin there, for the stray hairs on the skin), or,
+    // with hair hats on, a hair-brown above the eyes.
     float compat = clamp(p_compat, 0.0, 1.0);
     vec3 L = (P - (mg_view * vec4(wc, 1.0)).xyz) * mat3(mg_view);
     float ch = cos(wh.x), sh = sin(wh.x);
@@ -888,15 +1506,26 @@ void main() {
     float strict = max(smoothstep(EYE_Y + 0.5, EYE_Y + 3.5, qu.y), Mouth(qu));
     float k = SkinTone(scene.rgb, strict, compat, 0.0, qu.y);
     vec2 wet = WetTone(scene.rgb);
-    if (k < 0.01 && SkinTone(scene.rgb, strict, compat, 1.0, qu.y) < 0.01 && ScorchTone(scene.rgb, Mouth(qu)) < 0.01 && BruiseTone(scene.rgb) < 0.01
-        && max(wet.x, wet.y) < 0.01) {
+    bool skinGo = onBody && p_skinOn > 0.5
+                  && !(k < 0.01 && SkinTone(scene.rgb, strict, compat, 1.0, qu.y) < 0.01 && ScorchTone(scene.rgb, Mouth(qu)) < 0.01
+                       && BruiseTone(scene.rgb, 0.0) < 0.01 && max(wet.x, wet.y) < 0.01);
+    float mz = (hairOn && onBody) ? MoustZone(qu) : 0.0;
+    float wz = wigsOn ? smoothstep(EYE_Y + 3.0, EYE_Y + 5.0, qu.y) : 0.0;
+    vec2 mk = mz > 0.0 ? MoustTone(scene.rgb, k, compat) * mz : vec2(0.0);
+    bool hairGo = mk.x + mk.y > 0.01 || (mz > 0.01 && k > 0.01) || (wz > 0.0 && WigCol(scene.rgb, compat) * wz > 0.01);
+    if (!skinGo && !hairGo) {
         gl_FragColor = scene;
         return;
     }
 
     float cover;
     vec3 n = SurfaceNormal(P, (mg_view * vec4(wc, 1.0)).xyz, wh.z, cover);
-    float w;
-    vec3 col = Worm(P, n, wc, wa, wh, scene.rgb, k, strict, compat, w);
-    gl_FragColor = vec4(mix(scene.rgb, col, clamp(p_strength, 0.0, 1.0) * w * cover), scene.a);
+    vec3 col = scene.rgb;
+    if (skinGo) {
+        float w;
+        vec3 sk = Worm(P, n, wc, wa, wh, scene.rgb, k, strict, compat, w);
+        col = mix(scene.rgb, sk, clamp(p_strength, 0.0, 1.0) * w * cover);
+    }
+    if (hairGo) col = Hair(P, n, wc, wa, wh, hidx, col, scene.rgb, k, qu, mz, wz, strict, compat, cover);
+    gl_FragColor = vec4(col, scene.a);
 }

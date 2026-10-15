@@ -1,0 +1,15 @@
+{
+  "name": "mouths",
+  "size": [960, 540],
+  "seed": 417,
+  "ground": "sand",
+  "camera": { "pos": [0, 15, 76], "target": [0, 11.5, 0], "fov": 40 },
+  "worms": [
+    { "slot": 0, "pos": [-36, 0, -3], "yawDeg": 14, "name": "Closed", "mouth": { "open": 0, "shape": "wide" } },
+    { "slot": 1, "pos": [-18, 0, 0], "yawDeg": 7, "name": "Small o", "mouth": { "open": 0.45, "shape": "o" } },
+    { "slot": 2, "pos": [0, 0, 1], "yawDeg": 0, "name": "Shout", "mouth": { "open": 1, "shape": "wide" } },
+    { "slot": 3, "pos": [18, 0, 0], "yawDeg": -7, "name": "Grin", "mouth": { "open": 0.7, "shape": "grin", "teeth": true } },
+    { "slot": 4, "pos": [36, 0, -3], "yawDeg": -14, "name": "Shout + tash", "tash": "brown",
+      "mouth": { "open": 0.9, "shape": "wide", "teeth": true } }
+  ]
+}

@@ -181,7 +181,19 @@ const CENTRE_Y = 12;      // body centre above the reported worm position (Blood
 const SKINS = {           // a few vanilla-peach variations inside the range SkinTone() was measured on
   peach: [0.98, 0.64, 0.36], warm: [1.0, 0.6, 0.33], pale: [0.97, 0.68, 0.42],
 };
-const HATS = { none: 0, cowboy: 1, helmet: 2, beanie: 3 };
+const HATS = { none: 0, cowboy: 1, helmet: 2, beanie: 3, afro: 4, mohawk: 5, wig: 6 };   // 4..6 are hair (u_whairCol)
+// Moustache colours. orange and brown are placed in the windows Bloodsand's MoustTone() was measured on, after the
+// harness light (sun (0.72,0.69,0.64) + ambient 0.40 makes lit g/r ~0.97x and b/r ~0.94x of the albedo's):
+//   orange: hue ~25 deg, saturation 0.80 (shade) .. 0.81 (sun); skin hue, above SkinTone's 0.76 limit.
+//   brown:  g/r 0.775 (shade) .. 0.754 (sun), b/r 0.50 .. 0.47, dark (max 0.42 albedo): SkinTone's 'hole'.
+//   black/grey/blond: not classified by Bloodsand (black fails the dark floor; blond lands inside SkinTone).
+const HAIR_COLS = {
+  orange: [0.85, 0.453, 0.17], brown: [0.42, 0.3255, 0.21], black: [0.075, 0.06, 0.05], darkbrown: [0.24, 0.155, 0.09],
+  blond: [0.86, 0.70, 0.42], ginger: [0.80, 0.40, 0.15], auburn: [0.52, 0.22, 0.10], grey: [0.56, 0.55, 0.53],
+};
+const TASHES = { none: 0, walrus: 1, handlebar: 2 };
+const HAIR_DEFAULT = { afro: 'black', mohawk: 'ginger', wig: 'blond' };
+const colOf = (c, def) => Array.isArray(c) ? c : (HAIR_COLS[c] || HAIR_COLS[def]);
 const wrapPi = (a) => { a = ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI; return a; };
 
 const cam = Object.assign({ pos: [0, 40, 150], target: [0, 14, 0], fov: 40, near: 2, far: 4000 }, scenario.camera || {});
@@ -204,6 +216,24 @@ const worms = (scenario.worms || []).map((w, i) => {
     o.hitBin = 1 + Math.floor((((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI) * 32) % 32;
   }
   o.hitBin = o.hitBin || 0;
+  // Facial hair / hair headwear. tash: "orange" | "brown" | "black" | [r,g,b] (colour) with tashShape walrus|handlebar,
+  // hairColour: a HAIR_COLS name or [r,g,b] for hat afro|mohawk|wig; hairStreak: strand texture strength (0..1).
+  o.tash = o.tash || 'none';
+  o.tashShape = o.tash === 'none' ? 'none' : (o.tashShape || 'walrus');
+  o.tashRGB = o.tash === 'none' ? [0, 0, 0] : colOf(o.tash, 'brown');
+  o.hairColour = HATS[o.hat] >= 4 ? (o.hairColour || HAIR_DEFAULT[o.hat]) : (o.hairColour || 'none');
+  o.hairRGB = HATS[o.hat] >= 4 ? colOf(o.hairColour, HAIR_DEFAULT[o.hat]) : [0, 0, 0];
+  o.hairStreak = o.hairStreak ?? 0.3;
+  // Mouth (opt-in): "mouth": { "open": 0..1, "shape": "o" | "wide" | "grin", "teeth": bool, "lip": [r,g,b] }; open 0 is
+  // a closed mouth (lips and a seam); no "mouth" field is the old face with no mouth. "vomit": 0..1 adds Bloodsand's
+  // vomit droplets (scene-colour sprites) from the mouth; it needs a mouth.
+  if (o.mouth) {
+    const m = o.mouth === true ? {} : o.mouth;
+    const shape = { o: 0, wide: 1, shout: 1, grin: 2 }[m.shape || 'o'] ?? 0;
+    const lip = Array.isArray(m.lip) ? m.lip : o.skinRGB.map((v, k) => v * [0.90, 0.74, 0.92][k]);
+    o.mouthV = [Math.max(0, Math.min(1, m.open ?? 0.6)), shape, m.teeth ? 1 : 0, 1];
+    o.lipRGB = lip;
+  }
   return o;
 });
 if (mode === 'image') {
@@ -292,6 +322,8 @@ const job = {
   image: mode === 'image' ? 'data:image/png;base64,' + fs.readFileSync(path.resolve(path.dirname(scenarioPath), scenario.image)).toString('base64') : null,
   sceneWorms: worms.filter((w) => w.alive !== false).map((w) => ({
     centre: w.centre, yaw: w.yaw, skin: w.skinRGB, hat: HATS[w.hat] ?? 0, radius: w.radius, simple: mode === 'image',
+    hairCol: w.hairRGB, tash: TASHES[w.tashShape] ?? 1, tashCol: w.tashRGB, streak: w.hairStreak,
+    mouth: w.mouthV, lip: w.lipRGB, vomit: w.mouthV ? (w.vomit || 0) : 0,
   })),
   effects: effects.map((fx) => ({
     id: fx.id, params: fx.params, textures: fx.textures,

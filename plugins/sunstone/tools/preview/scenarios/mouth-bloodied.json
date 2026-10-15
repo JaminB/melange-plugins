@@ -1,0 +1,12 @@
+{
+  "name": "mouth-bloodied",
+  "size": [960, 540],
+  "seed": 417,
+  "ground": "sand",
+  "camera": { "pos": [15, 13.5, 31], "target": [1.5, 10.3, 0], "fov": 40 },
+  "worms": [
+    { "slot": 1, "pos": [0, 0, 0], "yawDeg": 28, "name": "Bloodied shout",
+      "mouth": { "open": 0.95, "shape": "wide", "teeth": true }, "vomit": 0.8,
+      "blood": 1.0, "hitFromDeg": 180, "wound": 0.85, "eye": 0.7 }
+  ]
+}

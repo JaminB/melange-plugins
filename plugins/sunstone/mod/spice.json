@@ -64,6 +64,19 @@
       "options": ["game", "fair", "medium", "olive", "deep", "mixed"],
       "default": "game",
       "label": "Worm skin (game = the game's peach; a tone = realistic human skin; mixed = a tone per worm)"
+    },
+    {
+      "key": "hair",
+      "type": "enum",
+      "options": ["game", "natural", "mixed"],
+      "default": "game",
+      "label": "Worm hair (game = the game's moustaches; natural = realistic hair in each moustache's own colour; mixed = a natural hair colour per worm)"
+    },
+    {
+      "key": "wigs",
+      "type": "bool",
+      "default": false,
+      "label": "Realistic hair hats too (experimental: found by colour, may miss some wigs; needs Worm hair on)"
     }
   ]
 }

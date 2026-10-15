@@ -1,0 +1,10 @@
+{
+  "name": "hair-closeup",
+  "size": [960, 540],
+  "seed": 417,
+  "ground": "sand",
+  "camera": { "pos": [8, 18, 46], "target": [0, 15, 0], "fov": 40 },
+  "worms": [
+    { "slot": 2, "pos": [0, 0, 0], "yawDeg": 14, "hat": "wig", "hairColour": "brown", "tash": "brown", "name": "Mop Wig" }
+  ]
+}

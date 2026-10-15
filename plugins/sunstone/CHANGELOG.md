@@ -18,7 +18,32 @@
   that skin, and a black eye is redrawn as a real bruise on that tone (yellow fringe, red-purple, deep blue-purple, soft
   edges, with no echo of the eyes' outline or of Bloodsand's rings), not a black mask. Blood and acid take a wet highlight, and the acid's pattern is smoothed. Hats, helmets, the
   eyes and the sand stay untouched.
-- Costs nothing on Game (the effect is off). On a tone it runs only in a match, and only pixels on a worm's surface do
+- Mouths: the lips are found round the mouth's opening, keep their own pink and take the lips' redness wherever the
+  mouth is and however wide it opens; the tongue, teeth, gums and cavity are left as drawn (the black-eye redraw no
+  longer turns a tongue into a skin-coloured blotch or the opening's dark rim into a peach halo), and the crevice under
+  the upper lip stays dark instead of glowing orange.
+- A new **Worm hair** setting (Game / Natural / Mixed, default Game) draws the worms' moustaches as real hair: growing
+  down from the upper lip and fanning out, locks and fine layered strands (drawn at the finest scale each pixel holds,
+  so they never jump or swim) each with its own melanin, darker at the roots, lit by the scene's light, with the two
+  highlights of a hair fibre (a sharp white one and a broader one in the hair's colour, a band that breaks into glints
+  along the strands) and an edge cut strand by strand: skin between the hairs at the roots, strays running on over the
+  skin past the tips and the sides. Natural keeps each
+  moustache's colour family (orange becomes ginger, brown a natural brown); Mixed gives every worm a natural hair colour
+  from its name, weighted by its skin tone. Independent of Worm skin. New sliders: strand highlights, strands and
+  ragged edge. Blood, the bruise, acid, the eyes, the skin and hats are not changed by it.
+- **Realistic hair hats too** (experimental, off by default): also treats hair-brown and near-black headwear with a busy
+  hair texture above the eyes (an afro, a crest, a wig), keeping its own colour and brightness, judged on the colour
+  and texture round each pixel at a fixed distance on the worm, so the same wig is treated alike close up and from
+  afar. The game's hat list could not be
+  checked, so it is found by colour, place and texture, and, in light, leaves grey, blond, mid-brown (the cowboy hat's hue) and
+  skin-coloured wigs alone; a hat is never recoloured by it; see the README.
+- A worm standing beside or behind another one has all of its body re-rendered: the test that tells a worm from the sand
+  behind it had left a strip of it, from the near worm's side, as the game drew it (and its moustache half done), and
+  the side of a head beside another worm's afro or crest as a peach patch. No thin peach line is left along a worm's
+  outline, and Worm skin no longer puts orange specks on a black afro's lower edge.
+- Moustaches: the highlight runs across the moustache as a band (it is shaded as a roll), black moustaches have a cool
+  sheen instead of looking flat, and the top edge has no dark rim.
+- Costs nothing with both on Game (the effect is off). Otherwise it runs only in a match, and only pixels on a worm's surface do
   more than a sphere test per worm (not yet measured in game).
 
 ## 2.0.3

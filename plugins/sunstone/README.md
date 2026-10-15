@@ -10,7 +10,7 @@ A **Quality** setting (Off / Low / Subtle / Bold / Ultra) on the Mods page turns
 sensible parameters; a **Look** setting (Golden / Dusk) picks which of the two colour-grading LUTs the grade
 leans toward, **Sunstone lighting** and **Sunstone water** turn the lighting and the water below on or off on their
 own, **Distance blur**, **Film grain** and **Lens effects** (dirt, flare and colour fringes) turn those off, and
-**Worm skin** gives the worms human skin (below). All apply live, no restart. Every effect still has its own toggle
+**Worm skin** gives the worms human skin and **Worm hair** real moustaches (below). All apply live, no restart. Every effect still has its own toggle
 and parameters in the overlay's *Mirage/Post-FX* panel
 (and in `Melange.ini [MiragePostFX]`) if you want to go off the preset — a manual change there survives until you
 next change Quality or a match with a different theme starts.
@@ -36,7 +36,7 @@ Bold.
 ## Worm skin
 
 The **Worm skin** setting (Game / Fair / Medium / Olive / Deep / Mixed; default Game) re-renders the worms' skin as
-human skin. Game keeps the game's cartoon peach and the effect stays off. A tone gives every worm that skin, with a few
+human skin. Game keeps the game's cartoon peach (and the effect stays off unless Worm hair is on). A tone gives every worm that skin, with a few
 percent of variation per worm; Mixed gives each worm one of seven tones (fair, light, medium, olive, tan, brown, deep),
 picked from its name, so a worm keeps its tone from match to match. Quality Off also turns it off.
 
@@ -68,7 +68,7 @@ body centre, albedo, heading and how far it moved since the last game tick. It w
   Melanin and blood under the skin work as absorbers (more melanin is browner and darker, more blood redder, never
   green): broad blotches and patches, a mottle of about a unit, sparse freckles and a few small moles (how many depends
   on the worm and the slider, fewer and fainter on deep tones), a flush on the cheeks and the nose with fine broken
-  capillaries close up, redder and slightly darker lips under the snout and redder creases, and on light tones faint
+  capillaries close up, redder and slightly darker lips and redder creases, and on light tones faint
   blue-green veins on the temples, the sides of the neck and the chest. The relief is a real height with its slope, lit
   from the sun (or the sky in the shade) as a bump on the smooth body normal, softer and warmer in the red as light under
   the skin blurs it, its hollows a little darker: pores (larger on the nose, the forehead and the cheeks), the skin's
@@ -81,10 +81,20 @@ body centre, albedo, heading and how far it moved since the last game tick. It w
   little contrast, so a worm 60 pixels tall still has a face, a neck and varied skin. The pattern lives in the worm's
   own frame, so it moves and turns with the worm and never swims across the screen. Bright skin rolls toward white
   instead of clipping one channel.
+- **The mouth.** Under the nose Sunstone looks for the mouth's opening (taps up, down and to the sides, a quarter of a
+  unit apart, for a pixel that is not skin and much darker, or unsaturated like the teeth, or a fifth as bright as the
+  lip, like a closed mouth's seam; never blood, a wound's red inside or a black eye's wash). Skin within about half a
+  unit of it is lip: it keeps the pink the game drew as its own colour (not as the light's, which `lightKeep` would
+  pull toward the skin's) and takes the lips' redness there, wherever the mouth is and however wide it opens; a worm
+  drawn without an opening keeps a fixed lip line under the snout. Next to the opening, dark pixels (the fold under the
+  upper lip, the corners) do not take the warm, saturated shade or the red light bled from the skin beside them, so a
+  crevice stays dark instead of glowing orange. The tongue, the teeth, the gums and the cavity are not skin and are left
+  as drawn.
 
-The *Mirage/Post-FX* panel lists it as *Human skin*, with sliders for the opacity, how much of the light's colour is
+The *Mirage/Post-FX* panel lists it as *Human skin and hair*, with sliders for the opacity, how much of the light's colour is
 kept, subsurface warmth, sheen, pores, mottling and blush, folds and skin lines (`detail`), freckles and moles
-(`freckles`), veins (`veins`) and peach fuzz (`fuzz`).
+(`freckles`), veins (`veins`) and peach fuzz (`fuzz`), and for the hair (below) its strand highlights (`hairSheen`)
+and its strands and ragged edge (`hairDetail`).
 
 **With Bloodsand and Kindjal.** Bloodsand's skin (order 51), guts (52) and gibs (53) and Kindjal's acid (54) find the
 skin by its peach colour too. Sunstone's skin runs after all of them, so they classify and paint the game's skin exactly
@@ -101,7 +111,14 @@ spiral of 24 taps so the hard, swirled edges of Bloodsand's rings and the outlin
 much darker than the skin round it it was painted), then draws the skin again under it with a bruise filter: a faint yellow fringe, a red-purple, and a
 deep blue-purple at its heaviest, softened into the skin round it, so a black eye is a bruise on that tone (a dark
 brown-purple on a deep one, never a black mask), heavier from across the level so it still reads. The eye whites,
-pupils and blood beside it are untouched. Blood and Kindjal's acid take a wet highlight from the sun, and the acid's
+pupils and blood beside it are untouched. The oval reaches the mouth's corners, so round an open mouth (below the eye
+line) the colours of the mouth are kept out of the bruise test: a lit tongue, the dark-red rim of the opening and the
+lips' inner edge are pinker for their blue than any blend of Bloodsand's purple wash with the skin, and where the
+opening is found the bottom of the oval leaves the mouth alone. (Without this the tongue was redrawn as skin, a brown
+blotch on a deep tone, and the dark rim of the opening as a peach halo.) Bloodsand's wash where it reaches the upper lip
+is therefore left as Bloodsand painted it there. Near-black pixels count as a bruise only when they are purple (blue
+over green), as Bloodsand's lid and socket are: a black afro's hair over the brow, whose 8-bit colour can read as a dark
+bruise, is not redrawn as skin (it had orange specks and lines along its lower edge). Blood and Kindjal's acid take a wet highlight from the sun, and the acid's
 pattern is smoothed over about two thirds of a unit so its noise lattice does not show as squares. Kindjal reads any
 enabled `sunstone/*` effect as Sunstone being on; the skin effect is off with Quality Off, so that stays right.
 
@@ -111,11 +128,111 @@ peach there. While a worm flies fast its body can be a few units from the report
 speed, but at the edge of a very fast worm a rim of peach can flash for a frame. A purple hat or headband inside the
 bruise's oval round the eyes is redrawn as bruised skin, as a black eye is. Bloodsand's own skin pass can leave a thin
 line of unpainted peach down the middle of a worm that fills a large screen (its depth-gap test); Sunstone's skin
-recolours that line like the skin round it, and inside a black eye bruises it with its neighbours. Cost: a pixel away
+recolours that line like the skin round it, and inside a black eye bruises it with its neighbours. A worm standing
+beside a nearer one is recoloured all over (the gap test counts a tap that lands on another worm's body, or in the
+volume over its head where its hat or hair is, as clear: a worm beside an afro had the side of its head toward the afro
+left peach). The outline is anti-aliased by a quarter for each neighbour off the body (by 0.45 before, which left a
+one-pixel line of the game's peach round a worm of a deeper tone, most of all where worms stand close). The mouth is
+found by colour: a dark, non-skin patch of paint just under the nose that is not blood, a wound or a black eye can be
+taken for the opening, and the skin next to it then keeps its own colour as a lip does.
+Cost: a pixel away
 from every worm is two fetches and a sphere test per worm; only pixels on a worm's surface do more. A skin pixel is about
 sixteen texture fetches (its own two, four for the depth normal, two for the gap test, eight for the four taps of the
 light under the skin) and, all told, some hundred hashes and thirty-odd exponentials, about what the previous relief cost
-with its four evaluations; the bruise's oval adds 48 fetches, the acid 16.
+with its four evaluations; the bruise's oval adds 48 fetches, the acid 16, and the search for the mouth's opening,
+on the lower face only, 40 to 56.
+
+## Worm hair
+
+The **Worm hair** setting (Game / Natural / Mixed; default Game) draws the worms' moustaches as real hair, at the same
+bar as the skin. Game leaves them as the game draws them. Natural keeps each moustache's own colour family, made real:
+the game's orange moustache becomes ginger, its brown one a natural brown, each a little lighter or darker per worm.
+Mixed gives every worm a natural hair colour of its own from its name (black, dark brown, brown, light brown, dark
+blonde, blonde, auburn, ginger or grey), weighted by its skin tone as in life (black and dark brown on every tone and
+most on deep ones, blond and red mostly on light ones; with the game's peach, the light tones' weights), so a worm keeps
+it from match to match. It is independent of Worm skin: hair on game skin works, and so does skin with the game's hair.
+Quality Off turns it off.
+
+It is part of the same `skin` effect (one pass, the same worm slots: the hair colour rides in the thousands of each
+worm's pattern seed; three hidden switches `skinOn`, `hair` and `wigs`), so it costs nothing extra away from the worms.
+
+- **Finding the hair.** The game gives a mod no way to know which attachment a worm wears (its `Tash` and `Hat` live in
+  the team data, and Lua's `wum.game.worms()` does not report them), so hair is found the way the skin is, by colour and
+  place. Bloodsand documents two moustaches: an orange one, the skin's hue at a saturation above the skin's (0.76 to
+  0.84), and a brown one, the gap its skin window leaves for it (green/red 0.73 to 0.78, blue/red 0.44 to 0.50, dark).
+  Both are taken only in Bloodsand's mouth zone, the front of the head under the eye line, with its top held a unit and a
+  half below the eyes (the dark line where an eye meets the skin has the brown moustache's colour), and only where they
+  are not skin. With Sunstone's lighting on, the brown window's blue limit moves out a little in shade, as the skin's
+  does. A pixel inside a moustache that its own colour lets fall out of the window (deep shade, the game's texture) is
+  filled from the hair round it.
+- **The hair.** The moustache grows down from the upper lip and fans out toward the sides (near-parallel strands that
+  never cross, not a starburst from one point), in the worm's own frame, so the pattern turns with the worm and never
+  swims. Locks (light and dark bands, their shadow on each other) and strands: thin fibres drawn at the finest scale
+  the pixel can hold (about 3 pixels a strand, blended between two octaves so the scale never jumps as the camera
+  moves, in two layers at a slight angle so it reads as hair and not a comb), each strand with its own melanin, width
+  and tilt, breaking off and starting again along its length, and darker toward the roots under the nose. The colour is
+  a measured hair reflectance, varied along melanin's absorption (more melanin is browner, then black, never green).
+  The light is read off the pixel as the skin's is (its brightness against the game's moustache colour, and with
+  `lightKeep` its colour), so the game's shading, Sunstone's sun and shade and a cast shadow come through. Two
+  highlights as a hair fibre has (Kajiya-Kay): a white one off its surface, shifted toward the tips, sharp, and a
+  broader one in the hair's colour, shifted toward the roots; each strand tilts both its own way, so the band a lit head
+  of hair shows breaks into glints along the strands and lies on the fibres, not the gaps. From the sun where the pixel
+  is lit, faintly from the sky where it is not. The moustache is shaded as a roll, its upper part facing up and its
+  lower part down, with the hairs following it, so the highlight runs across it as a band. On black or near-black hair
+  the coloured highlight is all but gone and the white one is stronger and a little cool, as on real black hair, so a
+  black moustache is not flat. Against the sun the tips glow in the hair's colour. The edge is cut
+  along the comb, strand by strand, from how far each pixel lies from the moustache's edge back along the strands
+  (found to about a pixel, so it is smooth, not stepped): over the first 0.15 to 0.55 of a unit in from the root edge
+  under the nose (close up, within the 24 pixels the taps reach; the root shading starts inside it, so the top has no
+  dark rim) the hair thins and the skin shows between the hairs (only where skin, not blood or paint, lies past
+  it; from afar a soft partial cover of at most two pixels instead), and past the tips and the sides some strands run
+  on over the skin, each its own length, fainter further out; the game's stair-stepped edge is softened from the hair
+  round each pixel, and the hair's share fades over a wider range of it, about a pixel more. From afar the
+  strands fade into a shaded hair colour with its sheen, so a moustache a few pixels wide is still a moustache, not
+  noise.
+- **With Bloodsand, Kindjal and the skin.** Hair is drawn after the skin, in the same pass, so the skin under a gap or a
+  stray hair is this worm's tone. Blood is never hair: it is outside both windows, a blend of blood and moustache keeps
+  its blood part as painted, the hair round a pixel never fills one that is blood, acid or a blend with the acid's
+  green, and stray hairs go only onto skin, never over blood, a wound, the bruise or acid. The eyes,
+  skin, sand, blood and acid are unchanged by the hair code; with Worm skin on Game the skin stays the game's peach.
+
+**Hair hats (experimental).** The **Realistic hair hats too** setting (off by default, needs Worm hair on) also treats
+hair-type headwear (an afro, a crest, a wig). What hair headwear the game has, and its colours, could not be checked:
+the list is in the game's `WORMATTACHMENTS.XOM`, which is not in the repository; only the custom team flags name an
+Afro. A hat cannot be told from hair by its colour alone (a shaded cowboy hat is a dark brown), so a pixel is taken as
+hair only when all of these hold: it is above the eyes, over a head (a volume up to about 22 units above the body's
+middle and 11.5 out, so a tall afro or crest is reached); the colour round it (the mean of eight taps 0.7 of a unit
+away, not the pixel alone, whose 8-bit colour flickers on a dark wig) is a hair-brown, hue 8 to 29 degrees, saturation
+0.22 to 0.88, not bright, outside the cowboy hat's 34 to 40 degrees (30 when sunlit; 32.5 at the least in the preview)
+and the helmet's olive, or a near-black; most of those taps are hair-coloured too; and the surface is busy the way hair
+is, where a hat's is smooth (the second difference of the brightness across each pair of taps, which a smooth hat's
+shading, near linear at that scale, hardly has). The taps are a fixed distance on the worm, not in pixels, so a wig is
+judged the same close up and at gameplay distance. It is never recoloured (Mixed does not change it): it keeps its own
+colour and mean brightness, with locks and strands combed from the crown at half the moustache's strength and a weak
+highlight, scaled by the hair's brightness so a black wig gets no grey speckle. Where the colour round a pixel is hair,
+it also undoes what the skin pass did to near-black hair pixels (it can read some as skin in deep shade and light them
+from the skin round them; Worm skin alone no longer leaves orange flecks along an afro's edge, see above). Grey,
+white, blond wigs, a mid-brown one at the cowboy hat's hue (the preview's `brown` is 33 degrees, so its close-up mop wig
+is left alone, like the hat) and a wig the colour of lit skin are left alone (they cannot be told from helmets, caps,
+the cowboy hat, the eyes, the sand or the head), so a wig the colour of skin is still drawn as skin by Worm skin, as
+Bloodsand paints it like the head. A hat with a hair-brown or near-black, busy texture would be treated as hair, and a
+smooth patch of a real wig's texture is left as the game draws it, which is why this is off by default. Colour alone
+only holds in light: in deep shade (brightness under about 0.1, more so in Sunstone's cold shade) a hat of any colour,
+the cowboy hat and the helmet included, is a near-black, and only the texture test keeps it out; even then it is never
+recoloured (it keeps its colour and mean brightness and takes only the combed texture). A hair hat's strands are combed
+round the head from the front, so straight behind the head they meet at a seam.
+
+**Limits.** Only the two moustaches Bloodsand measured are known; a black, grey or blond moustache, if the game has one,
+is left as the game draws it, and so are eyebrows. A patch of other paint in the mouth zone whose colour falls in
+Bloodsand's brown moustache window (in the preview, Bloodsand's black eye under Kindjal's acid, just over a moustache)
+is drawn as hair too. The comb direction (out and down from under the nose) and the
+moustache's place (below the nose, a unit and a half under the eyes) are assumptions: the meshes and their texture
+directions are not in the repository, and the preview harness's moustaches and wigs are stand-ins. Strands need about
+12 pixels a unit to show (four a unit at three pixels each); at the game's usual distance a moustache is a few pixels
+and shows its colour, shading and sheen. Cost (not measured on a GPU): only pixels round the mouth (and, with hair hats
+on, over a head) do more: 24 fetches on a moustache (two for the gap test, four taps, four rootward taps and up to three
+more to place the edge, with their depth) and some 70 hashes; with hair hats on, 18 fetches over a head, and a pixel near a worm also tests the
+volume over its head.
 
 ## Texture clarity
 

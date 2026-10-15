@@ -236,6 +236,13 @@ void main() {
       set(`u_what[${i}]`, gl.INT, [w.hat]);
       set(`u_wrad[${i}]`, gl.FLOAT, [w.radius]);
       set(`u_wsimple[${i}]`, gl.FLOAT, [w.simple ? 1 : 0]);
+      set(`u_whairCol[${i}]`, gl.FLOAT_VEC3, w.hairCol || [0, 0, 0]);
+      set(`u_wtash[${i}]`, gl.INT, [w.tash || 0]);
+      set(`u_wtashCol[${i}]`, gl.FLOAT_VEC3, w.tashCol || [0, 0, 0]);
+      set(`u_wstreak[${i}]`, gl.FLOAT, [w.streak || 0]);
+      set(`u_wmouth[${i}]`, gl.FLOAT_VEC4, w.mouth || [0, 0, 0, 0]);
+      set(`u_wlip[${i}]`, gl.FLOAT_VEC3, w.lip || [0, 0, 0]);
+      set(`u_wvomit[${i}]`, gl.FLOAT, [w.vomit || 0]);
     });
     let imgTex = null;
     const dummy = makeTex(1, 1, 'rgba8');

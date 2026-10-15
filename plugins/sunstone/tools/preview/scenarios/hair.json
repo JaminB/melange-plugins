@@ -1,0 +1,16 @@
+{
+  "name": "hair",
+  "size": [960, 540],
+  "seed": 417,
+  "ground": "sand",
+  "camera": { "pos": [4, 34, 150], "target": [0, 14, 0], "fov": 46 },
+  "worms": [
+    { "slot": 5, "pos": [-60, 0, -14], "yawDeg": 32, "hat": "cowboy", "tash": "brown", "name": "Cowboy (control)" },
+    { "slot": 0, "pos": [-40, 0, -4], "yawDeg": 20, "hat": "none", "tash": "orange", "name": "Orange Tash" },
+    { "slot": 1, "pos": [-20, 0, 2], "yawDeg": 10, "hat": "none", "tash": "brown", "name": "Brown Tash" },
+    { "slot": 2, "pos": [0, 0, 4], "yawDeg": -2, "hat": "wig", "hairColour": "darkbrown", "tash": "brown", "tashShape": "handlebar", "name": "Mop Wig" },
+    { "slot": 3, "pos": [20, 0, 2], "yawDeg": -12, "hat": "afro", "hairColour": "black", "name": "Afro" },
+    { "slot": 4, "pos": [40, 0, -4], "yawDeg": -22, "hat": "mohawk", "hairColour": "ginger", "name": "Ginger Mohawk" },
+    { "slot": 6, "pos": [60, 0, -14], "yawDeg": -32, "hat": "helmet", "skin": "warm", "name": "Helmet (control)" }
+  ]
+}
