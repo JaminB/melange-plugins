@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 27,
+  "serial": 28,
   "plugins": [
     {
       "id": "bloodsand",
@@ -263,6 +263,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.3.0",
+          "released": "2026-10-15",
+          "melange": ">=0.8.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kanly-v1.3.0/kanly-1.3.0.zip",
+          "sha256": "d15ed0858392c52a3347be2359cf240dbd8ebba2533044a16a99f71788300190",
+          "size": 16317720,
+          "unpackedSize": 16414850,
+          "files": 38,
+          "changelog": "Weapons now unlock as the match progresses and run out after a few uses, in both styles.\n\n- Kanly: weapons have an unlock turn (Delay) in four tiers, start, turn 1, turn 2 and turn 3. The match opens with basics\n  and utilities; mid-tier weapons come at turn 1, heavy ones at turn 2, and the super weapons (Concrete Donkey, Super\n  Airstrike, Fatkins, Starburst, Flood, Alien Abduction, Weapon Factory weapon) at turn 3.\n- Ammo is cut hard: basics 3 to 4, utilities 2 to 3, mid tier 2 (power-ups 1), heavy and super weapons 1. Nothing is\n  unlimited and crates stay on.\n- The 15 mystery crate entries now get 1 ammo and unlock at turn 1.\n- Kanly Melee: the same tiers for the allowed weapons (no super tier), same bans.\n- Netplay: the host and every peer need Kanly 1.3.0."
+        },
         {
           "version": "1.2.0",
           "released": "2026-10-10",
