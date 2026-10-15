@@ -1,12 +1,12 @@
 {
   "spiceVersion": 1,
   "id": "kindjal",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Kindjal",
   "authors": [
     "Melange"
   ],
-  "description": "Every weapon shifted a dimension darker: melee that maims and launches, explosives that hit harder and throw worms much further, three new weapons (Acid Spitter, Acid Flask, Crucible) whose acid smokes and clings to a worm's skin, new names, new sounds. Content mod: every player in an online match needs it.",
+  "description": "Every weapon shifted a dimension darker: melee that maims, explosives that hit harder and throw worms a little further than vanilla, three new weapons (Acid Spitter, Acid Flask, Crucible) whose acid smokes and clings to a worm's skin, new names, new sounds. Content mod: every player in an online match needs it.",
   "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kindjal",
   "kind": "content",
   "melange": {
@@ -151,7 +151,8 @@
         "WormDamageMagnitude": 35,
         "WormDamageRadius": 70,
         "LandDamageRadius": 45,
-        "ImpulseMagnitude": 0.25,
+        "ImpulseMagnitude": 0.28,
+        "ImpulseRadius": 110,
         "DetonationFx": "WXP_Explosion_Gas",
         "ArielFx": "WXP_ExplosionG_Tail",
         "PayloadGraphicsResourceID": "kindjal.AcidRound"
@@ -171,7 +172,8 @@
         "WormDamageMagnitude": 25,
         "WormDamageRadius": 60,
         "LandDamageRadius": 35,
-        "ImpulseMagnitude": 0.15,
+        "ImpulseMagnitude": 0.22,
+        "ImpulseRadius": 100,
         "DetonatesOnLandImpact": true,
         "DetonatesOnWormImpact": true,
         "DetonatesOnObjectImpact": true,
@@ -196,8 +198,8 @@
         "WormDamageMagnitude": 120,
         "WormDamageRadius": 243,
         "LandDamageRadius": 168,
-        "ImpulseMagnitude": 1.35,
-        "ImpulseRadius": 195,
+        "ImpulseMagnitude": 0.62,
+        "ImpulseRadius": 185,
         "PreDetonationTime": 0,
         "DetonationFx": "WXP_ExplosionX_Large",
         "DetonationSfx": "weapons/ExplosionLarge",
@@ -208,14 +210,14 @@
       "hudIcon": "kindjal.crucible.hud.tga",
       "text": {
         "name": "Crucible",
-        "help": "No choir, no pause. Melts the ground it lands on and hurls everything nearby into the sky."
+        "help": "No choir, no pause. Melts the ground it lands on and throws everything nearby clear of it."
       }
     }
   ],
   "weaponText": {
     "kWeaponBaseballBat": {
       "name": "Nail Bat",
-      "help": "A bat studded with nails. Hits harder and sends the victim flying."
+      "help": "A bat studded with nails. Hits harder and knocks the victim back."
     },
     "kWeaponFirePunch": {
       "name": "Hellfist",
@@ -231,7 +233,7 @@
     },
     "kWeaponBazooka": {
       "name": "Ripper",
-      "help": "A heavier rocket: bigger blast, far more knockback."
+      "help": "A heavier rocket: bigger blast, a little more knockback."
     },
     "kWeaponGrenade": {
       "name": "Pipe Bomb",
@@ -291,11 +293,11 @@
     },
     "kWeaponFatkins": {
       "name": "Gorger",
-      "help": "Lands like a meteor; the whole area goes flying."
+      "help": "Lands like a meteor and throws the whole area."
     },
     "kWeaponStarburst": {
       "name": "Dead Star",
-      "help": "A falling star that hurls worms across the map."
+      "help": "A falling star that hurls worms aside."
     },
     "kWeaponShotgun": {
       "name": "Slug Gun",

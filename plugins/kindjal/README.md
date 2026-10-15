@@ -1,8 +1,8 @@
 # Kindjal
 
 A content plugin for Worms Ultimate Mayhem that shifts every weapon a dimension darker. A kindjal is a heavy fighting
-dagger; in Dune it is the blade kept for close, personal violence. Melee weapons maim and launch, explosives hit harder
-and throw worms much further, every weapon has a grimmer name, and three new weapons join the panel: the **Acid
+dagger; in Dune it is the blade kept for close, personal violence. Melee weapons maim, explosives hit harder and throw
+worms a little further than the game does, every weapon has a grimmer name, and three new weapons join the panel: the **Acid
 Spitter**, the **Acid Flask** and the **Crucible**. Acid is real poison gas, and on the screen it clings to a worm's
 skin, bubbles and smokes. New impact, launch, explosion and acid sounds play on top of the game's own. Every renamed
 weapon and the three new ones carry their own 3D model (held, thrown, fired or flying; 37 mesh banks in all), and the
@@ -27,52 +27,92 @@ new ones as their base weapons.
 ## The weapons
 
 Damage is the number a direct hit takes off a worm; radius is the damage radius; crater is the land damage radius;
-knockback is the impulse (the vanilla Bazooka is 0.29) and reach the impulse radius.
+knockback is the impulse (the vanilla Bazooka is 0.29) and reach the impulse radius. Knockback is roughly vanilla
+x1.2 and reach roughly vanilla x1.1, so a hit throws a worm about as far as you expect, a little further; "vanilla
+x1.2" in the table means Kindjal reads the game's own number at match start and multiplies it, for the few weapons whose
+vanilla figure is not known here. All of it can be scaled; see "Tuning the knockback" below.
 
 | Weapon | New name | Damage | Radius | Crater | Knockback / reach | Vanilla |
 | --- | --- | --- | --- | --- | --- | --- |
-| Baseball Bat | Nail Bat | 45 | hit 24 | | 0.60 | 30, hit 20, 0.25 |
-| Fire Punch | Hellfist | 40 | hit 18 | | 0.50 | 30, hit 16, 0.22; hit FX is now a small blast |
-| Prod | Shiv | 10 | hit 6 | | 0.30 | 0, hit 5, 0.12 |
-| No More Nails | Railspike | 30 | hit 22 | | 0.20 | 15, hit 20 |
-| Bazooka | Ripper | 65 | 95 | 75 | 0.64 / 155 | 50, 82, 60, 0.29 / 110 |
-| Grenade | Pipe Bomb | 85 | 85 | 60 | 0.45 / 110 | 55, 83, 51, 0.28 / 110 |
-| Dynamite | Blast Keg | 80 | 150 | 120 | 0.90 / 200 | 75, 115, 78, 0.35 / 130 |
-| Holy Hand Grenade | Profane Grenade | 100 | 200 | 150 | 0.80 / 200 | 80, 187, 129, 0.45 / 150 |
-| Banana Bomb | Plantain Hell | 50 (7 bomblets of 60) | | | 0.70 / 150 | 5 bomblets, 0.40 / 125 |
-| Cluster Grenade | Nail Cluster | 25 (bomblets 30) | | | bomblets 0.30 / 110 | 15 (bomblets 15), 0.05 |
-| Landmine | Bear Trap | 55 | 85 | 65 | 0.60 / 140 | 40, 75, 52, 0.25 / 100 |
-| Homing Missile | Harpoon | 45 | | | 0.85 / 160 | 50, 0.22 / 100 |
-| Airstrike | Carpet Bombing | 35 a bomb | 80 | 72 | 0.50 / 150 | 25, 69, 58, 0.22 / 110 |
-| Super Airstrike | Carrion Drop | 100 a cow | 145 | 105 | 0.70 / 180 | 80, 126, 92, 0.30 / 130 |
-| Concrete Donkey | Earthquake Ass | 80 | | 180 | 1.30 / 280 | 80, crater 110, 0.46 / 170 |
-| Sheep, Super Sheep | Rabid Flock, Plague Ram | 95 | 130 | 105 | 0.70 / 170 | 75, 115, 93, 0.32 / 130 |
-| Old Woman | Hangwoman | 82 | | | 0.90 / 170 | 75, 0.31 / 110 |
-| Scouser | Knifeman | 44 | | | 0.50 / 90 | 40, no knockback |
-| Fatkins | Gorger | 82 (food 72) | | | 1.80 / 260 (food 1.00 / 180) | 75, 0.60 / 200 |
-| Starburst | Dead Star | 110 | | | 1.60 / 220 | 100, 0.75 / 150 |
-| Shotgun | Slug Gun | 50 a slug (land 35) | | | 0.20, accuracy 0.97 | 25, 0.13, 0.92 |
-| Sniper Rifle | Elephant Gun | 45 | | | 0.80 / 90 | 40, 0.10 / 40 |
-| Sentry Gun | Gibbet Turret | shots 80 | 95 | 70 | 0.50 / 130 | unset |
+| Baseball Bat | Nail Bat | 45 | hit 24 | | 0.30 | 30, hit 20, 0.25 |
+| Fire Punch | Hellfist | 40 | hit 18 | | 0.27 | 30, hit 16, 0.22; hit FX is now a small blast |
+| Prod | Shiv | 10 | hit 6 | | 0.15 | 0, hit 5, 0.12 |
+| No More Nails | Railspike | 30 | hit 22 | | 0.08 | 15, hit 20, no knockback |
+| Bazooka | Ripper | 65 | 95 | 75 | 0.35 / 120 | 50, 82, 60, 0.29 / 110 |
+| Grenade | Pipe Bomb | 85 | 85 | 60 | 0.34 / 120 | 55, 83, 51, 0.28 / 110 |
+| Dynamite | Blast Keg | 80 | 150 | 120 | 0.43 / 145 | 75, 115, 78, 0.35 / 130 |
+| Holy Hand Grenade | Profane Grenade | 100 | 200 | 150 | 0.55 / 165 | 80, 187, 129, 0.45 / 150 |
+| Banana Bomb | Plantain Hell | 50 (7 bomblets of 60) | | | 0.48 / 140 (bananettes vanilla x1.2 / x1.1) | 5 bomblets, 0.40 / 125 |
+| Cluster Grenade | Nail Cluster | 25 (bomblets 30) | | | bomblets 0.06 / vanilla x1.1 | 15 (bomblets 15), 0.05 |
+| Landmine | Bear Trap | 55 | 85 | 65 | 0.30 / 110 | 40, 75, 52, 0.25 / 100 |
+| Homing Missile | Harpoon | 45 | | | 0.27 / 110 | 50, 0.22 / 100 |
+| Airstrike | Carpet Bombing | 35 a bomb | 80 | 72 | 0.27 / 120 | 25, 69, 58, 0.22 / 110 |
+| Super Airstrike | Carrion Drop | 100 a cow | 145 | 105 | 0.36 / 145 | 80, 126, 92, 0.30 / 130 |
+| Concrete Donkey | Earthquake Ass | 80 | | 180 | 0.56 / 185 | 80, crater 110, 0.46 / 170 |
+| Sheep, Super Sheep | Rabid Flock, Plague Ram | 95 | 130 | 105 | 0.39 / 145 | 75, 115, 93, 0.32 / 130 |
+| Old Woman | Hangwoman | 82 | | | 0.38 / 120 | 75, 0.31 / 110 |
+| Scouser | Knifeman | 44 | | | 0.12 / 80 | 40, no knockback |
+| Fatkins | Gorger | 82 (food 72) | | | 0.72 / 220 (food vanilla x1.2 / x1.1) | 75, 0.60 / 200 |
+| Starburst | Dead Star | 110 | | | 0.90 / 165 | 100, 0.75 / 150 |
+| Shotgun | Slug Gun | 50 a slug (land 35) | | | 0.16, accuracy 0.97 | 25, 0.13, 0.92 |
+| Sniper Rifle | Elephant Gun | 45 | | | 0.12 / 45 | 40, 0.10 / 40 |
+| Sentry Gun | Gibbet Turret | shots 80 | 95 | 70 | 0.35 / 120 | unset |
 | Poison Arrow | Plague Arrow | impact 45 | | | | 25 |
-| Gas Canister | Rust Canister | 20 | 60 | 40 | 0.30 / 90 | no blast |
+| Gas Canister | Rust Canister | 20 | 60 | 40 | 0.15 / 65 | no blast |
 
 The Rust Canister's blast and the Gibbet Turret's shot numbers are applied without a refusal, but whether the engine
 honours damage on those two containers has not been confirmed in play. Utilities, the Alien Abduction and the Flood are
-untouched.
+untouched. The Knifeman, Railspike and Rust Canister have no knockback in the game; Kindjal gives them a small one
+(0.12, 0.08 and 0.15), enough to nudge a worm, not to throw it.
 
 ### The new weapons
 
 They sit in the three free panel cells (29, 39 and 40) and follow their base weapon's ammo and delay in the game style.
 
-- **Acid Spitter** (Bazooka base): a direct-fire corrosive round, 35 damage, modest knockback; the burst is the gas
+- **Acid Spitter** (Bazooka base): a direct-fire corrosive round, 35 damage, knockback 0.28 over 110 (a
+  little under the Ripper's); the burst is the gas
   canister's poison cloud, and the client paints the acid on every worm in reach.
-- **Acid Flask** (Grenade base): shatters where it lands, no fuse, 25 damage, and two more acid bursts 40 units to
+- **Acid Flask** (Grenade base): shatters where it lands, no fuse, 25 damage, a light knockback of 0.22 over
+  100, and two more acid bursts 40 units to
   each side, so the spill spreads.
-- **Crucible** (Holy Hand Grenade base): 120 damage, radius 243, crater 168, knockback 1.35 over 195; no pause and
+- **Crucible** (Holy Hand Grenade base): 120 damage, radius 243, crater 168, knockback 0.62 over 185 (the Profane Grenade's
+  0.55 / 165 and a little more); no pause and
   no choir, it detonates when it settles.
 
-Melange's weapon clones share their base's code; the ammo, delay, crate and AI behaviour are the base's.
+Their knockback is in the manifest and set again at match start by name, so the tuning multipliers below apply to
+them as well. Melange's weapon clones share their base's code; the ammo, delay, crate and AI behaviour are the base's.
+
+### Tuning the knockback
+
+Three numbers at the top of `mod/sim/main.lua` scale every knockback the plugin sets, the three new weapons included:
+
+| Constant | Default | Meaning |
+| --- | --- | --- |
+| `KNOCKBACK` | 1.0 | Multiplies every knockback (impulse): 0.5 is half the throw, 2.0 double. Kept between 0 and 3. |
+| `REACH` | 1.0 | Multiplies every reach (impulse radius). Kept between 0 and 3. |
+| `MELEE` | 1.0 | Multiplies the four melee weapons' knockback, on top of `KNOCKBACK`. Kept between 0 and 3. |
+
+The results are rounded to 0.001 (knockback) and to whole units (reach), and the log line `kindjal 1.1.0: ... fields
+applied` names the multipliers the match played with. They are not on the Mods page on purpose: Mods-page settings
+belong to one machine, and the match script cannot read them (Melange gives the simulation no settings at all), so a
+slider there could never change a match. Editing the file is the supported way, and it is safe online: the file is part
+of Kindjal's content hash, so **every player in an online match must have the same edit**. A player whose multipliers
+differ has a different Kindjal, and the host refuses to start, the same as for a different version. Offline, edit and
+play.
+
+### Presets
+
+Two small add-on plugins change the knockback without editing any file:
+
+- **Kindjal Heavy** (`kindjal-heavy`) multiplies the knockback Kindjal sets by 1.4 and its reach by 1.15, about 1.7
+  times vanilla knockback.
+- **Kindjal Brutal** (`kindjal-brutal`) restores Kindjal 1.0.0's original knockback, two to three times vanilla.
+
+To use one, enable it on the Mods page next to Kindjal (each needs Kindjal 1.1.0 or later). Enable at most one; they
+conflict with each other. Each is a content mod like Kindjal, so **every player in an online match must enable the
+same one** (or none): a player with a different set of add-ons has a different content hash and the host refuses to
+start. They stack on the multipliers above only in the sense that Heavy scales whatever Kindjal wrote; Brutal writes its
+own absolute numbers and ignores them.
 
 ## What you see and hear
 
@@ -111,6 +151,8 @@ All of this is client-side and off by a setting; none of it touches the simulati
 | Melee impact flourish | on | Sparks, hit-flash and impact sounds on melee hits |
 | Kindjal sound volume | 0.8 | Volume of the plugin's own sounds, 0 to 1 |
 | Spike glints | off | Experimental billboards near the hand during a swing |
+
+These are all client-side; the knockback is tuned in the sim script instead (see "Tuning the knockback").
 
 In a match the overlay's Lua menu has *Preview acid*, *Preview melee* and *Acid +10 s* for a look at the effects.
 
@@ -156,7 +198,11 @@ well next to Bloodsand's splat is a judgement for a person to make in play.
 
 ## Limits
 
-- Every peer needs the plugin; see above. A peer with a different version is refused by the host.
+- Every peer needs the plugin; see above. A peer with a different version is refused by the host, and so is a peer
+  who has changed the knockback multipliers in `mod/sim/main.lua`.
+- The knockback numbers are vanilla x1.2 by design, measured against the vanilla figures in the table above; those
+  vanilla figures are the author's readings and have not been re-checked against the game for 1.1.0. The new defaults
+  have not yet been played in a match.
 - The acid coat has sixteen worm slots. Hats, glasses and clothes are not coated (the pass only paints skin).
 - The melee victim is a guess (the worm whose health dropped within reach right after a swing), so a hit that
   pushes a worm out of reach before the damage lands may not get its flourish.

@@ -1,3 +1,16 @@
+## 1.1.0
+
+- Knockback brought back to near the game's own: every weapon now throws worms about 1.2 times as hard as vanilla, over
+  about 1.1 times the reach, instead of two to three times as hard (the Ripper 0.64 to 0.35, the Gorger 1.80 to 0.72,
+  the Earthquake Ass 1.30 to 0.56, the Crucible 1.35 to 0.62). Damage, blast radius and craters are unchanged.
+- The Railspike, Knifeman and Rust Canister, which have no knockback in the game, get a small one.
+- Knockback is tunable: `KNOCKBACK`, `REACH` and `MELEE` at the top of `mod/sim/main.lua` scale every knockback and
+  reach, the three new weapons included. They live in the sim script, not on the Mods page, because the match cannot
+  read Mods-page settings; the file is content-hashed, so every online player must have the same values.
+- Two optional add-on plugins pick a different knockback power: Kindjal Heavy (about 1.7 times vanilla) and Kindjal
+  Brutal (the 1.0.0 numbers). Enable one; every online player must enable the same one.
+- Weapon descriptions no longer promise worms thrown across the map.
+
 ## 1.0.0
 
 First release. Needs Melange 0.9.0 or later.
