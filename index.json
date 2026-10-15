@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 27,
+  "serial": 31,
   "plugins": [
     {
       "id": "bloodsand",
@@ -264,6 +264,24 @@
       "screenshots": [],
       "versions": [
         {
+          "version": "1.3.0",
+          "released": "2026-10-15",
+          "melange": ">=0.8.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kanly-v1.3.0/kanly-1.3.0.zip",
+          "sha256": "d15ed0858392c52a3347be2359cf240dbd8ebba2533044a16a99f71788300190",
+          "size": 16317720,
+          "unpackedSize": 16414850,
+          "files": 38,
+          "changelog": "Weapons now unlock as the match progresses and run out after a few uses, in both styles.\n\n- Kanly: weapons have an unlock turn (Delay) in four tiers, start, turn 1, turn 2 and turn 3. The match opens with basics\n  and utilities; mid-tier weapons come at turn 1, heavy ones at turn 2, and the super weapons (Concrete Donkey, Super\n  Airstrike, Fatkins, Starburst, Flood, Alien Abduction, Weapon Factory weapon) at turn 3.\n- Ammo is cut hard: basics 3 to 4, utilities 2 to 3, mid tier 2 (power-ups 1), heavy and super weapons 1. Nothing is\n  unlimited and crates stay on.\n- The 15 mystery crate entries now get 1 ammo and unlock at turn 1.\n- Kanly Melee: the same tiers for the allowed weapons (no super tier), same bans.\n- Netplay: the host and every peer need Kanly 1.3.0."
+        },
+        {
           "version": "1.2.0",
           "released": "2026-10-10",
           "melange": ">=0.8.0",
@@ -374,6 +392,24 @@
       "screenshots": [],
       "versions": [
         {
+          "version": "1.1.0",
+          "released": "2026-10-15",
+          "melange": ">=0.9.0",
+          "kind": "content",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kindjal-v1.1.0/kindjal-1.1.0.zip",
+          "sha256": "21e5d99aef158efdedcbc88a282427f851ab316434d0793c0099641ebce695b6",
+          "size": 5766104,
+          "unpackedSize": 16654590,
+          "files": 126,
+          "changelog": "- Knockback brought back to near the game's own: every weapon now throws worms about 1.2 times as hard as vanilla, over\n  about 1.1 times the reach, instead of two to three times as hard (the Ripper 0.64 to 0.35, the Gorger 1.80 to 0.72,\n  the Earthquake Ass 1.30 to 0.56, the Crucible 1.35 to 0.62). Damage, blast radius and craters are unchanged.\n- The Railspike, Knifeman and Rust Canister, which have no knockback in the game, get a small one.\n- Knockback is tunable: `KNOCKBACK`, `REACH` and `MELEE` at the top of `mod/sim/main.lua` scale every knockback and\n  reach, the three new weapons included. They live in the sim script, not on the Mods page, because the match cannot\n  read Mods-page settings; the file is content-hashed, so every online player must have the same values.\n- Two optional add-on plugins pick a different knockback power: Kindjal Heavy (about 1.7 times vanilla) and Kindjal\n  Brutal (the 1.0.0 numbers). Enable one; every online player must enable the same one.\n- Weapon descriptions no longer promise worms thrown across the map."
+        },
+        {
           "version": "1.0.0",
           "released": "2026-10-10",
           "melange": ">=0.9.0",
@@ -390,6 +426,90 @@
           "unpackedSize": 16650889,
           "files": 126,
           "changelog": "First release. Needs Melange 0.9.0 or later.\n\n- Every vanilla weapon re-statted darker at match start (damage, blast radius, crater, knockback) and renamed: Nail\n  Bat, Hellfist, Shiv, Railspike, Ripper, Pipe Bomb, Blast Keg, Profane Grenade, Plantain Hell, Nail Cluster, Bear Trap,\n  Harpoon, Carpet Bombing, Carrion Drop, Earthquake Ass, Rabid Flock, Plague Ram, Hangwoman, Knifeman, Gorger, Dead\n  Star, Slug Gun, Elephant Gun, Gibbet Turret, Plague Arrow, Rust Canister.\n- Three new weapons: Acid Spitter, Acid Flask and Crucible, with their own icons and models; every renamed weapon\n  gets its own panel and HUD icon.\n- Models: every renamed weapon has its own held and/or projectile model (37 mesh banks), and the Airstrike and Super\n  Airstrike helicopters are replaced by a black and a bone-white gunship. 19 banks are static meshes built from\n  scratch; 18 are clones of vanilla skinned meshes that keep the game's rig, skin weights, animation clips and UV layout\n  (see \"What is derived from the game\" in the README). Seen in play so far: the Nail Bat, Acid Flask and Crucible in hand.\n- Acid that clings to a worm's skin, bubbles and smokes; acid puddles; melee impact sparks and hit-flash; new sounds.\n- Content mod: every player in an online match needs the same version."
+        }
+      ]
+    },
+    {
+      "id": "kindjal-brutal",
+      "name": "Kindjal Brutal",
+      "authors": [
+        "Melange"
+      ],
+      "description": "Kindjal add-on: brings back Kindjal 1.0.0's original knockback, two to three times vanilla (Ripper 0.64, Gorger 1.80, Earthquake Ass 1.30). Enable at most one Kindjal knockback preset. Content mod: every player in an online match needs it.",
+      "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kindjal-brutal",
+      "licence": "MIT",
+      "categories": [
+        "weapons",
+        "gameplay"
+      ],
+      "gameBuilds": [
+        "1077"
+      ],
+      "screenshots": [],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "released": "2026-10-15",
+          "melange": ">=0.9.0",
+          "kind": "content",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [
+            "kindjal >= 1.1.0"
+          ],
+          "conflicts": [
+            "kindjal-heavy"
+          ],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kindjal-brutal-v1.0.0/kindjal-brutal-1.0.0.zip",
+          "sha256": "ba7d4829e0b424d1ab09f01575499f41aa9d9b1dde0d90fe3284649fab799479",
+          "size": 2735,
+          "unpackedSize": 4989,
+          "files": 3,
+          "changelog": "First release. Needs Melange 0.9.0 or later and Kindjal 1.1.0 or later."
+        }
+      ]
+    },
+    {
+      "id": "kindjal-heavy",
+      "name": "Kindjal Heavy",
+      "authors": [
+        "Melange"
+      ],
+      "description": "Kindjal add-on: throws worms harder. Multiplies the knockback Kindjal sets by 1.4 and its reach by 1.15, about 1.7 times vanilla knockback. Enable at most one Kindjal knockback preset. Content mod: every player in an online match needs it.",
+      "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kindjal-heavy",
+      "licence": "MIT",
+      "categories": [
+        "weapons",
+        "gameplay"
+      ],
+      "gameBuilds": [
+        "1077"
+      ],
+      "screenshots": [],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "released": "2026-10-15",
+          "melange": ">=0.9.0",
+          "kind": "content",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [
+            "kindjal >= 1.1.0"
+          ],
+          "conflicts": [
+            "kindjal-brutal"
+          ],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kindjal-heavy-v1.0.0/kindjal-heavy-1.0.0.zip",
+          "sha256": "13a7b0fc0fac4a7cb2a8c171a132251a0721f8a8f173223dba84546aa2d11a0c",
+          "size": 2971,
+          "unpackedSize": 5634,
+          "files": 3,
+          "changelog": "First release. Needs Melange 0.9.0 or later and Kindjal 1.1.0 or later."
         }
       ]
     },
