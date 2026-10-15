@@ -1,0 +1,12 @@
+{
+  "name": "hair-closeup-wigs",
+  "size": [1920, 1080],
+  "seed": 417,
+  "ground": "sand",
+  "camera": { "pos": [8, 18, 46], "target": [0, 15, 0], "fov": 40 },
+  "hair": "natural",
+  "worms": [
+    { "slot": 2, "pos": [0, 0, 0], "yawDeg": 14, "hat": "wig", "hairColour": "darkbrown", "tash": "brown", "name": "Dark Mop Wig" }
+  ],
+  "params": { "sunstone/skin": { "wigs": 1 } }
+}

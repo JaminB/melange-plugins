@@ -1,0 +1,12 @@
+{
+  "name": "duel",
+  "size": [960, 540],
+  "seed": 91,
+  "ground": "grass",
+  "camera": { "pos": [-20, 30, 95], "target": [0, 13, 0], "fov": 40 },
+  "lighting": { "sunDir": [0.5, 0.6, 0.6] },
+  "worms": [
+    { "slot": 0, "pos": [-22, 0, 0], "yawDeg": 80, "hat": "beanie", "blood": 0.3, "hitFromDeg": 90, "wound": 0.2 },
+    { "slot": 5, "pos": [22, 0, -4], "yawDeg": -75, "hat": "cowboy", "skin": "pale", "blood": 0.6, "hitFromDeg": 270, "eye": 0.5 }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "clean",
+  "size": [960, 540],
+  "seed": 417,
+  "ground": "sand",
+  "camera": { "pos": [10, 38, 135], "target": [0, 13, 0], "fov": 40 },
+  "worms": [
+    { "slot": 0, "pos": [-38, 0, -6], "yawDeg": 25, "hat": "cowboy" },
+    { "slot": 1, "pos": [0, 0, 4], "yawDeg": -8, "hat": "none" },
+    { "slot": 2, "pos": [36, 0, -10], "yawDeg": -40, "hat": "helmet", "skin": "warm" }
+  ]
+}

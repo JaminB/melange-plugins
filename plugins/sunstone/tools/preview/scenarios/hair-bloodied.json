@@ -1,0 +1,13 @@
+{
+  "name": "hair-bloodied",
+  "size": [960, 540],
+  "seed": 417,
+  "ground": "sand",
+  "camera": { "pos": [8, 20, 52], "target": [0, 13, 0], "fov": 40 },
+  "worms": [
+    { "slot": 1, "pos": [-7, 0, 0], "yawDeg": 18, "hat": "none", "tash": "orange", "name": "Orange Tash",
+      "blood": 0.85, "hitFromDeg": 180, "wound": 0.7, "eye": 0.6 },
+    { "slot": 4, "pos": [8, 0, -4], "yawDeg": -20, "hat": "afro", "hairColour": "black", "tash": "brown", "name": "Afro",
+      "blood": 0.7, "hitFromDeg": 150, "wound": 0.5, "eye": 0.4 }
+  ]
+}

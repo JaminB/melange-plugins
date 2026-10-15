@@ -1,0 +1,10 @@
+{
+  "name": "mouth-closeup",
+  "size": [960, 540],
+  "seed": 417,
+  "ground": "sand",
+  "camera": { "pos": [4, 12.5, 24], "target": [0, 10.2, 0], "fov": 40 },
+  "worms": [
+    { "slot": 2, "pos": [0, 0, 0], "yawDeg": 8, "name": "Shouting", "mouth": { "open": 1, "shape": "wide", "teeth": true } }
+  ]
+}

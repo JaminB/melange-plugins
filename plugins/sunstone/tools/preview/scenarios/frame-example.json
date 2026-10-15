@@ -1,0 +1,10 @@
+{
+  "name": "frame-example",
+  "comment": "Mode (b): a real game frame without depth. Put a screenshot next to this file as frame.png (or point image at it) and give each worm a box [x0, y0, x1, y1] in image pixels (top-left origin) around its body including the head. Depth is faked: an upright capsule per box in front of a far backdrop. Approximate; see README.",
+  "image": "frame.png",
+  "seed": 417,
+  "camera": { "fov": 40 },
+  "worms": [
+    { "slot": 1, "box": [440, 200, 515, 352], "yawDeg": 0, "blood": 0.9, "hitFromDeg": 200, "wound": 0.75, "eye": 0.8 }
+  ]
+}
