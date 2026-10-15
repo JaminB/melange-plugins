@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 29,
+  "serial": 30,
   "plugins": [
     {
       "id": "bloodsand",
@@ -426,6 +426,48 @@
           "unpackedSize": 16650889,
           "files": 126,
           "changelog": "First release. Needs Melange 0.9.0 or later.\n\n- Every vanilla weapon re-statted darker at match start (damage, blast radius, crater, knockback) and renamed: Nail\n  Bat, Hellfist, Shiv, Railspike, Ripper, Pipe Bomb, Blast Keg, Profane Grenade, Plantain Hell, Nail Cluster, Bear Trap,\n  Harpoon, Carpet Bombing, Carrion Drop, Earthquake Ass, Rabid Flock, Plague Ram, Hangwoman, Knifeman, Gorger, Dead\n  Star, Slug Gun, Elephant Gun, Gibbet Turret, Plague Arrow, Rust Canister.\n- Three new weapons: Acid Spitter, Acid Flask and Crucible, with their own icons and models; every renamed weapon\n  gets its own panel and HUD icon.\n- Models: every renamed weapon has its own held and/or projectile model (37 mesh banks), and the Airstrike and Super\n  Airstrike helicopters are replaced by a black and a bone-white gunship. 19 banks are static meshes built from\n  scratch; 18 are clones of vanilla skinned meshes that keep the game's rig, skin weights, animation clips and UV layout\n  (see \"What is derived from the game\" in the README). Seen in play so far: the Nail Bat, Acid Flask and Crucible in hand.\n- Acid that clings to a worm's skin, bubbles and smokes; acid puddles; melee impact sparks and hit-flash; new sounds.\n- Content mod: every player in an online match needs the same version."
+        }
+      ]
+    },
+    {
+      "id": "kindjal-heavy",
+      "name": "Kindjal Heavy",
+      "authors": [
+        "Melange"
+      ],
+      "description": "Kindjal add-on: throws worms harder. Multiplies the knockback Kindjal sets by 1.4 and its reach by 1.15, about 1.7 times vanilla knockback. Enable at most one Kindjal knockback preset. Content mod: every player in an online match needs it.",
+      "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/kindjal-heavy",
+      "licence": "MIT",
+      "categories": [
+        "weapons",
+        "gameplay"
+      ],
+      "gameBuilds": [
+        "1077"
+      ],
+      "screenshots": [],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "released": "2026-10-15",
+          "melange": ">=0.9.0",
+          "kind": "content",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [
+            "kindjal >= 1.1.0"
+          ],
+          "conflicts": [
+            "kindjal-brutal"
+          ],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kindjal-heavy-v1.0.0/kindjal-heavy-1.0.0.zip",
+          "sha256": "13a7b0fc0fac4a7cb2a8c171a132251a0721f8a8f173223dba84546aa2d11a0c",
+          "size": 2971,
+          "unpackedSize": 5634,
+          "files": 3,
+          "changelog": "First release. Needs Melange 0.9.0 or later and Kindjal 1.1.0 or later."
         }
       ]
     },

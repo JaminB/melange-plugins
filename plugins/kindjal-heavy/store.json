@@ -9,5 +9,29 @@
   "gameBuilds": [
     "1077"
   ],
-  "screenshots": []
+  "screenshots": [],
+  "versions": [
+    {
+      "version": "1.0.0",
+      "released": "2026-10-15",
+      "melange": ">=0.9.0",
+      "kind": "content",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [
+        "kindjal >= 1.1.0"
+      ],
+      "conflicts": [
+        "kindjal-brutal"
+      ],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/kindjal-heavy-v1.0.0/kindjal-heavy-1.0.0.zip",
+      "sha256": "13a7b0fc0fac4a7cb2a8c171a132251a0721f8a8f173223dba84546aa2d11a0c",
+      "size": 2971,
+      "unpackedSize": 5634,
+      "files": 3,
+      "changelog": "First release. Needs Melange 0.9.0 or later and Kindjal 1.1.0 or later."
+    }
+  ]
 }
