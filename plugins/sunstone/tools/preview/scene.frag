@@ -31,6 +31,7 @@ uniform vec4 u_wmouth[8];   // mouth (opt-in): x open 0..1, y shape 0 'o' / 1 'w
                             // w 1 = the worm has a mouth (0: no mouth at all, as in the older scenarios)
 uniform vec3 u_wlip[8];     // lip albedo (a darker, pinker skin)
 uniform float u_wvomit[8];  // Bloodsand's vomiting: blood droplets (flat sprites, no depth) from the mouth, 0..1
+uniform float u_wmark[8];   // 1 = the skin (and lips) carry Sunstone's skin mark: scene alpha 245/255 (a "tone" worm)
 uniform vec3 u_sunDir;
 uniform vec3 u_sunCol;
 uniform vec3 u_amb;
@@ -337,7 +338,9 @@ void main() {
 
     vec3 col;
     float depth;
+    float alpha = 1.0;
     if (tHit > 0.0) {
+        if (mat < 1.5 && u_wmark[wi] > 0.5) alpha = 245.0 / 255.0;
         vec3 p = ro + rd * tHit;
         depth = DepthOf(-dot(p - ro, fwd));
         if (u_fake == 1) {
@@ -445,6 +448,6 @@ void main() {
             }
         }
     }
-    o_col = vec4(clamp(col, 0.0, 1.0), 1.0);
+    o_col = vec4(clamp(col, 0.0, 1.0), alpha);
     o_depth = vec4(depth, 0.0, 0.0, 1.0);
 }

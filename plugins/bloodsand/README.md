@@ -248,6 +248,30 @@ burn that fade away over about twelve seconds (the burn over three), and makes i
 more of the intestine slide out. It also throws gibs (a very big hit's worth each time, and a death's worth every third press), lays a trail of drips and a
 smear with a pool at the worm's feet, and makes the worm spurt for six seconds.
 
+### With Sunstone's Worm skin
+
+Sunstone 2.2's Worm skin re-tones the worms to a human tone, which the skin's colour test cannot find. Sunstone marks
+the skin it draws in the scene's alpha (245 of 255), and the skin effect takes that mark as skin as well, so blood,
+gashes, black eyes, burns and the torn belly land on every tone. Sunstone also tells Bloodsand each worm's skin
+brightness against the game's peach (the event `mod.sunstone.skin`, sent on as the hidden `tone0..3`): the light a wound,
+the blood's sheen and a burn read off a marked pixel is divided by it, so they are as bright and red on a dark skin as on
+the peach, while a black eye, which is the skin itself gone dark, keeps the skin's own brightness. Where the skin, guts
+and gibs effects paint over the mark they clear it (alpha 1), so Kindjal's acid, which comes after, leaves the blood and
+guts alone. Where the worm whose turn it is stands behind a ledge, the game shows it through, and the depth there is the
+ledge's: Sunstone marks that skin 244 instead, and the skin effect finds the worm's body along the view ray (the first
+body the ray enters past the ledge) and paints it there too, at 70%, instead of stopping in a hard line at the ledge.
+
+How the skin is found: by the colour test, and wherever Sunstone marked it, by the mark as well (the hidden `sunskin`
+says what Sunstone draws). So the peach is found under Lunar's purple light and on a poisoned worm, a human tone is found
+by its mark, and if Sunstone's shader ever does not run, the game's peach is still found by its colour. (A moustache
+Sunstone draws as real hair can then catch a wound where its highlights have the skin's colour.) On a dark tone a thin
+smear stains the skin's own colour and adds some of the blood's own red, so it reads as red over the brown without
+lifting the skin under it toward the peach (which washed a dark skin pale wherever blood was spread thin), while pooled
+blood keeps its red and a wet sheen twice as strong, so the wounds stand out. On a re-toned skin the blood that pools is
+coloured as it is on the peach (it hides the skin under it), so it stays red on a dark skin, and a black eye is the
+skin's own colour gone purple-red and dark (plum on a fair skin, a deep brown on a dark one), softer than the near-black
+mask the cartoon peach gets.
+
 ## How it detects hits
 
 The game posts a message the moment a worm is damaged, and another for every explosion with its position, damage and

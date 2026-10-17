@@ -2,12 +2,14 @@
 
 Runs real Melange post-FX effect folders from this repo offline, in headless Chromium (WebGL2 on SwiftShader via
 Playwright), on a synthetic WUM-like scene or on a real game frame. Use it to preview and screenshot effects such as
-`bloodsand/skin`, `kindjal/acid` and `sunstone/skin` together, in Melange's order, without the game.
+`bloodsand/skin` and `kindjal/acid` together, in Melange's order, without the game. (Sunstone's Worm skin and hair are
+drawn by its model shader since 2.2, not by a post-FX effect, so the preview cannot run them; a worm's `tone` draws its
+skin as that model shader would leave it for the post-FX: in the tone's albedo and marked in the scene's alpha.)
 
 ```sh
 cd plugins/sunstone
-node tools/preview/run.mjs --scenario tools/preview/scenarios/bloodied.json \
-  --effects ../bloodsand/mod/postfx/skin,mod/postfx/skin --out /tmp/shots/x.png --compare --diff --stages
+node tools/preview/run.mjs --scenario tools/preview/scenarios/human-skin.json \
+  --effects ../bloodsand/mod/postfx/skin,../kindjal/mod/postfx/acid --out /tmp/shots/x.png --compare --diff --stages
 ```
 
 | Option | Meaning |
@@ -18,7 +20,7 @@ node tools/preview/run.mjs --scenario tools/preview/scenarios/bloodied.json \
 | `--compare` | `x.compare.png`: input and output side by side |
 | `--diff [--gain 4]` | `x.diff.png`: changed pixels amplified, unchanged pixels dark grey (shows exactly what an effect touched) |
 | `--stages` | `x.scene.png`, `x.depth.png`, then one PNG after each effect and each full-size intermediate pass |
-| `--param id:name=v1,v2` | override a parameter (repeatable), e.g. `--param sunstone/skin:tone=2` |
+| `--param id:name=v1,v2` | override a parameter (repeatable), e.g. `--param bloodsand/skin:strength=0.5` |
 | `--size WxH`, `--keep-order`, `--probe x,y` | size override; run in the given order instead of Melange's; print input/output RGB of a pixel |
 
 Exit code 1 when an effect failed to compile or link (the others still run, as in Melange). Compile errors are mapped
@@ -37,7 +39,9 @@ moustache, brown moustache, dark-brown mop wig + brown handlebar, black afro, gi
 `hair-closeup.json` (brown mop wig + brown moustache filling the frame; the preview's `brown` is at the cowboy hat's
 hue, so Hair hats leaves this wig alone by design), `hair-closeup-wigs.json` (the same with a dark-brown wig, Hair hats
 on, 1920x1080: the wig is treated close up as at gameplay distance), `hair-bloodied.json` (orange moustache and
-afro + brown moustache worms with blood, wounds and black eyes near the mouth). Mouths: `mouths.json` (closed, small o,
+afro + brown moustache worms with blood, wounds and black eyes near the mouth; the hair scenarios were made for the
+post-FX hair of Sunstone 2.1 and now only show the scene). Human skin: `human-skin.json` (fair, deep and medium worms
+with Bloodsand's blood, wounds, black eyes and belly and Kindjal's acid, on Sunstone's marked skin). Mouths: `mouths.json` (closed, small o,
 shout, grin with teeth, shout with teeth + moustache), `mouth-closeup.json` (one worm filling the frame with an open
 mouth), `mouth-bloodied.json` (mouths with blood and wounds, and vomit).
 
@@ -47,6 +51,8 @@ mouth), `mouth-bloodied.json` (mouths with blood and wounds, and vomit).
   "seed": 417,                                  // match seed pushed to effects that have p_seed
   "ground": "sand",                             // sand | grass
   "sunstone": true,                             // tells drivers Sunstone runs (Kindjal's compat = 1)
+  "sunskin": 3, "sunskinAcid": 2,               // optional: how Bloodsand / Kindjal find the skin (their p_sunskin);
+                                                // default 3 / 2 when a worm has a tone (colour test or mark), else 0 (colour)
   "camera": { "pos": [10, 38, 135], "target": [0, 13, 0], "fov": 40, "near": 2, "far": 4000 },
   "lighting": { "sunDir": [...], "sunCol": [...], "ambient": [...], "skyTop": [...], "skyHorizon": [...],
                 "groundColour": [...], "groundNoise": 0.12 },
@@ -60,7 +66,9 @@ mouth), `mouth-bloodied.json` (mouths with blood and wounds, and vomit).
     "hairStreak": 0.3,                           // strand streaks in hair/moustache albedo (multiplicative, keeps hue)
     "blood": 0.9, "hitFromDeg": 200, "wound": 0.75, "eye": 0.8, "gut": 0, "gutAz": 0, "scorch": 0,   // Bloodsand
     "acid": 0, "acidSpread": 1,                  // Kindjal
-    "alive": true, "tone": "…"                    // anything else is passed to drivers untouched
+    "tone": "deep",                              // Sunstone's Worm skin: fair|light|medium|olive|tan|brown|deep|[r,g,b];
+                                                 // the skin takes that albedo and Sunstone's mark (scene alpha 245/255)
+    "alive": true                                // anything else is passed to drivers untouched
   }],
   "params": { "bloodsand/skin": { "strength": 1 } }   // per-effect overrides after the driver
 }
@@ -101,10 +109,8 @@ no effect. Use it for classifier checks on real colours, not for judging shading
 - `bloodsand.skin.mjs`: `wormN` centre, `wormNb = (blood + 2·hitBin, wound, heading)`, `wormNc = (eye, gut, gutAz)`,
   `scorch0..3`, `seed`; like the Lua, a worm with nothing to paint is not driven.
 - `kindjal.acid.mjs`: `wormN`, `level0..3`, `spread0..3`, `seed`, `compat`.
-- `sunstone.skin.mjs`: `wormN` centre, `wormNb` the worm's `tone` (a name, fair to deep as in Sunstone's Lua, or
-  `[r,g,b]`; default medium), `wormNc = (heading, seed, 0)`, `sunDir` (the scenario's, normalised), `compat`. Hair, only
-  where `effect.ini` declares it: scenario `"hair": "game"|"natural"|"mixed"` → `hair`/`hairMode` 0/1/2, per worm
-  `hairD` → `wormNd`; scenario `hairParams: {name: v}` are passed as is.
+- Both also send `tone0..3`: each slot's skin brightness against the game's peach (0.703), from the worm's `tone`
+  (1 without one), as Sunstone's event `mod.sunstone.skin` gives it to their Lua.
 
 An effect with no driver but a `worm0` parameter gets the generic driver (`wormN` = body centre of every living worm)
 and a warning. Parameters a driver sets that `effect.ini` does not declare are ignored with a warning; uniforms

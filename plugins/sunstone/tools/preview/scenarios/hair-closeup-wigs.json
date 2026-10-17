@@ -7,6 +7,5 @@
   "hair": "natural",
   "worms": [
     { "slot": 2, "pos": [0, 0, 0], "yawDeg": 14, "hat": "wig", "hairColour": "darkbrown", "tash": "brown", "name": "Dark Mop Wig" }
-  ],
-  "params": { "sunstone/skin": { "wigs": 1 } }
+  ]
 }

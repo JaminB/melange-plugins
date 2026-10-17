@@ -154,7 +154,9 @@ All of this is client-side and off by a setting; none of it touches the simulati
 
 These are all client-side; the knockback is tuned in the sim script instead (see "Tuning the knockback").
 
-In a match the overlay's Lua menu has *Preview acid*, *Preview melee* and *Acid +10 s* for a look at the effects.
+In a match the overlay's Lua menu has *Preview acid*, *Preview melee* and *Acid +10 s* for a look at the effects. The
+same previews are the event `mod.kindjal.preview` (`what = "acid" | "melee" | "age"`); the acid lands on the worm nearest
+the active one, or with `target = "active"` on the active worm itself.
 
 ## With Bloodsand and Sunstone
 
@@ -179,6 +181,17 @@ changes and every five seconds) and adapts. It only ever switches or sets effect
   keeps a colour's hue and saturation and only moves brightness, so the acid's yellow-green (hue 64 to 80 degrees,
   saturation 0.76 to 0.80) comes out at the same hue and saturation, a little brighter in the darks and whiter only on
   the specular rim. Its colour grade at the default strength shifts it by about 2 degrees, and 4 in the darkest spots.
+- **Acid on Sunstone's human skin.** Sunstone's Worm skin (2.2 and later) re-tones the worms to a human tone the
+  colour test cannot find. Sunstone marks the skin it draws in the scene's alpha (245 of 255), and the acid takes that
+  mark as skin too, unless the pixel is red (green under 0.3 to 0.4 of red: blood, a wound). Bloodsand 1.4.0 clears the
+  mark where it painted, so the acid leaves its blood, wounds, bruises and guts alone there as well. Sunstone also tells
+  Kindjal each worm's skin brightness against the game's peach (the event `mod.sunstone.skin`, sent on as the hidden
+  `tone0..3`), and the light the acid reads off a marked pixel is divided by it, so the acid is as bright on a dark skin as
+  on the peach, and on a dark tone it covers more of the skin under it (up to a third more), so it reads as green instead
+  of a faint olive stain. Sunstone marks the game's peach as well while its lighting runs; the acid takes the colour test or the
+  mark (so it shows under Lunar's purple light too, and on the game's peach even if Sunstone's shader does not run). Where the worm whose turn it is stands behind a ledge, the game shows it through and the depth there
+  is the ledge's: Sunstone marks that skin 244 instead, and the acid finds the worm's body along the view ray and coats it
+  there too, at 70%, instead of stopping in a hard line at the ledge.
 - **Cost.** The acid pass is on only while a coated worm is within half a screen of the view. It rejects pixels off every
   coated worm's body with a sphere test, then off its skin shell, and runs the colour test before the surface normal and
   the long painting code. Estimated (counted from the operations, not measured) at about 0.1 ms at 1080p. At Sunstone's

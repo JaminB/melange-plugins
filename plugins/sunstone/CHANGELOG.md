@@ -1,3 +1,23 @@
+## 2.2.0
+
+- **Worm skin is rebuilt in the model shader.** The skin and hair used to be found by colour in the finished frame; now
+  Sunstone's lit-model shader knows exactly which texels are skin before any light or grade. No more peach patches on
+  tails and faces, no camouflage blotches, and moustaches, hats, glasses and eyes always keep their colours. Gloved
+  hands that show bare skin take the tone too.
+- **Fast and reliable:** nothing measurable at the game's camera, about 0.1 to 0.4 ms at Ultra with a worm close up
+  (was 0.3 to 1.1 ms), and no stall when you change Worm skin or Worm hair.
+- **Clearly distinct tones, fully covered.** Light, Tan and Brown can be picked as well as Fair, Medium, Olive, Deep and
+  Mixed. Each tone has its own undertone (pink ivory, golden beige, warm tan, muted olive, golden and red browns), and
+  dark tones keep warm mid-tones in shade instead of going black.
+- **Skin you can see from the game's own distance:** blotches of blood and pigment, folds and wrinkles round the neck
+  and down the back, a fine grain that catches the light, moles, blemishes and freckles, an oily T-zone that shines
+  against matte cheeks, darker skin around the eyes, and pores up close; soft warm light under and through the skin, natural eye whites, fair skin that keeps its colour in the sun, less colour banding, and a little
+  variation from worm to worm.
+- **Hair:** moustaches, and with Realistic hair hats the afro, pigtails and crests, are found by their texture and drawn
+  with strands and a hair fibre's highlights.
+- **Bloodsand 1.4.0 and Kindjal 1.2.0** paint on the new skin (the skin marks itself for them); older versions only
+  paint on the game's peach, and Sunstone says so on screen.
+
 ## 2.1.0
 
 - New **Worm skin** setting (Game / Fair / Medium / Olive / Deep / Mixed, default Game): re-renders the worms' cartoon
