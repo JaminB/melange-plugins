@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 33,
+  "serial": 34,
   "plugins": [
     {
       "id": "bloodsand",
@@ -391,6 +391,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.2.0",
+          "released": "2026-10-17",
+          "melange": ">=0.9.0",
+          "kind": "content",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kindjal-v1.2.0/kindjal-1.2.0.zip",
+          "sha256": "5352e8d48812af6a1e761dc41ce22edfe188dd2604e17d5a9462f7bfd6d0e7a5",
+          "size": 5768193,
+          "unpackedSize": 16661271,
+          "files": 126,
+          "changelog": "- The acid eats Sunstone's human skin: with Sunstone 2.2's Worm skin on a tone, the acid finds the skin by the mark\n  Sunstone leaves in the scene instead of by the game's peach colour (which a human tone no longer has), and lights itself\n  by that worm's skin brightness, so it looks the same on a dark skin as on the peach. It still leaves blood, wounds and\n  guts alone. With Sunstone 2.2 the game's peach is found by the mark too, so the acid also shows under Lunar's purple\n  light. The colour test always counts too, so should Sunstone's shader not run the peach is still found. On a dark tone\n  the acid covers more of the skin under it, so it reads as the poison's green, not a faint olive stain. Nothing changes\n  without Sunstone 2.2.\n- With Sunstone 2.2, the acid also shows on a worm seen through a ledge (the game shows the worm whose turn it is through\n  what stands in front of it), a little fainter, instead of stopping in a hard line at the ledge's edge.\n- The preview event (`mod.kindjal.preview`, `what = \"acid\"`) takes `target = \"active\"` to coat the active worm."
+        },
         {
           "version": "1.1.0",
           "released": "2026-10-15",
