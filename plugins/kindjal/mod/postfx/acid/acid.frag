@@ -9,6 +9,16 @@
 //   p_strength           float 0..1 overall opacity; 0 or all levels 0 leaves the scene unchanged
 //   p_compat             float 0..1 how much of Sunstone's lighting and grade is on the scene (0 = the game's own look, 1 = Sunstone
 //                        running); it only widens SkinTone, see there
+//   p_tone0..p_tone3     vec4  skin brightness of slots 4k+0..3 against the game's peach while Sunstone's Worm skin re-tones the
+//                        worms (1 = the peach); the light read off the skin is divided by it, so the acid is as bright on a dark
+//                        skin as on the peach
+//   p_sunskin            float what Sunstone draws: 0 no mark; 1 the peach marked; 2 a re-toned skin or its hair (the colour test
+//                        counts in every case, the mark as well wherever there is one)
+// Sunstone's Worm skin re-tones the worms to a human tone the colour test cannot find, so the skin its model shader marks in
+// the scene's alpha (245 of 255; Bloodsand clears the mark where it painted blood) counts as skin too, unless it is red. Sunstone
+// marks the game's peach as well while that shader runs, so the acid finds it under any light (Lunar's purple included). The
+// colour test always counts too, so if Sunstone's shader does not run the game's peach is still found (a moustache drawn
+// as real hair can then catch acid where its highlights have the skin's colour).
 // Built-ins used: mg_scene, mg_depth, mg_invProj, mg_view, mg_nearFar, mg_resolution, mg_time.
 //
 // The body is found the way Bloodsand's skin effect finds it (same capsule shell, same skin classifier, same depth-buffer
@@ -36,6 +46,8 @@ uniform vec4 p_spread0, p_spread1, p_spread2, p_spread3;
 uniform float p_seed;
 uniform float p_strength;
 uniform float p_compat;
+uniform vec4 p_tone0, p_tone1, p_tone2, p_tone3;
+uniform float p_sunskin;
 varying vec2 mg_uv;
 
 float Hash(vec2 p) {
@@ -141,6 +153,24 @@ vec3 SurfaceNormal(vec3 P, vec3 Cv, out float cover) {
     return dot(n, P) > 0.0 ? -n : n;
 }
 
+// A slot's skin brightness against the game's peach (tone0..3, four slots each); unset (0) counts as the peach.
+float SlotTone(float i) {
+    vec4 t = i < 3.5 ? p_tone0 : (i < 7.5 ? p_tone1 : (i < 11.5 ? p_tone2 : p_tone3));
+    float k = i - 4.0 * floor(i / 4.0 + 0.01);
+    float v = k < 0.5 ? t.x : (k < 1.5 ? t.y : (k < 2.5 ? t.z : t.w));
+    return v > 0.02 ? v : 1.0;
+}
+
+// 1 where Sunstone's model shader marked the pixel as skin, set by main(); behind 1 on the skin of the turn's worm seen
+// through a ledge (Sunstone marks it 244: the game shows that worm through as a see-through silhouette, and the depth there
+// is the ledge's), whose body Pick then finds along the view ray (the distance in rayT), so the acid goes on through the
+// ledge, at BEHIND_PAINT, instead of stopping in a hard line at its edge.
+float sunSkin = 0.0;
+float behind = 0.0;
+float rayT = 1e9;
+const vec3 BODY = vec3(6.0, 14.0, 6.0);
+const float BEHIND_PAINT = 0.7;
+
 // Eats one worm's skin into col, which holds the scene's colour on the way in. P is the pixel's view-space position, n its
 // surface normal, lv the acid level and sp the spread (0..1). mg_view is the world-to-view matrix, so d * mat3(mg_view)
 // turns a view-space offset back into world axes (L, the pixel's offset from the body's middle, which moves with the worm).
@@ -165,12 +195,15 @@ void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sp, float slotIdx, float 
     mask *= skin;
     if (mask <= 0.0) return;
     // A worm stands clear of what is behind it: the depth falls away to one side of it by more than a couple of units.
-    float ppx = 0.5 * mg_resolution.y / (abs(mg_invProj[1][1]) * max(-P.z, 1.0));
-    float sxo = clamp(7.6 * ppx, 4.0, 160.0) * mg_resolution.z;
-    float gapL = P.z - ViewPos(mg_uv - vec2(sxo, 0.0)).z;
-    float gapR = P.z - ViewPos(mg_uv + vec2(sxo, 0.0)).z;
-    mask *= max(smoothstep(1.2, 3.5, gapL), smoothstep(1.2, 3.5, gapR));
-    if (mask <= 0.0) return;
+    // (Behind a ledge the depth around is the ledge's: there the body was found along the view ray, which is enough.)
+    if (behind < 0.5) {
+        float ppx = 0.5 * mg_resolution.y / (abs(mg_invProj[1][1]) * max(-P.z, 1.0));
+        float sxo = clamp(7.6 * ppx, 4.0, 160.0) * mg_resolution.z;
+        float gapL = P.z - ViewPos(mg_uv - vec2(sxo, 0.0)).z;
+        float gapR = P.z - ViewPos(mg_uv + vec2(sxo, 0.0)).z;
+        mask *= max(smoothstep(1.2, 3.5, gapL), smoothstep(1.2, 3.5, gapR));
+        if (mask <= 0.0) return;
+    }
 
     // The eaten pattern: two octaves of noise held in the worm's own offset L (so it travels with the worm, and the seed
     // and slot give each worm its own), thresholded against the spread so that a few spots at 0 join into a coat at 1.
@@ -190,7 +223,8 @@ void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sp, float slotIdx, float 
     if (cov <= 0.0) return;
 
     // Colour: a sickly green-yellow that keeps the skin's own shading (lum), darkening toward the middle of each eaten spot.
-    float lum = dot(col, vec3(0.299, 0.587, 0.114));
+    float tone = mix(1.0, SlotTone(slotIdx), sunSkin);
+    float lum = dot(col, vec3(0.299, 0.587, 0.114)) / tone;
     vec3 acid = mix(vec3(0.55, 0.75, 0.15), vec3(0.78, 0.82, 0.2), n1 * 0.6);
     acid = mix(acid, vec3(0.10, 0.14, 0.02), 0.85 * smoothstep(0.1, 0.8, inner));
     acid *= clamp(0.35 + 0.9 * lum, 0.3, 1.15);
@@ -218,14 +252,35 @@ void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sp, float slotIdx, float 
     float wet = 0.35 + 0.65 * smoothstep(0.0, 0.5, inner) + 0.4 * rim;
     acid += vec3(1.0, 1.0, 0.8) * spec * 0.8 * wet * (0.4 + lum) + vec3(0.5, 0.7, 0.1) * fres * 0.15;
 
-    col = mix(col, acid, clamp(cov * (0.55 + 0.45 * smoothstep(0.0, 0.5, inner + spe)), 0.0, 1.0));
+    // On a dark skin Sunstone re-toned, the acid covers more of what shows through it (with the same share as on the peach
+    // the dark brown left under it read as a faint olive stain instead of the poison's green).
+    float darkTone = clamp(1.25 * (1.0 - tone), 0.0, 1.0);
+    col = mix(col, acid, clamp(cov * (0.55 + 0.45 * smoothstep(0.0, 0.5, inner + spe) + 0.35 * darkTone), 0.0, 1.0));
 }
 
 // Chooses the worm a pixel belongs to (see the top). best is the smallest value so far of the body ellipsoid's equation
 // (below 1 is inside); the other outputs are that slot's values. A slot with no level or no position is skipped.
 void Pick(vec3 P, vec3 centre, float lv, float sp, float slotIdx, inout float best, inout vec3 wc, inout float wlv, inout float wsp, inout float wslot) {
     if (lv <= 0.0 || dot(centre, centre) < 1e-6) return;
-    vec3 d = P - (mg_view * vec4(centre, 1.0)).xyz;
+    vec3 Cv = (mg_view * vec4(centre, 1.0)).xyz;
+    if (behind > 0.5) {
+        // Where the view ray enters this body (in its own axes, scaled to a unit sphere), or the ledge at P if the ray is
+        // already inside it there; a body the ray leaves before the ledge is not the one behind it.
+        vec3 o = (-Cv * mat3(mg_view)) / BODY;
+        vec3 v = (normalize(P) * mat3(mg_view)) / BODY;
+        float qa = dot(v, v), qb = dot(o, v), disc = qb * qb - qa * (dot(o, o) - 1.0);
+        float s = sqrt(max(disc, 0.0)), lp = length(P);
+        float t = max((-qb - s) / qa, lp);
+        if (disc <= 0.0 || (-qb + s) / qa < lp || t >= rayT) return;
+        rayT = t;
+        best = 0.0;
+        wc = centre;
+        wlv = lv;
+        wsp = sp;
+        wslot = slotIdx;
+        return;
+    }
+    vec3 d = P - Cv;
     // Early outs, in order of cost: farther than the ellipsoid's longest semi-axis (16, with a margin) can never be on this
     // worm; and a pixel off the capsule shell (2.4 to 8.1 units from the vertical axis, the same range Worm() fades to
     // nothing outside) can take no acid, so it must not claim the pixel from a worm whose surface it is on.
@@ -255,6 +310,7 @@ void main() {
     }
     float best = 1.0, wlv = 0.0, wsp = 0.0, wslot = 0.0;
     vec3 wc = vec3(0.0);
+    behind = abs(scene.a * 255.0 - 244.0) < 0.5 ? 1.0 : 0.0;
     Pick(P, p_worm0, p_level0.x, p_spread0.x, 0.0, best, wc, wlv, wsp, wslot);
     Pick(P, p_worm1, p_level0.y, p_spread0.y, 1.0, best, wc, wlv, wsp, wslot);
     Pick(P, p_worm2, p_level0.z, p_spread0.z, 2.0, best, wc, wlv, wsp, wslot);
@@ -277,13 +333,22 @@ void main() {
     }
     // The cheap colour test before the dear normal: most pixels on a worm's shell are not skin (hat, eyes, blood, Bloodsand's
     // gore) and leave here.
-    float skin = SkinTone(scene.rgb, clamp(p_compat, 0.0, 1.0));
+    sunSkin = abs(scene.a * 255.0 - 245.0) < 0.5 || behind > 0.5 ? smoothstep(0.30, 0.40, scene.g / max(scene.r, 1e-3)) : 0.0;
+    float skin = max(SkinTone(scene.rgb, clamp(p_compat, 0.0, 1.0)), sunSkin);
     if (skin < 0.01) {
         gl_FragColor = scene;
         return;
     }
-    float cover;
-    vec3 n = SurfaceNormal(P, (mg_view * vec4(wc, 1.0)).xyz, cover);
+    float cover = BEHIND_PAINT;
+    vec3 n;
+    if (behind > 0.5) {
+        // Behind a ledge: the point where the ray enters the body, with the body's own normal.
+        P = normalize(P) * rayT;
+        vec3 L = (P - (mg_view * vec4(wc, 1.0)).xyz) * mat3(mg_view);
+        n = normalize(mat3(mg_view) * (L / (BODY * BODY)));
+    } else {
+        n = SurfaceNormal(P, (mg_view * vec4(wc, 1.0)).xyz, cover);
+    }
     vec3 col = scene.rgb;
     Worm(P, n, wc, clamp(wlv, 0.0, 1.0), clamp(wsp, 0.0, 1.0), wslot, skin, col);
     gl_FragColor = vec4(mix(scene.rgb, col, p_strength * cover), scene.a);

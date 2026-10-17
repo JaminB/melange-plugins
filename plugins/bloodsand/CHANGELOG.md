@@ -1,3 +1,21 @@
+## 1.4.0
+
+- Gore on Sunstone's human skin: with Sunstone 2.2's Worm skin on a tone, blood, gashes, black eyes, burns and the torn
+  belly are painted on the new skin (found by the mark Sunstone leaves in the scene instead of by the game's peach colour,
+  which a human tone no longer has), and wounds and blood are lit by that worm's skin brightness, so they look as raw on a
+  dark skin as on the peach. Pooled blood keeps its red on a dark skin instead of turning black.
+- Black eyes on a human skin are a real bruise: the skin's own colour gone purple-red and dark (plum on a fair skin, a
+  deep brown on a dark one), softer than the cartoon's near-black mask, which the game's peach keeps.
+- With Sunstone 2.2 the game's peach is found by Sunstone's mark as well as by its colour, so wounds also show under
+  Lunar's purple light and on a poisoned worm. The colour test always counts too, so should Sunstone's shader not run the
+  peach is still found (a moustache drawn as real hair can then catch a wound where its highlights have the skin's
+  colour). On a dark tone a thin smear of blood is red over the brown, with a stronger wet sheen, and no longer washes
+  the skin under it pale.
+- With Sunstone 2.2, a worm seen through a ledge (the game shows the worm whose turn it is through what stands in front of
+  it) keeps its wounds and blood there too, a little fainter, instead of having them cut off in a hard line at the
+  ledge's edge.
+  Nothing changes without Sunstone 2.2.
+
 ## 1.3.1
 
 Runs on Melange 0.7 and every later version: the plugin no longer names an upper Melange version, so a new

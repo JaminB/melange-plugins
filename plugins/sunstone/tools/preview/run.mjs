@@ -181,6 +181,13 @@ const CENTRE_Y = 12;      // body centre above the reported worm position (Blood
 const SKINS = {           // a few vanilla-peach variations inside the range SkinTone() was measured on
   peach: [0.98, 0.64, 0.36], warm: [1.0, 0.6, 0.33], pale: [0.97, 0.68, 0.42],
 };
+// Sunstone's Worm skin tones (mod/client/init.lua SKIN.TONES, keep in step): a worm's "tone" draws its skin in that albedo
+// and marks it in the scene's alpha (245/255) as Sunstone's model shader does, for Bloodsand and Kindjal to find; their
+// drivers send the tone's brightness against the game's peach (0.703) as tone0..3.
+const TONES = {
+  fair: [0.92, 0.80, 0.73], light: [0.85, 0.73, 0.50], medium: [0.64, 0.46, 0.36], olive: [0.53, 0.47, 0.355],
+  tan: [0.52, 0.38, 0.18], brown: [0.40, 0.26, 0.185], deep: [0.28, 0.18, 0.135],
+};
 const HATS = { none: 0, cowboy: 1, helmet: 2, beanie: 3, afro: 4, mohawk: 5, wig: 6 };   // 4..6 are hair (u_whairCol)
 // Moustache colours. orange and brown are placed in the windows Bloodsand's MoustTone() was measured on, after the
 // harness light (sun (0.72,0.69,0.64) + ambient 0.40 makes lit g/r ~0.97x and b/r ~0.94x of the albedo's):
@@ -209,6 +216,10 @@ const worms = (scenario.worms || []).map((w, i) => {
   o.yaw = (o.yawDeg !== undefined ? o.yawDeg * Math.PI / 180 : o.yaw);
   o.heading = wrapPi(o.yaw);
   o.skinRGB = Array.isArray(o.skin) ? o.skin : SKINS[o.skin || 'peach'];
+  const tone = Array.isArray(o.tone) ? o.tone : TONES[o.tone];
+  o.mark = tone ? 1 : 0;
+  o.toneLum = tone ? (0.299 * tone[0] + 0.587 * tone[1] + 0.114 * tone[2]) / 0.703 : 1;
+  if (tone) o.skinRGB = tone;
   o.radius = o.radius || 5.6;
   if (o.hitFromDeg !== undefined && o.hitBin === undefined) {
     // Bloodsand: hitQ = 1 + floor((atan2(-dx,-dz) mod 2pi) / 2pi * 32) % 32 with (dx,dz) the hit's travel direction.
@@ -323,7 +334,7 @@ const job = {
   sceneWorms: worms.filter((w) => w.alive !== false).map((w) => ({
     centre: w.centre, yaw: w.yaw, skin: w.skinRGB, hat: HATS[w.hat] ?? 0, radius: w.radius, simple: mode === 'image',
     hairCol: w.hairRGB, tash: TASHES[w.tashShape] ?? 1, tashCol: w.tashRGB, streak: w.hairStreak,
-    mouth: w.mouthV, lip: w.lipRGB, vomit: w.mouthV ? (w.vomit || 0) : 0,
+    mouth: w.mouthV, lip: w.lipRGB, vomit: w.mouthV ? (w.vomit || 0) : 0, mark: w.mark,
   })),
   effects: effects.map((fx) => ({
     id: fx.id, params: fx.params, textures: fx.textures,

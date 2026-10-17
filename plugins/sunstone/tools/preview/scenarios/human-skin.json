@@ -1,0 +1,15 @@
+{
+  "name": "human-skin",
+  "size": [960, 540],
+  "seed": 417,
+  "ground": "sand",
+  "sunstone": true,
+  "camera": { "pos": [10, 30, 105], "target": [0, 13, 0], "fov": 40 },
+  "worms": [
+    { "slot": 0, "pos": [-32, 0, -6], "yawDeg": 25, "hat": "none", "tone": "fair",
+      "blood": 0.8, "hitFromDeg": 160, "wound": 0.6, "eye": 0.7 },
+    { "slot": 1, "pos": [0, 0, 4], "yawDeg": -8, "hat": "none", "tone": "deep",
+      "blood": 0.9, "hitFromDeg": 200, "wound": 0.75, "eye": 0.8, "gut": 0.8, "gutAz": 0.3 },
+    { "slot": 2, "pos": [30, 0, -10], "yawDeg": -30, "hat": "none", "tone": "medium", "acid": 1, "acidSpread": 0.6 }
+  ]
+}

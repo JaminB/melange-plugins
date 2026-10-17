@@ -1,9 +1,11 @@
 -- Texture clarity is declared in spice.json's "graphics" block and applied by Melange itself.
 --
--- The post-FX effects live under postfx/ and the lighting and water under shaders/; this script maps the "quality",
--- "look", "lighting", "water", "dof", "grain", "lens" and "skin" settings onto their enable and param calls (the skin
--- effect also takes the worms' positions every frame, see "human skin" below). Each effect keeps
--- its own ini/overlay toggle, so a manual tweak in the overlay survives until the next quality or theme change.
+-- The post-FX effects live under postfx/ and the lighting, water and the worms' skin and hair under shaders/; this script
+-- maps the "quality", "look", "lighting", "water", "dof", "grain", "lens", "skin", "hair" and "wigs" settings onto their
+-- enable and param calls (Mixed skin or hair also takes the worms' positions, see "human skin and hair" below). Each
+-- effect keeps its own ini/overlay toggle, so a manual tweak in the overlay survives until the next quality or theme
+-- change. A value is only sent when it differs from what was sent before: Melange writes every wum.postfx.setParam to
+-- Melange.ini and logs it, and re-sending all of them stalled a settings change for some 300 ms.
 
 -- Every preset starts from these values (the effect.ini defaults), so switching presets never leaves a value behind.
 local BASE = {
@@ -104,6 +106,20 @@ local function sceneName()
     return ok and s or nil
 end
 
+-- A shader parameter, sent only when it changed since this script last sent it (each call costs Melange about 0.1 ms: it
+-- re-applies every program's bindings).
+local SHADER_SENT = {}
+local function shaderParam(file, entry, name, a, b, c, d)
+    local key = file .. "|" .. entry .. "|" .. name
+    local old = SHADER_SENT[key]
+    if old and old[1] == a and old[2] == b and old[3] == c and old[4] == d then return end
+    local ok
+    if d ~= nil then ok = pcall(wum.shaders.setParam, file, entry, name, a, b, c, d)
+    elseif c ~= nil then ok = pcall(wum.shaders.setParam, file, entry, name, a, b, c)
+    elseif b ~= nil then ok = pcall(wum.shaders.setParam, file, entry, name, a, b)
+    else ok = pcall(wum.shaders.setParam, file, entry, name, a) end
+    if ok then SHADER_SENT[key] = { a, b, c, d } end
+end
 -- The shadow-map size is a request to Melange (the manifest's 2048 until the first apply); the filter is a
 -- parameter of the GLSL landscape in shaders/.
 local function applyShadows(s)
@@ -111,7 +127,7 @@ local function applyShadows(s)
         wum.graphics.setShadowMapSize(s.size)
     end
     if wum.shaders then
-        pcall(wum.shaders.setParam, "Landscape.cg", "*FragmentMain", "sunstoneShadowMode", s.mode)
+        shaderParam("Landscape.cg", "*FragmentMain", "sunstoneShadowMode", s.mode)
     end
 end
 
@@ -133,6 +149,9 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- waterReflect scales its sky reflection and waterClarity is how deep the sea floor shows (world units).
 -- sunGlow replaces the glow around the sun, whitePoint and whiteAmount keep bright sand below white, and
 -- shadeChroma is how much colour shade keeps. sunColour and shadowTint replace the warm sun and cool shade tints.
+-- skinChroma (how much of the light's own colour the human Worm skin takes), skinAmbient (a tint of the ambient light on
+-- it), skinShade (a scale of a darker tone's lift in shade) and skinVivid (the skin's colour against its grey, ahead of a
+-- grade that greys the frame) keep the tones apart and warm under a theme's light and grade (see applySkin).
 local DEFAULT_THEME = { specular = 0.04, gloss = 24, relief = 4, sky = { 1.16, 1.18, 1.26 }, ground = { 0.86, 0.82, 0.76 },
                         foliage = 1 }
 -- Landscape sun tint and the ambient tint inside sun shadows: warm sun, cool skylight.
@@ -160,7 +179,7 @@ local THEMES = {
                     foliage = 0, haze = false, exposure = 0.15, contrast = 0.94, vibrance = 0.1, lut = false, sunAmount = 0,
                     sunlitFade = 0.2, fog = 0.45, sunTint = 0, hazeSaturation = 1.1, aerial = 0, skyGlow = false, waterDeep = { 1.03, 0.97, 1 },
                     shadowTint = { 1.1, 1, 0.87 }, waterReflect = 0.2, shafts = false, sunGlow = 0,
-                    sunDir = { 0.26, 0.884, -0.387 } },
+                    sunDir = { 0.26, 0.884, -0.387 }, skinVivid = 1.1 },
     LUNAR       = { specular = 0.03, gloss = 16, relief = 5, sky = { 1.08, 1.08, 1.12 }, ground = { 0.88, 0.88, 0.90 },
                     foliage = 0, haze = false, fog = 0.2, lut = false, shafts = false, clouds = false, aerial = 0, skyGlow = false,
                     sunGlow = 0, tint = 0, shadeChroma = 0, shadowDip = 0.5, sunDir = { 0.250, 0.363, -0.898 } },
@@ -168,7 +187,8 @@ local THEMES = {
                     foliage = 0.15, meadowCap = false, shadeChroma = 0, shadowDip = 0.6, sunDir = { 0.204, 0.692, -0.692 } },
     WAR         = { specular = 0.04, gloss = 20, relief = 5, sky = { 1.14, 1.16, 1.12 }, ground = { 0.80, 0.77, 0.72 },
                     foliage = 0.8, sunColour = { 1, 1.02, 0.94 }, shadowTint = { 1, 1.03, 0.92 }, shadeChroma = 0,
-                    fog = 0.5, sunGlow = 0, shafts = false, sunDir = { 0.049, 0.213, -0.975 } },
+                    fog = 0.5, sunGlow = 0, shafts = false, sunDir = { 0.049, 0.213, -0.975 },
+                    skinChroma = 0.4, skinAmbient = { 1.05, 1, 0.82 }, skinShade = 1.8, skinVivid = 1.15 },
 }
 
 -- Theme, setting and menu adjustments on top of a preset's values, per effect.
@@ -239,15 +259,37 @@ local function spread(t, k)
     return 1 + (t[1] - 1) * k, 1 + (t[2] - 1) * k, 1 + (t[3] - 1) * k
 end
 
-local function landscapeParam(name, ...)
-    pcall(wum.shaders.setParam, "Landscape.cg", "*FragmentMain", name, ...)
-end
-local function modelParam(name, ...)
-    pcall(wum.shaders.setParam, "FixedFunction.cg", "FFFragmentMain*Lit*", name, ...)
+-- A post-FX parameter, set only when it differs from the effect's current value.
+local function sameParam(id, name, value)
+    if not wum.postfx.getParam then return false end
+    local n = type(value) == "table" and #value or 1
+    local ok, a, b, c, d = pcall(wum.postfx.getParam, id, name, n)
+    if not ok or a == nil then return false end
+    local cur = { a, b, c, d }
+    for i = 1, n do
+        local want = type(value) == "table" and value[i] or value
+        local have = cur[i]
+        if type(want) ~= "number" or type(have) ~= "number" then return false end
+        if math.abs(have - want) > 1e-4 * math.max(1, math.abs(want)) then return false end
+    end
+    return true
 end
 
-local function applyLighting(l, m, on, foliage)
-    if not wum.shaders then return end
+local function postfxParam(id, name, value)
+    if sameParam(id, name, value) then return end
+    pcall(wum.postfx.setParam, id, name, value)
+end
+
+local function landscapeParam(name, ...)
+    shaderParam("Landscape.cg", "*FragmentMain", name, ...)
+end
+local function modelParam(name, ...)
+    shaderParam("FixedFunction.cg", "FFFragmentMain*Lit*", name, ...)
+end
+
+-- Returns whether the lit textured models are drawn by Sunstone's shader (which then also marks the worms' skin).
+local function applyLighting(l, m, on, foliage, people)
+    if not wum.shaders then return false end
     local lit = on and l.light or 0
     local k = l.hemisphere or 1
     local green = (m.foliage or 1) * foliage
@@ -292,7 +334,11 @@ local function applyLighting(l, m, on, foliage)
     -- With nothing of Sunstone's left to draw, the game's own programs come back.
     local landscape = l.shadows or lit > 0
     for _, e in ipairs(LANDSCAPE) do pcall(wum.shaders.enableGlsl, "Landscape.cg", e, landscape) end
-    for _, e in ipairs(MODELS) do pcall(wum.shaders.enableGlsl, "FixedFunction.cg", e, lit > 0) end
+    -- The textured one also draws the worms' skin and hair, with the game's lighting while Sunstone's is off.
+    for _, e in ipairs(MODELS) do
+        pcall(wum.shaders.enableGlsl, "FixedFunction.cg", e, lit > 0 or (people and e == "FFFragmentMainTexLit"))
+    end
+    return lit > 0 or people == true
 end
 
 -- Sunstone's water (shaders/); paused, the game's own water draws again.
@@ -301,7 +347,7 @@ local function applyWater(w, on, theme)
     local enabled = on and w.enabled
     if enabled then
         local function waterParam(name, value)
-            pcall(wum.shaders.setParam, "Water.cg", "WaterFragmentMain", name, value)
+            shaderParam("Water.cg", "WaterFragmentMain", name, value)
         end
         waterParam("sunstoneWaterWaves", w.waves)
         waterParam("sunstoneWaterReflect", (w.reflect or 0.6) * (theme.waterReflect or 1))
@@ -316,7 +362,7 @@ local function applyWater(w, on, theme)
         waterParam("sunstoneWaterSmooth", w.smooth or 0)
         waterParam("sunstoneWaterClarity", theme.waterClarity or 15)
         local deep = theme.waterDeep or { 1, 1, 1 }
-        pcall(wum.shaders.setParam, "Water.cg", "WaterFragmentMain", "sunstoneWaterDeep", deep[1], deep[2], deep[3])
+        shaderParam("Water.cg", "WaterFragmentMain", "sunstoneWaterDeep", deep[1], deep[2], deep[3])
     end
     pcall(wum.shaders.enableGlsl, "Water.cg", "WaterFragmentMain", enabled == true)
 end
@@ -335,59 +381,64 @@ local function renderScale()
     return (s and not s.multisampled and s.x) or 1
 end
 
--- ---------------------------------------------------------------- human skin
--- postfx/skin re-renders the worms' skin as human skin (see skin.frag). It runs at order 55, after Bloodsand's skin (51),
--- guts (52) and gibs (53) and Kindjal's acid (54), which go on finding and painting the vanilla peach unchanged, and
--- before Sunstone's occlusion (100) and grade (300). The shader finds each worm's body round a centre this script sends
--- every frame, as Bloodsand and Kindjal do: 16 slots, slot n in wormN (the body centre, CENTRE_Y above the position the
--- game reports, the same 12 units both of them use), wormNb (the skin albedo) and wormNc (heading, a seed for the worm's
--- own pores and mottling, and slack: how far the body can be from that centre, from the worm's speed, since the game
--- reports a position 50 times a second and a flying worm moves several units between two). Every living worm is sent,
--- blood or not (Bloodsand only sends the worms it paints). Values go out with wum.postfx.setTransient (not saved, not
--- logged) and only when they changed; the whole set is sent again every RESEND seconds in case Melange reloaded the
--- effect. The effect is on only in a match with the Worm skin setting on a tone or the Hair setting not Game, and Quality
--- not Off: Off is the game's own rendering, and Kindjal reads any enabled sunstone/* effect as Sunstone being on (its
--- acid then allows for Sunstone's tinted shade), which with Quality Off would be wrong.
-local SKIN = { id = "sunstone/skin", tone = nil, hair = 0, wigs = 0, compat = 1, sunDir = { 0, 0.936, -0.351 }, cache = {}, enabled = nil,
-               resendAt = 0, live = false }
-local SKIN_SLOTS = 16
-local CENTRE_Y = 12
-local RESEND = 3
--- Skin albedos as display colours (sRGB), from measured human skin reflectance (very fair to deep), the setting's tones
--- first: richer and redder than the sand at every depth (olive is the yellowest, still well short of the sand's hue).
--- Mixed draws every worm from all of them by its name, so a worm keeps its tone from match to match.
-local TONES = {
-    fair   = { 0.94, 0.80, 0.71 },
-    light  = { 0.88, 0.70, 0.58 },
-    medium = { 0.78, 0.57, 0.42 },
-    olive  = { 0.70, 0.53, 0.36 },
-    tan    = { 0.62, 0.44, 0.30 },
-    brown  = { 0.45, 0.30, 0.20 },
-    deep   = { 0.30, 0.19, 0.13 },
+-- ---------------------------------------------------------------- human skin and hair
+-- The worms' skin and hair are drawn by Sunstone's lit-model shader (shaders/FixedFunction.FFFragmentMainTexLit.glsl),
+-- where each fragment's unlit colour is the texture's own: the worm's own material with a texel of the skin's colour is
+-- skin, and what a worm wears (a glove with bare skin in it, a moustache, a hair hat) is told by its texture. Natural hair
+-- alone is a handful of parameters set when a setting changes. A re-toned skin (any tone) and Mixed hair also need each
+-- worm where it is: 16 sunstoneWormN parameters (the body's middle, CENTRE_Y above the position the game reports, with
+-- the worm's tone, seed, facing and hair colour packed into w: the shader places the face and gives each worm its own
+-- detail by them), sent only when a worm has moved more than MOVE units, turned or changed, at most SENDS a frame (each
+-- call costs Melange about 0.1 ms); the worms are read every frame only while one moves (see skinFrame). The skin (the game's
+-- peach too, whenever the shader runs) marks itself in the scene's alpha, which shaders/PostProcess.RecombineWorms.glsl
+-- carries through the game's composition of the frame, so Bloodsand and Kindjal find it exactly instead of by its colour;
+-- the tone's brightness against the game's peach goes to them as the event mod.sunstone.skin ({ on, hair, marks, lum =
+-- { slot 0 .. 15 } }), so their wounds and acid keep their own brightness on a dark skin. A settings change only sets
+-- parameters: nothing is re-linked and nothing is logged (Melange flushes its log to disk on every line, on the game's
+-- thread). All of it is off with Quality Off (the game's own rendering).
+local SKIN = { tone = nil, hair = 0, wigs = 0, mixed = false, marks = false, byName = {}, sent = {}, live = false,
+               slots = 16, CENTRE_Y = 12, MOVE = 0.4, SENDS = 3, next = 0, lum = {}, lumSent = nil, emitAt = 0,
+               want = {}, frame = 0, idle = 0, IDLE_POLL = 8, YAW_STEPS = 64,
+               EMIT_EVERY = 5, PEACH_LUM = 0.703, warned = {}, outdated = {}, recombine = nil, NOTICE_SECS = 20,
+               ambLum = 1,
+               noticeUntil = 0, bootClock = os.clock() }
+-- Skin albedos (the unlit colour, in the texture's terms; the game's peach is 0.953, 0.620, 0.475), very fair to deep,
+-- the setting's tones first. Mixed draws every worm from all seven by its name, so a worm keeps its tone from match to
+-- match. Each differs from its neighbours in undertone as well as lightness (CIE Lab of the albedo, L a b): Fair a pink
+-- ivory (84 8 13), Light a golden beige (77 3 34), Medium a warm tan (53 15 21), Olive a muted green-brown, its red held
+-- back (51 1 18), Tan a golden brown (44 9 34), Brown (32 13 18) and Deep (22 10 12) red-browns; every pair at least 12 apart,
+-- and from the peach (73 28 32). The light and the grade roughly halve these distances on screen (and lighten the dark
+-- tones), so they are wider than a photograph's and spread in lightness, which a grade that greys the colour keeps. The shader keeps the same table (TONES, by SKIN.INDEX) and shades
+-- them so that they stay warm and apart in shade and under a theme's light (see applySkin).
+SKIN.TONES = {
+    fair   = { 0.92, 0.8, 0.73 },
+    light  = { 0.85, 0.73, 0.5 },
+    medium = { 0.64, 0.46, 0.36 },
+    olive  = { 0.53, 0.47, 0.355 },
+    tan    = { 0.52, 0.38, 0.18 },
+    brown  = { 0.4, 0.26, 0.185 },
+    deep   = { 0.28, 0.18, 0.135 },
 }
-local MIXED = { "fair", "light", "medium", "olive", "tan", "brown", "deep" }
--- Hair (the Hair setting) rides on the same effect and slots: Natural draws each moustache (and, with Hair hats on, each
--- hair hat) as real hair in its own colour family, Mixed gives every worm a natural hair colour of its own, by its name.
--- The shader's palette, by index (skin.frag HairAlbedo): 1 black, 2 dark brown, 3 brown, 4 light brown, 5 dark blonde,
--- 6 blonde, 7 auburn, 8 ginger, 9 grey. The weights follow the worm's skin tone, as hair colour does in life (black and
--- dark brown on every tone and most of all on deep ones, blond and red mostly on light ones); with the game's peach skin
--- the light tones' weights are used. A hat is never recoloured (see the shader): Mixed only changes moustaches.
-local HAIR_MODES = { game = 0, natural = 1, mixed = 2 }
-local HAIR_WEIGHTS = {
+SKIN.INDEX = { fair = 1, light = 2, medium = 3, olive = 4, tan = 5, brown = 6, deep = 7 }
+SKIN.MIXED = { "fair", "light", "medium", "olive", "tan", "brown", "deep" }
+-- Hair (the Hair setting): Natural draws each moustache (and, with Hair hats on, each hair hat) as real hair in its own
+-- colour family, Mixed gives every worm's moustache a natural colour of its own, by its name. The shader's palette, by
+-- index (HairAlbedo): 1 black, 2 dark brown, 3 brown, 4 light brown, 5 dark blonde, 6 blonde, 7 auburn, 8 ginger, 9 grey,
+-- 10 white. The weights follow the worm's skin tone, as hair colour does in life (black and dark brown on every tone and
+-- most of all on deep ones, blond and red mostly on light ones); with the game's peach skin the light tones' weights are
+-- used. A hat is never recoloured: Mixed only changes moustaches.
+SKIN.HAIR_MODES = { game = 0, natural = 1, mixed = 2 }
+SKIN.HAIR_WEIGHTS = {
     light = { 1.0, 2.0, 2.0, 2.0, 1.5, 1.5, 1.0, 1.0, 0.6 },
     mid   = { 3.0, 3.0, 2.0, 1.0, 0.4, 0.2, 0.4, 0.2, 0.6 },
     deep  = { 5.0, 3.0, 1.0, 0.2, 0.0, 0.0, 0.1, 0.0, 0.6 },
 }
-local HAIR_GROUP = { fair = "light", light = "light", medium = "mid", olive = "mid", tan = "mid", brown = "deep", deep = "deep" }
-local hasTransient = wum.postfx and wum.postfx.setTransient and wum.postfx.enable and true or false
-
-local SKIN_A, SKIN_B, SKIN_C = {}, {}, {}
-for i = 0, SKIN_SLOTS - 1 do
-    SKIN_A[i], SKIN_B[i], SKIN_C[i] = "worm" .. i, "worm" .. i .. "b", "worm" .. i .. "c"
-end
+SKIN.HAIR_GROUP = { fair = "light", light = "light", medium = "mid", olive = "mid", tan = "mid", brown = "deep", deep = "deep" }
+SKIN.NAMES = {}
+for i = 0, SKIN.slots - 1 do SKIN.NAMES[i] = "sunstoneWorm" .. i end
 
 -- A small, stable hash of a string to 0..1 (a polynomial mod a prime, exact in doubles), so a name gives the same tone and
--- pattern on every client and in every match.
+-- hair on every client and in every match.
 local function hash01(s)
     local h = 7
     for i = 1, #s do
@@ -399,145 +450,287 @@ local function hash01(s)
     return h / 2147483647
 end
 
--- Sends one parameter when it differs from the last value sent by more than eps. The cache only takes a value Melange
--- accepted, so a refused call is tried again next frame.
-local function skinSend(name, a, b, c, eps)
-    local old = SKIN.cache[name]
-    if old and math.abs(old[1] - a) <= eps and math.abs(old[2] - b) <= eps and math.abs(old[3] - c) <= eps then return end
-    local ok, res = pcall(wum.postfx.setTransient, SKIN.id, name, a, b, c)
-    if not ok or res == false then return end
-    SKIN.cache[name] = { a, b, c }
+-- A tone's brightness against the game's peach as the shader draws it in the light: its albedo's, times the theme's
+-- ambient tint's own brightness.
+local function toneLum(rgb)
+    return (0.299 * rgb[1] + 0.587 * rgb[2] + 0.114 * rgb[3]) / SKIN.PEACH_LUM * SKIN.ambLum
 end
 
-local function skinEnable(on)
-    if SKIN.enabled == on or not (wum.postfx and wum.postfx.enable) then return end
-    local ok, res = pcall(wum.postfx.enable, SKIN.id, on)
-    if ok and res ~= false then SKIN.enabled = on end
-end
-
--- The albedo of a worm: the setting's tone, or for Mixed one of all seven by name; with a few percent of its own
--- variation either way, so a team of one tone is not one flat colour.
-local function wormAlbedo(name, slot)
+-- A worm's look, by its name (cached; byName is cleared when the settings change): its tone (the setting's, or for Mixed
+-- one of all seven), a seed (the shader gives each worm a few percent of its own tone, its own pores and blotches and, on
+-- some fair ones, freckles), its hair colour for Mixed hair (0 otherwise), as the code the shader unpacks less the facing
+-- (see the shader's sunstoneWormN; skinFrame adds the facing), and its brightness against the game's peach.
+local function wormLook(name, slot)
     local key = (name and name ~= "") and name or ("slot" .. slot)
+    local look = SKIN.byName[key]
+    if look then return look end
     local h = hash01(key)
-    local t = TONES[SKIN.tone]
-    if SKIN.tone == "mixed" then t = TONES[MIXED[math.floor(h * #MIXED) % #MIXED + 1]] end
     local toneName = SKIN.tone
-    if toneName == "mixed" then toneName = MIXED[math.floor(h * #MIXED) % #MIXED + 1] end
-    t = t or TONES.medium
-    local v = 1 + 0.06 * (hash01(key .. "#v") - 0.5)
-    local r = 1 + 0.04 * (hash01(key .. "#r") - 0.5)
-    return t[1] * v * r, t[2] * v, t[3] * v / r, h, toneName
-end
-
--- A worm's natural hair colour for Mixed (1..9, the shader's palette), by its name and weighted by its skin tone; 0 (its
--- moustache's own colour family) otherwise. Packed into the thousands of the seed the shader already gets.
-local function wormHair(name, slot, toneName)
-    if SKIN.hair ~= 2 then return 0 end
-    local key = (name and name ~= "") and name or ("slot" .. slot)
-    local w = HAIR_WEIGHTS[HAIR_GROUP[toneName] or "light"]
-    local total = 0
-    for i = 1, #w do total = total + w[i] end
-    local x = hash01(key .. "#hair") * total
-    for i = 1, #w do
-        x = x - w[i]
-        if x < 0 then return i end
-    end
-    return #w
-end
-
-local function skinZeroAll()
-    for i = 0, SKIN_SLOTS - 1 do skinSend(SKIN_A[i], 0, 0, 0, 0) end
-end
-
-local function skinFrame()
-    local ok, inMatch = pcall(wum.game.inMatch)
-    if not ((SKIN.tone or SKIN.hair > 0) and hasTransient and ok and inMatch) then
-        if SKIN.live then
-            skinZeroAll()
-            SKIN.live = false
-        end
-        skinEnable(false)
-        return
-    end
-    if not SKIN.live or os.clock() >= SKIN.resendAt then
-        SKIN.cache = {}
-        SKIN.resendAt = os.clock() + RESEND
-        local d = SKIN.sunDir
-        skinSend("sunDir", d[1], d[2], d[3], 0)
-        SKIN.compatSent = nil
-        SKIN.modeSent = nil
-    end
-    SKIN.live = true
-    -- Cached like skinSend: only an accepted call is remembered, so a refusal is retried every frame, and the value
-    -- is sent again only when SKIN.compat changes (or the resend block above cleared it).
-    if SKIN.compatSent ~= SKIN.compat then
-        local okc, resc = pcall(wum.postfx.setTransient, SKIN.id, "compat", SKIN.compat)
-        if okc and resc ~= false then SKIN.compatSent = SKIN.compat end
-    end
-    -- The skin, hair and hair-hat switches, the same way (all three or none are remembered, so a refusal retries).
-    local mode = (SKIN.tone and 1 or 0) .. ":" .. SKIN.hair .. ":" .. SKIN.wigs
-    if SKIN.modeSent ~= mode then
-        local all = true
-        for _, pv in ipairs({ { "skinOn", SKIN.tone and 1 or 0 }, { "hair", SKIN.hair }, { "wigs", SKIN.wigs } }) do
-            local okm, resm = pcall(wum.postfx.setTransient, SKIN.id, pv[1], pv[2])
-            if not okm or resm == false then all = false end
-        end
-        if all then SKIN.modeSent = mode end
-    end
-    local okw, worms = pcall(wum.game.worms)
-    local used = {}
-    if okw and type(worms) == "table" then
-        for i = 1, #worms do
-            local w = worms[i]
-            local slot = type(w) == "table" and tonumber(w.slot)
-            local pos = slot and w.pos
-            if slot and slot >= 0 and slot < SKIN_SLOTS and w.alive == true and type(pos) == "table"
-                and tonumber(pos.x) and tonumber(pos.y) and tonumber(pos.z) then
-                used[slot] = true
-                local yaw = tonumber(w.yaw) or 0
-                if yaw - yaw ~= 0 then yaw = 0 end
-                yaw = (yaw + math.pi) % (2 * math.pi) - math.pi
-                local v = type(w.vel) == "table" and w.vel or {}
-                local vx, vy, vz = tonumber(v.x) or 0, tonumber(v.y) or 0, tonumber(v.z) or 0
-                -- One tick of movement (and a little more) either way, up to 10 units.
-                local slack = math.min(10, math.sqrt(vx * vx + vy * vy + vz * vz) * 0.03)
-                local r, g, b, h, toneName = wormAlbedo(w.name, slot)
-                local hairIdx = wormHair(w.name, slot, toneName)
-                skinSend(SKIN_A[slot], pos.x, pos.y + CENTRE_Y, pos.z, 0.02)
-                skinSend(SKIN_B[slot], r, g, b, 1e-4)
-                skinSend(SKIN_C[slot], yaw, math.floor(h * 997) + 1000 * hairIdx, slack, 0.01)
+    if toneName == "mixed" then toneName = SKIN.MIXED[math.floor(h * #SKIN.MIXED) % #SKIN.MIXED + 1] end
+    local t = SKIN.TONES[toneName]
+    local seed = math.floor(hash01(key .. "#v") * 64) % 64
+    local hair = 0
+    if SKIN.hair == 2 then
+        local w = SKIN.HAIR_WEIGHTS[SKIN.HAIR_GROUP[toneName] or "light"]
+        local total = 0
+        for i = 1, #w do total = total + w[i] end
+        local x = hash01(key .. "#hair") * total
+        hair = #w
+        for i = 1, #w do
+            x = x - w[i]
+            if x < 0 then
+                hair = i
+                break
             end
         end
     end
-    for i = 0, SKIN_SLOTS - 1 do
-        if not used[i] then skinSend(SKIN_A[i], 0, 0, 0, 0) end
-    end
-    -- On for the whole match, so it compiles at the start and not when the first worm appears.
-    skinEnable(true)
+    look = { code = 1 + hair * 32768 + (t and SKIN.INDEX[toneName] or 0) * 4096 + seed * 64, lum = t and toneLum(t) or 1 }
+    SKIN.byName[key] = look
+    return look
 end
 
--- The setting and what it depends on, from apply().
-local function applySkin(state, preset, theme)
-    local tone = state.skin
-    if tone ~= "mixed" and not TONES[tone] then tone = nil end
-    if state.quality == "off" then tone = nil end
-    local hair = HAIR_MODES[state.hair] or 0
-    if state.quality == "off" then hair = 0 end
-    local wigs = (hair > 0 and state.wigs) and 1 or 0
-    if tone ~= SKIN.tone or hair ~= SKIN.hair or wigs ~= SKIN.wigs then
-        SKIN.tone = tone
-        SKIN.hair = hair
-        SKIN.wigs = wigs
-        SKIN.cache = {}
-        SKIN.modeSent = nil
+-- One worm slot's parameter, remembered so it is only sent again when the worm moved or its colours changed.
+local function wormSend(slot, x, y, z, code)
+    local ok = pcall(wum.shaders.setParam, "FixedFunction.cg", "FFFragmentMain*Lit*", SKIN.NAMES[slot], x, y, z, code)
+    if ok then
+        local s = SKIN.sent[slot]
+        if not s then
+            s = {}
+            SKIN.sent[slot] = s
+        end
+        s[1], s[2], s[3], s[4] = x, y, z, code
     end
-    -- The skin test allows for Sunstone's tinted shade while its lighting is on, as Kindjal's acid does.
-    local lit = state.lighting and preset.lighting and (preset.lighting.light or 0) > 0
-    SKIN.compat = lit and 1 or 0
-    SKIN.sunDir = theme.sunDir or BASE.hdr.sunDir
-    SKIN.resendAt = 0
-    if not tone and hair == 0 then skinEnable(false) end
+    return ok
+end
+
+local function wormZeroAll()
+    for i = 0, SKIN.slots - 1 do
+        local s = SKIN.sent[i]
+        if s == nil or s[4] ~= 0 then wormSend(i, 0, 0, 0, 0) end
+    end
+end
+
+-- Tells Bloodsand and Kindjal how bright each worm's skin is against the game's peach (1 with the skin off), whether the
+-- skin is re-toned (on), whether Sunstone draws the hair (hair) and whether the skin is marked in the scene's alpha at all
+-- (marks: with Sunstone's lit-model shader running, the game's peach included), when that changes and every EMIT_EVERY
+-- seconds (for a mod loaded or reloaded later). With marks they find the skin by the mark as well as by their colour
+-- tests (which stay, so the peach is still found should this shader not run).
+-- (skinFrame calls it every frame it runs: the comparison with what was sent last allocates nothing.)
+local function emitLum(force)
+    if not (wum.events and wum.events.emit) then return end
+    local on, hair, marks = SKIN.tone ~= nil, SKIN.hair > 0, SKIN.marks == true
+    local last = SKIN.lumSent
+    if not force and last and os.clock() < SKIN.emitAt and last.on == on and last.hair == hair and last.marks == marks then
+        local same = true
+        for i = 1, SKIN.slots do
+            if math.abs((on and SKIN.lum[i] or 1) - last.lum[i]) > 5e-4 then
+                same = false
+                break
+            end
+        end
+        if same then return end
+    end
+    SKIN.emitAt = os.clock() + SKIN.EMIT_EVERY
+    local lum = {}
+    for i = 1, SKIN.slots do lum[i] = on and (SKIN.lum[i] or 1) or 1 end
+    SKIN.lumSent = { on = on, hair = hair, marks = marks, lum = lum }
+    pcall(wum.events.emit, "skin", { on = on, hair = hair, marks = marks, lum = lum })
+end
+
+-- Per frame, while the skin is re-toned or the hair is Mixed: each worm's centre, look and facing, sent when it moved,
+-- turned or changed, a few a frame. The worms are read every frame while any of them moves, else every IDLE_POLL frames.
+local function skinFrame()
+    if not SKIN.mixed then return end
+    if SKIN.idle > 0 then
+        SKIN.idle = SKIN.idle - 1
+        return
+    end
+    local ok, inMatch = pcall(wum.game.inMatch)
+    if not (ok and inMatch) then
+        if SKIN.live then
+            wormZeroAll()
+            SKIN.live = false
+        end
+        return
+    end
+    SKIN.live = true
+    local okw, worms = pcall(wum.game.worms)
+    if not (okw and type(worms) == "table") then return end
+    -- (The slots' tables are kept from frame to frame; a slot counts only when stamped with this frame.)
+    local want, frame = SKIN.want, SKIN.frame + 1
+    SKIN.frame = frame
+    local moving = false
+    for i = 1, #worms do
+        local w = worms[i]
+        local slot = type(w) == "table" and tonumber(w.slot)
+        local pos = slot and w.pos
+        if slot and slot >= 0 and slot < SKIN.slots and w.alive == true and type(pos) == "table"
+            and tonumber(pos.x) and tonumber(pos.y) and tonumber(pos.z) then
+            local look = wormLook(w.name, slot)
+            local t = want[slot]
+            if not t then
+                t = {}
+                want[slot] = t
+            end
+            local yaw = tonumber(w.yaw)
+            local yq = (yaw and yaw - yaw == 0) and math.floor(yaw / (2 * math.pi) * SKIN.YAW_STEPS + 0.5) % SKIN.YAW_STEPS or 0
+            t[1], t[2], t[3], t[4], t[5] = pos.x, pos.y + SKIN.CENTRE_Y, pos.z, look.code + yq, frame
+            SKIN.lum[slot + 1] = look.lum
+            local vel = w.vel
+            if type(vel) == "table" and math.abs(tonumber(vel.x) or 0) + math.abs(tonumber(vel.y) or 0)
+                + math.abs(tonumber(vel.z) or 0) > 0.5 then
+                moving = true
+            end
+        end
+    end
+    -- Round robin from where the last frame stopped, so no slot waits behind a busy one.
+    local sends = 0
+    for k = 0, SKIN.slots - 1 do
+        local i = (SKIN.next + k) % SKIN.slots
+        local w, s = want[i], SKIN.sent[i]
+        if w and w[5] ~= frame then w = nil end
+        local due
+        if w then
+            due = not s or s[4] ~= w[4] or (w[1] - s[1]) ^ 2 + (w[2] - s[2]) ^ 2 + (w[3] - s[3]) ^ 2 > SKIN.MOVE * SKIN.MOVE
+        else
+            due = s == nil or s[4] ~= 0
+            SKIN.lum[i + 1] = nil
+        end
+        if due then
+            if sends >= SKIN.SENDS then
+                SKIN.next = i
+                break
+            end
+            sends = sends + 1
+            if w then wormSend(i, w[1], w[2], w[3], w[4]) else wormSend(i, 0, 0, 0, 0) end
+        end
+    end
+    -- (Sends left over for the next frame count as movement.)
+    if not moving and sends < SKIN.SENDS then SKIN.idle = SKIN.IDLE_POLL - 1 end
+    emitLum(false)
+end
+
+-- A notice on the screen for NOTICE_SECS, on a dark band a little below the game's own banner (the log alone goes unseen).
+local function notify(lines)
+    if not (wum.draw and wum.draw.on and wum.draw.hudText) then return end
+    SKIN.notice, SKIN.noticeUntil = lines, os.clock() + SKIN.NOTICE_SECS
+    if SKIN.noticeHandle then return end
+    local ok, h = pcall(wum.draw.on, "hud", function()
+        if os.clock() > SKIN.noticeUntil then
+            if SKIN.noticeHandle then pcall(wum.draw.off, SKIN.noticeHandle) end
+            SKIN.noticeHandle = nil
+            return
+        end
+        local okw, w, hh = pcall(wum.render.windowSize)
+        w, hh = okw and tonumber(w) or 1920, okw and tonumber(hh) or 1080
+        local size = math.max(16, math.floor(hh / 40))
+        local x0, y0 = math.floor(w * 0.12), math.floor(hh * 0.2)
+        local n = #SKIN.notice
+        if wum.draw.hudRect then
+            wum.draw.hudRect(x0 - 12, y0 - 8, math.floor(w * 0.88) + 12, y0 + n * (size + 6) + 6, "#000000B0", true)
+        end
+        for i, line in ipairs(SKIN.notice) do
+            wum.draw.hudText(x0, y0 + (i - 1) * (size + 6), line, i == 1 and "#FFD27AFF" or "#FFFFFFFF", size)
+        end
+    end)
+    if ok then SKIN.noticeHandle = h end
+end
+
+-- A Bloodsand or Kindjal too old to read the skin's mark paints its wounds and acid only on skin of the game's colour (and
+-- takes Sunstone's hair for skin), so the log and, once a session, the screen say to update it.
+local function checkPartners()
+    if not ((SKIN.tone or SKIN.hair > 0) and wum.postfx and wum.postfx.getParam) then return end
+    local found = false
+    for _, p in ipairs({ { "bloodsand/skin", "Bloodsand 1.4.0" }, { "kindjal/acid", "Kindjal 1.2.0" } }) do
+        if not SKIN.warned[p[1]] then
+            local ok, v = pcall(wum.postfx.getParam, p[1], "seed")
+            local okt, t = pcall(wum.postfx.getParam, p[1], "tone0", 4)
+            if ok and v ~= nil and okt and t == nil then
+                SKIN.warned[p[1]] = true
+                SKIN.outdated[#SKIN.outdated + 1] = p[2]
+                found = true
+            end
+        end
+    end
+    if not found then return end
+    local who = table.concat(SKIN.outdated, " and ")
+    local msg = "Sunstone: Worm skin and hair need " .. who .. " or later"
+    local msg2 = "for wounds and acid on the new skin. Update " .. (#SKIN.outdated > 1 and "them" or "it") .. " on the Plugins page (Mods)."
+    if wum.log and wum.log.warn then wum.log.warn(msg .. " " .. msg2) end
+    SKIN.noticeLines = { msg, msg2 }
+    -- Found while the game starts up (a setting kept from the last session), it waits for the first match.
+    local okm, inMatch = pcall(wum.game.inMatch)
+    if (okm and inMatch) or os.clock() > SKIN.bootClock + 30 then notify(SKIN.noticeLines) else SKIN.noticePending = true end
+end
+
+-- The settings and what they depend on, from apply(). Returns whether the lit-model shader is needed for skin or hair.
+-- A theme's light and grade pull the tones together (a coloured light tints them all alike, a dim grade crushes the dark
+-- ones), so per theme the skin takes less of the light's own colour (skinChroma), its ambient light can be tinted
+-- (skinAmbient), a darker tone's lift in shade scaled (skinShade) and its colour made richer ahead of a grade that greys
+-- the frame (skinVivid: Horror's sepia).
+local function applySkin(state, theme)
+    local tone = state.skin
+    if tone ~= "mixed" and not SKIN.TONES[tone] then tone = nil end
+    local hair = SKIN.HAIR_MODES[state.hair] or 0
+    if state.quality == "off" or not wum.shaders then
+        tone, hair = nil, 0
+    end
+    local wigs = (hair > 0 and state.wigs) and 1 or 0
+    local amb = theme.skinAmbient or { 1, 1, 1 }
+    local ambLum = 0.299 * amb[1] + 0.587 * amb[2] + 0.114 * amb[3]
+    if tone ~= SKIN.tone or hair ~= SKIN.hair or wigs ~= SKIN.wigs or ambLum ~= SKIN.ambLum then
+        SKIN.tone, SKIN.hair, SKIN.wigs = tone, hair, wigs
+        SKIN.byName = {}
+        SKIN.lum = {}
+    end
+    SKIN.ambLum = ambLum
+    -- Every worm's centre and facing go to the shader whenever the skin is re-toned (its face and seed), and for Mixed
+    -- hair: SKIN.mixed.
+    SKIN.mixed = tone ~= nil or hair == 2
+    SKIN.idle = 0
+    if not wum.shaders then return false end
+    local t = tone and (SKIN.TONES[tone] or SKIN.TONES.medium)
+    modelParam("sunstoneSkin", t and 1 or 0)
+    if t then modelParam("sunstoneSkinTone", t[1], t[2], t[3]) end
+    modelParam("sunstoneSkinMixed", SKIN.mixed and 1 or 0)
+    modelParam("sunstoneHair", hair)
+    modelParam("sunstoneWigs", wigs)
+    modelParam("sunstoneSkinChroma", theme.skinChroma or 0.35)
+    modelParam("sunstoneSkinShade", theme.skinShade or 1)
+    modelParam("sunstoneSkinAmbient", amb[1], amb[2], amb[3])
+    modelParam("sunstoneSkinVivid", theme.skinVivid or 1)
+    -- One tone: every slot has that tone's brightness for Bloodsand and Kindjal.
+    if t and tone ~= "mixed" then
+        local l = toneLum(t)
+        for i = 1, SKIN.slots do SKIN.lum[i] = l end
+    end
+    if not SKIN.mixed and SKIN.live then
+        wormZeroAll()
+        SKIN.live = false
+    end
+    return t ~= nil or hair > 0
+end
+
+-- After the lighting: whether the skin is marked (Sunstone's lit-model shader runs), and the composition pass that carries
+-- the mark with it (RecombineWorms). It follows the shader only, never the skin or hair setting: re-linking it on a
+-- settings change (and the log lines that go with it) could stall the frame. Silhouette_PC, the ghost of the turn's worm
+-- behind a ledge, which keeps a trace of the worm and its skin's mark under it, changes how that ghost looks, so it runs
+-- only while the skin is re-toned or Sunstone draws the hair (people): with both off the game looks as it did. Switching
+-- it re-links it (a stall of up to a third of a second in testing), so that happens only between scenes (the menu, or a
+-- match loading: switch is true); a change in the middle of a match takes effect from the next one.
+local function applyMarks(marks, people, switch)
+    SKIN.marks = marks == true
+    if wum.shaders and SKIN.marks ~= SKIN.recombine
+        and pcall(wum.shaders.enableGlsl, "PostProcess.cg", "RecombineWorms", SKIN.marks) then
+        SKIN.recombine = SKIN.marks
+    end
+    local ghost = SKIN.marks and people == true
+    if wum.shaders and ghost ~= SKIN.ghost and (switch or SKIN.ghost == nil)
+        and pcall(wum.shaders.enableGlsl, "PostProcess.cg", "Silhouette_PC", ghost) then
+        SKIN.ghost = ghost
+    end
+    emitLum(true)
+    checkPartners()
 end
 
 local KEYS = { "quality", "look", "theme", "scene", "lighting", "water", "dof", "grain", "lens", "scale", "skin", "hair", "wigs" }
@@ -566,6 +759,7 @@ local function apply()
         if last[k] ~= state[k] then same = false end
     end
     if same then return end
+    local sceneChanged = last.scene ~= state.scene
     last = state
     state.menu = state.scene == "menu" or state.scene == "boot"
 
@@ -587,41 +781,57 @@ local function apply()
             end
             if ADJUST[effect] then ADJUST[effect](v, theme, preset, state) end
             for name, value in pairs(v) do
-                pcall(wum.postfx.setParam, id, name, value)
+                postfxParam(id, name, value)
             end
         end
         pcall(wum.postfx.enable, id, p.enabled == true)
     end
     applyShadows(preset.shadows)
     applySupersample(preset.supersample)
-    applyLighting(preset.lighting, theme, state.lighting, preset.foliage or 1)
+    local people = applySkin(state, theme)
+    applyMarks(applyLighting(preset.lighting, theme, state.lighting, preset.foliage or 1, people), people,
+        state.menu or sceneChanged)
     if wum.shaders then landscapeParam("sunstoneRenderScale", state.scale) end
     applyWater(preset.water, state.water, theme)
-    applySkin(state, preset, theme)
 end
 
--- Effects from Sunstone 1.7 and earlier, which an upgraded install may still have enabled.
-for _, name in ipairs({ "fog", "sky", "bloom", "grade" }) do
+-- Effects from Sunstone 1.7 and earlier, which an upgraded install may still have enabled, and the post-FX skin of 2.1.
+for _, name in ipairs({ "fog", "sky", "bloom", "grade", "skin", "skin_u" }) do
     pcall(wum.postfx.enable, "sunstone/" .. name, false)
 end
 
 apply()
 wum.timers.every(0.5, apply)
+-- The skin's event again every EMIT_EVERY seconds (emitLum sends only then or on a change), for a Bloodsand or Kindjal
+-- loaded or reloaded later; Mixed also checks it every frame (skinFrame).
+wum.timers.every(SKIN.EMIT_EVERY, function() pcall(emitLum, false) end)
 if wum.draw and wum.draw.on and wum.game and wum.game.worms then
     wum.draw.on("world", function()
         local ok, err = pcall(skinFrame)
-        if not ok and wum.log then wum.log.warn("Sunstone: worm skin: " .. tostring(err)) end
+        if not ok and wum.log and not SKIN.failed then
+            SKIN.failed = true
+            wum.log.warn("Sunstone: worm skin: " .. tostring(err))
+        end
     end)
-else
-    skinEnable(false)
 end
--- The world callback may not run at all outside a match, so the match's end clears and switches the skin off as well.
 if wum.events and wum.events.on then
+    -- The world callback may not run at all outside a match, so the match's end frees the worm slots as well.
     wum.events.on("melange.match.end", function()
         pcall(function()
-            if SKIN.live then skinZeroAll() end
+            if SKIN.live then wormZeroAll() end
             SKIN.live = false
-            skinEnable(false)
+            SKIN.byName = {}
         end)
+    end)
+    -- Bloodsand and Kindjal hear the skin's brightness at once when a match starts (and every few seconds anyway).
+    -- A mod switched on or off: Bloodsand and Kindjal go back to their colour tests then, so they hear the skin again.
+    wum.events.on("melange.mods.changed", function() pcall(emitLum, true) end)
+    wum.events.on("melange.match.start", function()
+        pcall(emitLum, true)
+        pcall(checkPartners)
+        if SKIN.noticePending and SKIN.noticeLines then
+            SKIN.noticePending = false
+            pcall(notify, SKIN.noticeLines)
+        end
     end)
 end

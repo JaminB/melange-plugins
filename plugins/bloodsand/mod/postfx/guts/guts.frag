@@ -473,5 +473,6 @@ void main() {
     col += pow(1.0 - nv, 3.0) * 0.22 * vec3(0.95, 0.42, 0.42) * gloss * (0.4 + 0.6 * shade) * expo;
 
     vec3 outc = mix(base, col, cover);
-    gl_FragColor = vec4(mix(scene.rgb, outc, p_strength), scene.a);
+    // (Where it covers Sunstone's skin mark, the mark is cleared: Kindjal's acid then leaves it alone.)
+    gl_FragColor = vec4(mix(scene.rgb, outc, p_strength), cover * p_strength > 0.5 ? 1.0 : scene.a);
 }
