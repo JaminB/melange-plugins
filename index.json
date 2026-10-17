@@ -567,6 +567,24 @@
       "screenshots": [],
       "versions": [
         {
+          "version": "2.2.0",
+          "released": "2026-10-17",
+          "melange": ">=0.3.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/sunstone-v2.2.0/sunstone-2.2.0.zip",
+          "sha256": "502160ef4c740d07802e7927c6f9e5c6a539abcc46af7cf9e70c3a3a8c457cf1",
+          "size": 410069,
+          "unpackedSize": 652062,
+          "files": 81,
+          "changelog": "- **Worm skin is rebuilt in the model shader.** The skin and hair used to be found by colour in the finished frame; now\n  Sunstone's lit-model shader knows exactly which texels are skin before any light or grade. No more peach patches on\n  tails and faces, no camouflage blotches, and moustaches, hats, glasses and eyes always keep their colours. Gloved\n  hands that show bare skin take the tone too.\n- **Fast and reliable:** nothing measurable at the game's camera, about 0.1 to 0.4 ms at Ultra with a worm close up\n  (was 0.3 to 1.1 ms), and no stall when you change Worm skin or Worm hair.\n- **Clearly distinct tones, fully covered.** Light, Tan and Brown can be picked as well as Fair, Medium, Olive, Deep and\n  Mixed. Each tone has its own undertone (pink ivory, golden beige, warm tan, muted olive, golden and red browns), and\n  dark tones keep warm mid-tones in shade instead of going black.\n- **Skin you can see from the game's own distance:** blotches of blood and pigment, folds and wrinkles round the neck\n  and down the back, a fine grain that catches the light, moles, blemishes and freckles, an oily T-zone that shines\n  against matte cheeks, darker skin around the eyes, and pores up close; soft warm light under and through the skin, natural eye whites, fair skin that keeps its colour in the sun, less colour banding, and a little\n  variation from worm to worm.\n- **Hair:** moustaches, and with Realistic hair hats the afro, pigtails and crests, are found by their texture and drawn\n  with strands and a hair fibre's highlights.\n- **Bloodsand 1.4.0 and Kindjal 1.2.0** paint on the new skin (the skin marks itself for them); older versions only\n  paint on the game's peach, and Sunstone says so on screen."
+        },
+        {
           "version": "2.1.0",
           "released": "2026-10-15",
           "melange": ">=0.3.0",
