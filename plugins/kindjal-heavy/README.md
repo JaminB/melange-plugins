@@ -7,7 +7,7 @@ game content.
 
 ## Using it
 
-Enable Kindjal Heavy on the Mods page next to Kindjal (1.2.0 or later is required). Enable at most one Kindjal
+Enable Kindjal Heavy on the Mods page next to Kindjal (1.3.0 or later is required). Enable at most one Kindjal
 knockback preset: Heavy conflicts with Kindjal Brutal.
 
 ## It is a content mod
@@ -39,7 +39,7 @@ how many writes landed; a refused field is logged as a warning and skipped.
 
 ## Limits
 
-- Needs the Kindjal (1.2.0 or later) sim script to have run first (it does: Heavy depends on Kindjal).
+- Needs the Kindjal (1.3.0 or later) sim script to have run first (it does: Heavy depends on Kindjal).
 - The sentry's shot container (`kWeaponSentryGunPayload`) may be refused by the engine, as in Kindjal itself; the log
   says so.
 - Not yet played in a match.

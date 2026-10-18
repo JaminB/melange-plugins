@@ -686,6 +686,27 @@ function COMPAT.ease(dt)
 end
 function COMPAT.strength(base) return min(1, base * (1 + (COMPAT.STRENGTH - 1) * floor(COMPAT.k * 256 + 0.5) / 256)) end
 function COMPAT.compat() return floor(COMPAT.k * 256 + 0.5) / 256 end
+-- Sunstone's Worm skin: each slot's skin brightness against the game's peach (1 without it), as Sunstone tells it in the
+-- event mod.sunstone.skin; the acid is lit by it on a darker skin (see acid.frag's p_tone0..3). And how the skin is found
+-- (sunskin, acid.frag's p_sunskin): 0 by its colour, 1 or 2 by its colour or Sunstone's mark (Sunstone marks the game's
+-- peach too while its lit-model shader runs; 2: it re-tones the skin or draws the hair). The colour test always stays,
+-- so the peach is still found if Sunstone's shader does not run.
+COMPAT.tone, COMPAT.TN, COMPAT.sunskin = {}, { [0] = "tone0", "tone1", "tone2", "tone3" }, 0
+function COMPAT.hearSkin(p)
+    local t = {}
+    local mode = 0
+    if type(p) == "table" then
+        if p.on == true and type(p.lum) == "table" then
+            for i = 1, SLOTS do
+                local v = tonumber(p.lum[i])
+                t[i] = (v and v > 0.02 and v < 4) and floor(v * 256 + 0.5) / 256 or 1
+            end
+        end
+        if p.marks == true then mode = (p.on == true or p.hair == true) and 2 or 1 end
+    end
+    COMPAT.tone = t
+    COMPAT.sunskin = mode
+end
 -- The factor on the hit flash's peak.
 function COMPAT.flash() return COMPAT.bloodsand and COMPAT.FLASH or 1 end
 -- True for a worm Bloodsand has blown apart (or is about to): its health is gone, whatever its alive flag still says.
@@ -861,6 +882,11 @@ local function coatUpdate(dt)
         sendParam(FXA, "seed", S.seed, nil, nil, true)
         sendParam(FXA, "strength", COMPAT.strength(pre.strength), nil, nil, true)
         sendParam(FXA, "compat", COMPAT.compat(), nil, nil, true)
+        local t = COMPAT.tone
+        for k = 0, 3 do
+            sendVec4(FXA, COMPAT.TN[k], t[4 * k + 1] or 1, t[4 * k + 2] or 1, t[4 * k + 3] or 1, t[4 * k + 4] or 1, true)
+        end
+        sendParam(FXA, "sunskin", COMPAT.sunskin, nil, nil, true)
     end
     sendEnabled(FXA, CS.n > 0 and pre ~= nil and COMPAT.coatInView(COAT))
 end
@@ -1359,7 +1385,8 @@ local function onDamaged()
 end
 
 -- ---------------------------------------------------------------- preview
--- Menu items and one event ("mod.kindjal.preview", p.what = "acid" | "melee" | "age") for the test harness.
+-- Menu items and one event ("mod.kindjal.preview", p.what = "acid" | "melee" | "age") for the test harness. The acid lands on
+-- the worm nearest the active one; with p.target = "active" on the active worm itself (the one the camera can be turned to).
 local PV = { kind = 2, weapon = 0, radii = { [0] = 70, 60, 243 }, melees = { 10, 11, 25, 12 } }
 
 local function previewTarget()
@@ -1382,8 +1409,9 @@ local function previewTarget()
     return nil
 end
 
-local function previewAcid()
-    local v = previewTarget()
+local function previewAcid(target)
+    local v, a = previewTarget()
+    if target == "active" and a and W[a] and W[a].alive then v = a end
     local s = v and W[v]
     if not s then return end
     now = os.clock()
@@ -1419,6 +1447,8 @@ local function resendStep()
         FXA.cache[LN[g]], FXA.cache[SN[g]] = nil, nil
     else
         FXA.cache.seed, FXA.cache.strength, FXA.cache.compat = nil, nil, nil
+        for k = 0, 3 do FXA.cache[COMPAT.TN[k]] = nil end
+        FXA.cache.sunskin = nil
         if HF.on then FXH.cache.flash, FXH.cache.center = nil, nil end
     end
 end
@@ -1537,11 +1567,16 @@ subscribe("GameLogic.Turn.Ended", buddyStop)
 subscribe("melange.match.start", resetAll)
 subscribe("melange.match.end", resetAll)
 -- A mod switched on or off, or a match starting: look at the other plugins again (at the next half second).
-subscribe("melange.mods.changed", function() COMPAT.nextAt = 0 end)
+-- (And back to the colour test for the skin until Sunstone, if still there, says again: see COMPAT.hearSkin.)
+subscribe("melange.mods.changed", function()
+    COMPAT.nextAt = 0
+    COMPAT.hearSkin(nil)
+end)
 subscribe("melange.match.start", function() COMPAT.nextAt = 0 end)
+subscribe("mod.sunstone.skin", COMPAT.hearSkin)
 subscribe("mod.kindjal.preview", function(p)
     local what = type(p) == "table" and p.what
-    if what == "acid" then previewAcid() elseif what == "melee" then previewMelee() elseif what == "age" then previewAge() end
+    if what == "acid" then previewAcid(p.target) elseif what == "melee" then previewMelee() elseif what == "age" then previewAge() end
 end)
 
 wum.draw.on("world", onWorld)

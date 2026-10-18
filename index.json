@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 33,
+  "serial": 34,
   "plugins": [
     {
       "id": "bloodsand",
@@ -19,6 +19,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.4.0",
+          "released": "2026-10-17",
+          "melange": ">=0.3.5",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/bloodsand-v1.4.0/bloodsand-1.4.0.zip",
+          "sha256": "98a45a4c6b40b1fb2212566f841ec44d4337112b7b450f82c690aa28bbb28943",
+          "size": 456023,
+          "unpackedSize": 815652,
+          "files": 36,
+          "changelog": "- Gore on Sunstone's human skin: with Sunstone 2.2's Worm skin on a tone, blood, gashes, black eyes, burns and the torn\n  belly are painted on the new skin (found by the mark Sunstone leaves in the scene instead of by the game's peach colour,\n  which a human tone no longer has), and wounds and blood are lit by that worm's skin brightness, so they look as raw on a\n  dark skin as on the peach. Pooled blood keeps its red on a dark skin instead of turning black.\n- Black eyes on a human skin are a real bruise: the skin's own colour gone purple-red and dark (plum on a fair skin, a\n  deep brown on a dark one), softer than the cartoon's near-black mask, which the game's peach keeps.\n- With Sunstone 2.2 the game's peach is found by Sunstone's mark as well as by its colour, so wounds also show under\n  Lunar's purple light and on a poisoned worm. The colour test always counts too, so should Sunstone's shader not run the\n  peach is still found (a moustache drawn as real hair can then catch a wound where its highlights have the skin's\n  colour). On a dark tone a thin smear of blood is red over the brown, with a stronger wet sheen, and no longer washes\n  the skin under it pale.\n- With Sunstone 2.2, a worm seen through a ledge (the game shows the worm whose turn it is through what stands in front of\n  it) keeps its wounds and blood there too, a little fainter, instead of having them cut off in a hard line at the\n  ledge's edge.\n  Nothing changes without Sunstone 2.2."
+        },
         {
           "version": "1.3.1",
           "released": "2026-10-09",
@@ -392,6 +410,24 @@
       "screenshots": [],
       "versions": [
         {
+          "version": "1.2.0",
+          "released": "2026-10-17",
+          "melange": ">=0.9.0",
+          "kind": "content",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kindjal-v1.2.0/kindjal-1.2.0.zip",
+          "sha256": "5352e8d48812af6a1e761dc41ce22edfe188dd2604e17d5a9462f7bfd6d0e7a5",
+          "size": 5768193,
+          "unpackedSize": 16661271,
+          "files": 126,
+          "changelog": "- The acid eats Sunstone's human skin: with Sunstone 2.2's Worm skin on a tone, the acid finds the skin by the mark\n  Sunstone leaves in the scene instead of by the game's peach colour (which a human tone no longer has), and lights itself\n  by that worm's skin brightness, so it looks the same on a dark skin as on the peach. It still leaves blood, wounds and\n  guts alone. With Sunstone 2.2 the game's peach is found by the mark too, so the acid also shows under Lunar's purple\n  light. The colour test always counts too, so should Sunstone's shader not run the peach is still found. On a dark tone\n  the acid covers more of the skin under it, so it reads as the poison's green, not a faint olive stain. Nothing changes\n  without Sunstone 2.2.\n- With Sunstone 2.2, the acid also shows on a worm seen through a ledge (the game shows the worm whose turn it is through\n  what stands in front of it), a little fainter, instead of stopping in a hard line at the ledge's edge.\n- The preview event (`mod.kindjal.preview`, `what = \"acid\"`) takes `target = \"active\"` to coat the active worm."
+        },
+        {
           "version": "1.1.0",
           "released": "2026-10-15",
           "melange": ">=0.9.0",
@@ -530,6 +566,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "2.2.0",
+          "released": "2026-10-17",
+          "melange": ">=0.3.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/sunstone-v2.2.0/sunstone-2.2.0.zip",
+          "sha256": "502160ef4c740d07802e7927c6f9e5c6a539abcc46af7cf9e70c3a3a8c457cf1",
+          "size": 410069,
+          "unpackedSize": 652062,
+          "files": 81,
+          "changelog": "- **Worm skin is rebuilt in the model shader.** The skin and hair used to be found by colour in the finished frame; now\n  Sunstone's lit-model shader knows exactly which texels are skin before any light or grade. No more peach patches on\n  tails and faces, no camouflage blotches, and moustaches, hats, glasses and eyes always keep their colours. Gloved\n  hands that show bare skin take the tone too.\n- **Fast and reliable:** nothing measurable at the game's camera, about 0.1 to 0.4 ms at Ultra with a worm close up\n  (was 0.3 to 1.1 ms), and no stall when you change Worm skin or Worm hair.\n- **Clearly distinct tones, fully covered.** Light, Tan and Brown can be picked as well as Fair, Medium, Olive, Deep and\n  Mixed. Each tone has its own undertone (pink ivory, golden beige, warm tan, muted olive, golden and red browns), and\n  dark tones keep warm mid-tones in shade instead of going black.\n- **Skin you can see from the game's own distance:** blotches of blood and pigment, folds and wrinkles round the neck\n  and down the back, a fine grain that catches the light, moles, blemishes and freckles, an oily T-zone that shines\n  against matte cheeks, darker skin around the eyes, and pores up close; soft warm light under and through the skin, natural eye whites, fair skin that keeps its colour in the sun, less colour banding, and a little\n  variation from worm to worm.\n- **Hair:** moustaches, and with Realistic hair hats the afro, pigtails and crests, are found by their texture and drawn\n  with strands and a hair fibre's highlights.\n- **Bloodsand 1.4.0 and Kindjal 1.2.0** paint on the new skin (the skin marks itself for them); older versions only\n  paint on the game's peach, and Sunstone says so on screen."
+        },
         {
           "version": "2.1.0",
           "released": "2026-10-15",

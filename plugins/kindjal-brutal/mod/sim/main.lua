@@ -1,6 +1,6 @@
 -- Kindjal Brutal, the sim side (Lua 5.0, the match VM; no "#", no "%"). Runs identically on every peer.
 --
--- An add-on for Kindjal 1.2.0 or later. It restores the knockback Kindjal 1.0.0 shipped with, two to three times the
+-- An add-on for Kindjal 1.3.0 or later. It restores the knockback Kindjal 1.0.0 shipped with, two to three times the
 -- game's own. Melange runs every mod's sim script in load order and this mod depends on kindjal, so this chunk runs
 -- after Kindjal's and its values win (wum.sim.weapon(name):set is last-write-wins; Melange restores the game's own
 -- numbers at match end).

@@ -6,7 +6,7 @@ knockback back to near vanilla; Brutal puts the old power back. It ships one Lua
 
 ## Using it
 
-Enable Kindjal Brutal on the Mods page next to Kindjal (1.2.0 or later is required). Enable at most one Kindjal
+Enable Kindjal Brutal on the Mods page next to Kindjal (1.3.0 or later is required). Enable at most one Kindjal
 knockback preset: Brutal conflicts with Kindjal Heavy.
 
 ## It is a content mod
