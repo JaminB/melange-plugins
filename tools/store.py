@@ -907,63 +907,14 @@ def cmd_validate(args) -> int:
 # pack
 
 
-# A '## <version>' heading; anything after the version (a date, say) is ignored. Shared by pack, which
-# picks the newest version, and the release notes, so both agree on which headings are versions.
-CHANGELOG_HEADING_RE = re.compile(r"^##[ \t]+(\S+).*$", re.M)
-# Lines that start a Markdown block of their own rather than continuing a wrapped one. A heading, table row or
-# rule is a single line; a list item or quote takes the wrapped lines after it. A heading needs a space after its
-# hashes: a wrapped line that starts with "#1077" is prose.
-CHANGELOG_ONE_LINE_RE = re.compile(r"^#{1,6}(?:\s|$)|^\||^(?:-{3,}|\*{3,}|_{3,}|={3,})\s*$")
-CHANGELOG_BLOCK_START_RE = re.compile(r"^(?:[-*+]|\d+[.)])\s|^>|" + CHANGELOG_ONE_LINE_RE.pattern)
-CHANGELOG_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
-
-
 def newest_changelog_version(changelog_path: Path) -> str | None:
     if not changelog_path.exists():
         return None
     for line in changelog_path.read_text(encoding="utf-8").splitlines():
-        m = CHANGELOG_HEADING_RE.match(line)
+        m = re.match(r"^##\s+(\S+)", line.strip())
         if m:
             return m.group(1)
     return None
-
-
-def changelog_section(text: str, version: str) -> str:
-    """The '## <version>' section of a CHANGELOG.md, with hard-wrapped lines unwrapped.
-
-    CHANGELOG.md is wrapped at ~120 columns for the source; the Store shows the changelog with
-    `white-space: pre-wrap`, so each source line break would show as one. Wrapped lines are joined
-    with a space, keeping blank-line paragraph breaks, one line per list item (`-`, `*`, `+`, `1.`),
-    heading, quote, table row or rule, a nested item's indent, and fenced code blocks as written.
-    """
-    sections = CHANGELOG_HEADING_RE.split(text)[1:]
-    section = dict(zip(sections[0::2], sections[1::2])).get(version, "")
-    out: list[str] = []
-    joinable = False  # whether a plain line continues the last one
-    fence = ""  # the marker that opened the current fenced block, or "" outside one
-    for raw in section.splitlines():
-        line = raw.strip()
-        fence_match = CHANGELOG_FENCE_RE.match(line)
-        if fence or fence_match:
-            # A fence closes only on a line of the same character, at least as long, and nothing else.
-            if not fence:
-                fence = fence_match.group(1)
-            elif fence_match and line == fence_match.group(1) and line[0] == fence[0] and len(line) >= len(fence):
-                fence = ""
-            out.append(raw.rstrip())
-            joinable = False
-        elif not line:
-            if out and out[-1]:
-                out.append("")
-            joinable = False
-        else:
-            block_start = CHANGELOG_BLOCK_START_RE.match(line) is not None
-            if joinable and not block_start:
-                out[-1] += " " + line
-            else:
-                out.append(raw.rstrip() if block_start else line)
-                joinable = CHANGELOG_ONE_LINE_RE.match(line) is None
-    return "\n".join(out).strip("\n")
 
 
 def pack_plugin(root: Path, plugin_id: str, out_dir: Path) -> dict:

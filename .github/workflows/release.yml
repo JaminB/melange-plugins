@@ -66,12 +66,12 @@ jobs:
         id: changelog
         run: |
           python - "${{ inputs.id }}" "${{ inputs.version }}" <<'PY' > changelog.txt
-          import sys
-          sys.path.insert(0, "tools")
-          import store
+          import re, sys
           plugin_id, version = sys.argv[1], sys.argv[2]
           text = open(f"plugins/{plugin_id}/CHANGELOG.md", encoding="utf-8").read()
-          print(store.changelog_section(text, version))
+          sections = re.split(r"^##\s+(\S+)\s*$", text, flags=re.M)[1:]
+          pairs = dict(zip(sections[0::2], sections[1::2]))
+          print(pairs.get(version, "").strip())
           PY
 
       - name: Create the GitHub Release
