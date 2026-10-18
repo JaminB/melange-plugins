@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 37,
+  "serial": 38,
   "plugins": [
     {
       "id": "bloodsand",
@@ -19,6 +19,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.5.0",
+          "released": "2026-10-18",
+          "melange": ">=0.3.5",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/bloodsand-v1.5.0/bloodsand-1.5.0.zip",
+          "sha256": "4db71ab879740ed19958807b334bdd3c64b2a78613310c60d6029bc4f30c4ab3",
+          "size": 457430,
+          "unpackedSize": 821142,
+          "files": 36,
+          "changelog": "Three gore fixes and additions.\n\n- Mouth blood. A melee hit to a worm's face (from the front) now makes it spurt blood from the mouth for a moment, then dribble for a few seconds. It follows the Blood setting and the \"Worms throw up blood\" setting.\n- The nail weapon's gore comes when it hits. No More Nails has no knockback, so Bloodsand used to drop the hit and the blood only appeared when the game took the health off at the end of the turn, many seconds later.\n- Bloodshot eyes. As a worm takes damage, broken blood vessels spread over the whites of its eyes (a pink wash with red veins), reaching their most at low health. The effect fades with distance."
+        },
         {
           "version": "1.4.0",
           "released": "2026-10-17",
