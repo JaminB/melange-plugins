@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 34,
+  "serial": 35,
   "plugins": [
     {
       "id": "bloodsand",
@@ -409,6 +409,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.3.0",
+          "released": "2026-10-18",
+          "melange": ">=0.9.0",
+          "kind": "content",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kindjal-v1.3.0/kindjal-1.3.0.zip",
+          "sha256": "cd5d1507ad22bedf110c3405b7ca6f5ea9279ebaed0951c03466af5113e00a39",
+          "size": 5923914,
+          "unpackedSize": 16933695,
+          "files": 130,
+          "changelog": "- The Rabid Flock (the Sheep's slot) is now the Buddy Bomb: a black curly labradoodle with three sticks of dynamite on his back, with his own model, panel and HUD icon. He walks and hops like the sheep did and goes off on a second press of fire or when the 30 s fuse runs out.\n- A bigger blast than the sheep: 115 damage over 160, crater 130, knockback 0.50 over 175, with the large explosion effect (was 95 over 130, crater 105, 0.39 over 145).\n- The sheep's baa is gone from the Buddy Bomb. He barks while he walks, yelps just before the fuse runs out (or at the blast when set off early), falls quiet the moment he hits water, and leaves tufts of fur and a spray of blood where he went off.\n- The Plague Ram and Dead Star keep the rabid sheep they hold before they take off, and keep their own sounds.\n- He does not go off when he touches a worm: the game's sheep hops over worms in its way, and the setting that changes that cannot be written by a plugin yet."
+        },
         {
           "version": "1.2.0",
           "released": "2026-10-17",
