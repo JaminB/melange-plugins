@@ -1,3 +1,14 @@
+## 1.5.0
+
+Three gore fixes and additions.
+
+- Mouth blood. A melee hit to a worm's face (from the front) now makes it spurt blood from the mouth for a moment, then
+  dribble for a few seconds. It follows the Blood setting and the "Worms throw up blood" setting.
+- The nail weapon's gore comes when it hits. No More Nails has no knockback, so Bloodsand used to drop the hit and the blood
+  only appeared when the game took the health off at the end of the turn, many seconds later.
+- Bloodshot eyes. As a worm takes damage, broken blood vessels spread over the whites of its eyes (a pink wash with red
+  veins), reaching their most at low health. The effect fades with distance.
+
 ## 1.4.0
 
 - Gore on Sunstone's human skin: with Sunstone 2.2's Worm skin on a tone, blood, gashes, black eyes, burns and the torn
