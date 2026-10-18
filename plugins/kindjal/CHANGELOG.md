@@ -1,3 +1,17 @@
+## 1.2.0
+
+- The Rabid Flock (the Sheep's slot) is now the Buddy Bomb: a black curly labradoodle with three sticks of dynamite on his
+  back, with his own model, panel and HUD icon. He walks and hops like the sheep did and goes off on a second press of
+  fire or when the 30 s fuse runs out.
+- A bigger blast than the sheep: 115 damage over 160, crater 130, knockback 0.50 over 175, with the large explosion
+  effect (was 95 over 130, crater 105, 0.39 over 145).
+- The sheep's baa is gone from the Buddy Bomb. He barks while he walks, yelps just before the fuse runs out (or at the
+  blast when set off early), falls quiet the moment he hits water, and leaves tufts of fur and a spray of blood where
+  he went off.
+- The Plague Ram and Dead Star keep the rabid sheep they hold before they take off, and keep their own sounds.
+- He does not go off when he touches a worm: the game's sheep hops over worms in its way, and the setting that changes
+  that cannot be written by a plugin yet.
+
 ## 1.1.0
 
 - Knockback brought back to near the game's own: every weapon now throws worms about 1.2 times as hard as vanilla, over

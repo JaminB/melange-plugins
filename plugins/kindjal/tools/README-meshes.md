@@ -1,9 +1,9 @@
 # Weapon meshes
 
-Kindjal ships 37 mesh banks in `mod/assets/meshes/` (`mod/spice.json` lists them under `meshes`; the weapon definitions
+Kindjal ships 38 mesh banks in `mod/assets/meshes/` (`mod/spice.json` lists them under `meshes`; the weapon definitions
 use them as `WeaponGraphicsResourceID` / `PayloadGraphicsResourceID` and the like, and `vehicleMeshes` swaps the two
 helicopters). 19 are static meshes: `make_meshes.py` builds them as glTF + texture into `meshes/` (the editable source)
-and `build_meshes.py` packs them (see "Building the banks" and "All static banks"). 18 are clones of vanilla skinned
+and `build_meshes.py` packs them (see "Building the banks" and "All static banks"). 19 are clones of vanilla skinned
 meshes, built by the `clones_*.py` scripts (see "Clone banks"). This page starts with the first four static meshes, the
 original set.
 
@@ -212,7 +212,7 @@ clone banks, are ignored). xomtool accepted every material below, so no substitu
 | `plague_arrow` | `kindjal.PlagueArrow` | 493 | `Arrow` | 660 | 93389 |
 | `inflated_knifeman` | `kindjal.InflatedKnifeman` | 494 | `InflatedScouser` | 1144 | 101484 |
 
-## Clone banks (18)
+## Clone banks (19)
 
 These are made with `xomtool clone <Vanilla> --from Bundl09.xom`, which keeps the vanilla skinned mesh: skeleton, node
 names, skin weights, clip library, texture stages, vertex count and order, and UV layout all stay the game's, so the
@@ -223,7 +223,7 @@ no deflate stream is involved), `--only <slug>` and the path options above.
 
 | script | banks |
 | --- | --- |
-| `clones_beasts.py` | `RabidSheep`, `PlagueRam`, `Carcass` |
+| `clones_beasts.py` | `RabidSheep`, `PlagueRam`, `Carcass`, `BuddyBomb` (a second clone of the Sheep, section 513: the Sheep weapon's own model; `RabidSheep` stays as the Super Sheep's and Starburst's held and walking model) |
 | `clones_people.py` | `Hangwoman`, `Knifeman`, `Gorger` |
 | `clones_air.py` | `BlackGunship`, `CarrionGunship` (the vanilla atlas is kept as shading detail under the new colours) |
 | `clones_guns.py` | `SlugGun`, `GibbetTurret`, `HarpoonGun`, `Harpoon`, `PlagueBow` |

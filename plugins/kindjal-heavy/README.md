@@ -7,7 +7,7 @@ game content.
 
 ## Using it
 
-Enable Kindjal Heavy on the Mods page next to Kindjal (1.1.0 or later is required). Enable at most one Kindjal
+Enable Kindjal Heavy on the Mods page next to Kindjal (1.2.0 or later is required). Enable at most one Kindjal
 knockback preset: Heavy conflicts with Kindjal Brutal.
 
 ## It is a content mod
@@ -32,13 +32,14 @@ including the Acid Spitter, Acid Flask and Crucible. The game's own numbers come
 | Gorger (Fatkins) | 0.60 / 200 | 0.72 / 220 | 1.008 / 253 |
 | Earthquake Ass | 0.46 / 170 | 0.56 / 185 | 0.784 / 213 |
 | Crucible | new weapon | 0.62 / 185 | 0.868 / 213 |
+| Buddy Bomb (Sheep) | 0.32 / 130 | 0.50 / 175 | 0.700 / 201 |
 
 Kindjal's table has the vanilla figures it knows. The log line `kindjal-heavy 1.0.0: N fields applied, M refused` says
 how many writes landed; a refused field is logged as a warning and skipped.
 
 ## Limits
 
-- Needs the Kindjal 1.1.0 sim script to have run first (it does: Heavy depends on Kindjal).
+- Needs the Kindjal (1.2.0 or later) sim script to have run first (it does: Heavy depends on Kindjal).
 - The sentry's shot container (`kWeaponSentryGunPayload`) may be refused by the engine, as in Kindjal itself; the log
   says so.
 - Not yet played in a match.

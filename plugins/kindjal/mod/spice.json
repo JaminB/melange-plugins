@@ -1,7 +1,7 @@
 {
   "spiceVersion": 1,
   "id": "kindjal",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "name": "Kindjal",
   "authors": [
     "Melange"
@@ -46,6 +46,9 @@
     },
     {
       "file": "assets/meshes/kindjal.BlastKeg.xom"
+    },
+    {
+      "file": "assets/meshes/kindjal.BuddyBomb.xom"
     },
     {
       "file": "assets/meshes/kindjal.Carcass.xom"
@@ -276,8 +279,8 @@
       "help": "Cataclysmic terrain loss. Everything near it is airborne."
     },
     "kWeaponSheep": {
-      "name": "Rabid Flock",
-      "help": "The sheep that ends a worm."
+      "name": "Buddy Bomb",
+      "help": "A very good boy with dynamite on his back. Press fire again and he goes to the farm."
     },
     "kWeaponSuperSheep": {
       "name": "Plague Ram",
@@ -382,8 +385,8 @@
       "hudIcon": "kindjal.earthquake-ass.hud.tga"
     },
     "kWeaponSheep": {
-      "panelIcon": "icons/rabid-flock.png",
-      "hudIcon": "kindjal.rabid-flock.hud.tga"
+      "panelIcon": "icons/buddy-bomb.png",
+      "hudIcon": "kindjal.buddy-bomb.hud.tga"
     },
     "kWeaponSuperSheep": {
       "panelIcon": "icons/plague-ram.png",

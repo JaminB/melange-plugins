@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Generate Kindjal's sound effects into mod/sounds/.
 
-Twelve mono 16-bit 44.1 kHz WAVs: kj_swing, kj_impact_bat / _stab / _spike, kj_firepunch, kj_launch,
-kj_boom_small / _med / _large, kj_crucible, kj_acid_burst, kj_acid_hiss. Every sound is synthesised here from scratch
-(noise bursts shaped by envelopes, time-varying biquad low/band/high-pass filters for body, pitch-dropping sines for
-sub-booms, decaying inharmonic partials for the metal, granular blips for bubbles and debris, tanh saturation for grit),
+Fifteen mono 16-bit 44.1 kHz WAVs: kj_swing, kj_impact_bat / _stab / _spike, kj_firepunch, kj_launch,
+kj_boom_small / _med / _large, kj_crucible, kj_acid_burst, kj_acid_hiss, and the Buddy Bomb's kj_bark, kj_bark2 and
+kj_yelp. Every sound is synthesised here from scratch (noise bursts shaped by envelopes, time-varying biquad
+low/band/high-pass filters for body, pitch-dropping sines for sub-booms, decaying inharmonic partials for the metal,
+granular blips for bubbles and debris, a harmonic buzz through formant band-passes for the dog, tanh saturation for grit),
 so nothing comes from the game or any other recording. All randomness comes from seeded random.Random instances, so the
 output is deterministic; --check regenerates everything in memory and compares it byte-for-byte with the files on disk.
 Each sound is peak-normalised to -1 dBFS with a 5 ms fade in and out (kj_acid_hiss is a loop: no fades, and its tail is
@@ -432,6 +433,93 @@ def acid_hiss():
     return scaled(out, PEAK)
 
 
+# ---------------------------------------------------------------- the Buddy Bomb
+def voice(n, pitch, kmax, tilt=1.0, jitter=None):
+    """A glottal buzz: harmonics 1..kmax of a pitch that follows `pitch(i)` (Hz), each at 1/k**tilt, with an optional
+    per-sample pitch wobble `jitter(i)` (a factor near 1) for the rough edge of a voice. Harmonics above 0.45 SR are
+    left out sample by sample, so a high pitch never aliases."""
+    out = zeros(n)
+    ph = 0.0
+    amps = [1.0 / (k ** tilt) for k in range(1, kmax + 1)]
+    lim = SR * 0.45
+    for i in range(n):
+        f = pitch(i) * (jitter(i) if jitter else 1.0)
+        ph += TWO_PI * f / SR
+        s = 0.0
+        for k in range(1, kmax + 1):
+            if k * f >= lim:
+                break
+            s += amps[k - 1] * math.sin(k * ph)
+        out[i] = s
+    return out
+
+
+def formants(x, bands):
+    """The vocal tract: the buzz through parallel band-passes [(centre Hz, q, gain)], summed."""
+    out = zeros(len(x))
+    for f, q, g in bands:
+        add(out, scaled(biquad(x, "bp", f, q)), 0, g)
+    return out
+
+
+def woof(r, f0, dur):
+    """One bark: the pitch jumps up in the first 25 ms and falls away, through a dog-sized vocal tract (formants about
+    700, 1350 and 2600 Hz), with a raspy noise burst on the attack and a slow wobble in the pitch for the growl."""
+    n = ms(dur)
+    wob = scaled(biquad(noise(r, n), "lp", 70, 0.7))
+
+    def pitch(i):
+        t = i / SR
+        up = 1.0 - math.exp(-t / 0.008)
+        return f0 * (0.8 + 0.38 * up) * (0.68 + 0.32 * math.exp(-t / (dur * 0.45)))
+    src = voice(n, pitch, 14, 1.0, lambda i: 1.0 + 0.035 * wob[i])
+    x = formants(src, [(700, 2.2, 1.0), (1350, 3.0, 0.65), (2600, 4.0, 0.3)])
+    add(x, scaled(biquad(src, "lp", 500, 0.7)), 0, 0.35)
+    x = mul(x, env(n, 0.006, dur * 0.28, dur * 0.22))
+    add(x, mul(noise_band(r, n, "bp", 1600, 0.8), env(n, 0.002, 0.03)), 0, 0.35)
+    return x
+
+
+def bark():
+    """0.32 s. A single, medium-sized dog's bark ("woof") with a short room tail."""
+    r = random.Random(4101)
+    x = zeros(ms(0.32))
+    add(x, woof(r, 470, 0.2), 0, 1.0)
+    return finish(sat(echoes(x, [(0.045, 0.12, 1800)]), 1.5))
+
+
+def bark2():
+    """0.42 s. A higher, quicker double bark ("ruff-ruff"), the second a little lower and softer than the first."""
+    r = random.Random(4201)
+    x = zeros(ms(0.42))
+    add(x, woof(r, 560, 0.13), 0, 1.0)
+    add(x, woof(r, 520, 0.15), 0.17, 0.85)
+    return finish(sat(echoes(x, [(0.045, 0.12, 1800)]), 1.6))
+
+
+def yelp():
+    """0.6 s. The yelp before the blast: a thin, high whine that shoots up from 850 Hz to about 1500 Hz in 70 ms and
+    sags back down with a fast tremble, breathy, dying away (fewer and softer harmonics than a bark: it is a cry)."""
+    dur = 0.6
+    n = ms(dur)
+    r = random.Random(4301)
+
+    def pitch(i):
+        t = i / SR
+        rise = 1.0 - math.exp(-t / 0.025)
+        fall = math.exp(-max(0.0, t - 0.07) / 0.35)
+        return (850 + 650 * rise) * (0.55 + 0.45 * fall)
+
+    def vib(i):
+        return 1.0 + 0.03 * math.sin(TWO_PI * 11.0 * i / SR) * min(1.0, i / (0.1 * SR))
+    src = voice(n, pitch, 7, 1.6, vib)
+    x = formants(src, [(1500, 1.2, 1.0), (3000, 2.0, 0.35)])
+    add(x, src, 0, 0.25)
+    x = mul(x, env(n, 0.008, 0.16, 0.12))
+    add(x, mul(noise_band(r, n, "bp", 2400, 0.7), env(n, 0.01, 0.12, 0.05)), 0, 0.12)
+    return finish(sat(x, 1.3))
+
+
 # ---------------------------------------------------------------- output
 SOUNDS = [
     ("kj_swing", swing),
@@ -446,6 +534,9 @@ SOUNDS = [
     ("kj_crucible", crucible),
     ("kj_acid_burst", acid_burst),
     ("kj_acid_hiss", acid_hiss),
+    ("kj_bark", bark),
+    ("kj_bark2", bark2),
+    ("kj_yelp", yelp),
 ]
 
 

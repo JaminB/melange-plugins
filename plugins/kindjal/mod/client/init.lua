@@ -10,9 +10,12 @@
 --                  (kindjal/hit post-FX) and a matching sound. Optional spike glints on the swing.
 --   Sounds         Swing, impact, launch and explosion sounds through wum.audio (Melange 0.9 and later). Every audio call
 --                  is guarded, so an older Melange simply plays none.
+--   Buddy Bomb     The labradoodle in the sheep's slot barks while it walks, yelps before it blows, and leaves tufts of fur
+--                  and a spray of blood where it went off.
 --
 -- Messages used: Kindjal.Burst (sim -> client, p.value = "x,y,z,r,kind"), Explosion, Weapon.Fired, Worm.Damaged,
--- melange.match.start / melange.match.end.
+-- Payload.BigJump, Payload.CollideWithWater, Payload.CollideWithDisarmPlane, Payload.Sunk, GameLogic.Turn.Started /
+-- GameLogic.Turn.Ended, melange.match.start / melange.match.end.
 --
 -- Post-FX parameters are named without the p_ prefix here ("worm0", "level0"), as in Bloodsand: Melange adds the prefix to
 -- the uniform. Both effects are enabled only while they have something to show.
@@ -1220,6 +1223,85 @@ local function resolveMelee()
     end
 end
 
+-- ---------------------------------------------------------------- the Buddy Bomb
+-- The sheep's slot is a labradoodle with dynamite on its back (sim/main.lua). The game says two things about it: Weapon.Fired
+-- while the active worm holds weapon 15 (the Sheep) when the dog is let go, and an Explosion with the Buddy Bomb's own
+-- WormDamageRadius (160, no other weapon has it) when it goes off. In between it barks every second or two. It yelps just
+-- before its fuse (the Sheep's LifeTime, 30 s) runs out; set off early with a second press of fire it yelps at that press if
+-- the game reports the press as Weapon.Fired, and otherwise at the blast. The game gives no position for a walking payload,
+-- and the sheep's chase camera keeps the dog in the middle of the screen, so the barks are not placed in the world; the yelp
+-- at the blast and the gibs are. He falls quiet the moment he touches water: the game posts Payload.CollideWithWater at the
+-- splash and Payload.Sunk only once he is under (up to 1.5 s later in a test, long enough for another bark), so the splash
+-- stops the barks and cuts off one still playing; Payload.Sunk and the disarm plane stay as a backstop. Payload.BigJump (a
+-- hop, when the vanilla sheep baas) is listened to as well; the game did not post it in tests, so nothing is lost.
+local BUDDY = { WEAPON = 15, RADIUS = 160, FUSE = 30, YELP_LEAD = 0.8, QUIET = 1.2,
+                live = false, t0 = -100, nextBark = 0, lastBark = -100, yelpedAt = -100, preYelp = false, voice = nil }
+
+local function buddyBark()
+    local t = os.clock()
+    BUDDY.lastBark = t
+    BUDDY.nextBark = t + rnd(1.0, 1.9)
+    BUDDY.voice = play(random() < 0.6 and "bark" or "bark2", 0.7)
+end
+
+local function buddyYelp(x, y, z)
+    local t = os.clock()
+    if t - BUDDY.yelpedAt < 1.5 then return end
+    BUDDY.yelpedAt = t
+    play("yelp", 0.9, x, y, z)
+end
+
+local function buddyFired()
+    local t = os.clock()
+    BUDDY.live, BUDDY.t0, BUDDY.preYelp = true, t, false
+    BUDDY.nextBark = t + 0.35
+end
+
+local function buddyStop()
+    BUDDY.live = false
+end
+
+local function buddyUpdate(t)
+    if not BUDDY.live then return end
+    local age = t - BUDDY.t0
+    if age > BUDDY.FUSE + 2 then
+        buddyStop()                                     -- sunk, or the blast was missed: give up quietly
+        return
+    end
+    if not BUDDY.preYelp and age >= BUDDY.FUSE - BUDDY.YELP_LEAD then
+        BUDDY.preYelp = true
+        buddyYelp()
+    end
+    if age < BUDDY.FUSE - BUDDY.QUIET and t >= BUDDY.nextBark then buddyBark() end
+end
+
+-- What is left of the dog: black tufts of fur, a spray of blood and a few dark chunks, all thrown up and out and falling
+-- back. Worms caught in the blast are Bloodsand's to gib; this is only the dog.
+local function buddyGibs(x, y, z)
+    local pre = S.preset
+    if not pre then return end
+    local R = pre.rate
+    for _ = 1, floor(rnd(14, 20) * R + 0.5) do
+        local a, sp = rnd(0, 2 * pi), rnd(50, 150)
+        spawn(K_PUFF, SMOKE_T[random(1, 3)], false, x + rnd(-6, 6), y + rnd(2, 10), z + rnd(-6, 6),
+              cos(a) * sp, rnd(90, 210), sin(a) * sp, rnd(2.5, 4), rnd(5, 8), rnd(1.4, 2.2),
+              rnd(0.10, 0.16), rnd(0.10, 0.16), rnd(0.11, 0.18), rnd(0.75, 0.9), 1.0, -160, rnd(0, 2 * pi), rnd(-3, 3), false,
+              rnd(0, 0.05))
+    end
+    if TEX.drop then
+        for _ = 1, floor(rnd(18, 26) * R + 0.5) do
+            local a, sp = rnd(0, 2 * pi), rnd(40, 140)
+            spawn(K_DROP, TEX.drop, false, x, y + 6, z, cos(a) * sp, rnd(110, 240), sin(a) * sp, rnd(1.2, 2.2),
+                  rnd(0.9, 1.5), rnd(0.8, 1.3), rnd(0.45, 0.6), 0.02, 0.03, 0.95, 0, -320, 0, 0, false, rnd(0, 0.04))
+        end
+        for _ = 1, floor(rnd(5, 8) * R + 0.5) do
+            local a, sp = rnd(0, 2 * pi), rnd(30, 110)
+            spawn(K_DROP, TEX.drop, false, x, y + 6, z, cos(a) * sp, rnd(140, 260), sin(a) * sp, rnd(2.6, 3.6),
+                  rnd(2.2, 3.0), rnd(1.1, 1.6), rnd(0.3, 0.4), 0.04, 0.05, 1, 0, -360, 0, 0, false, rnd(0, 0.03))
+        end
+    end
+end
+
 -- ---------------------------------------------------------------- explosives
 local EXPL = { t0 = -100, n = 0 }
 
@@ -1228,6 +1310,12 @@ local function onExplosion(p)
     local x, y, z = vec(p.damageEpicentre)
     if not x then return end
     local t = os.clock()
+    local wr = tonumber(p.wormDamageRadius)
+    if wr and abs(wr - BUDDY.RADIUS) < 0.5 then
+        buddyStop()
+        buddyYelp(x, y + CENTRE_Y, z)
+        buddyGibs(x, y, z)
+    end
     if t - EXPL.t0 >= 1 then EXPL.t0, EXPL.n = t, 0 end
     if EXPL.n >= 6 then return end
     EXPL.n = EXPL.n + 1
@@ -1238,6 +1326,11 @@ end
 
 local function onFired()
     local t = os.clock()
+    -- A press of fire while the dog is walking sets it off (the Sheep detonates on a fire press): the yelp goes now.
+    if BUDDY.live and t - BUDDY.t0 > 0.4 then
+        buddyYelp()
+        return
+    end
     local a = activeSlot()
     if not a then return end
     local s = W[a]
@@ -1249,6 +1342,8 @@ local function onFired()
         MEL.firedSlot, MEL.firedWid, MEL.firedAt = a, wid, t
         if s and m.swing then play("swing", 0.8, s.px, s.py + CENTRE_Y, s.pz) end
         if m.spikes then spikeGlints(a) end
+    elseif wid == BUDDY.WEAPON then
+        buddyFired()                                    -- no launch thump: he is set down, not shot
     elseif s then
         play("launch", 0.6, s.px, s.py + CENTRE_Y, s.pz)
     end
@@ -1346,6 +1441,7 @@ local function resetAll()
     for slot in pairs(W) do W[slot] = nil end
     MEL.pending, MEL.firedSlot, MEL.firedWid, MEL.firedAt, MEL.heldSlot = false, nil, nil, -100, nil
     EXPL.n = 0
+    buddyStop()
     S.seed = random(0, 1000)
     -- A match edge can cut the warm-up short between "held on" and its release, and WARM.on would force the effect on until
     -- the next match; drop the holds here and let an unfinished warm-up run again from the start.
@@ -1374,6 +1470,7 @@ local function frame()
     warmStep()
     trackWorms()
     resolveMelee()
+    buddyUpdate(t)
     -- coatUpdate also runs with the visuals off: it sends the zeros of coats that were just cleared.
     if S.preset then readCamera() end
     coatUpdate(dt)
@@ -1423,6 +1520,20 @@ subscribe("Kindjal.Burst", onBurstMessage)
 subscribe("Explosion", onExplosion)
 subscribe("Weapon.Fired", onFired)
 subscribe("Worm.Damaged", onDamaged)
+subscribe("Payload.BigJump", function()
+    if BUDDY.live and os.clock() - BUDDY.lastBark > 0.6 and os.clock() - BUDDY.t0 < BUDDY.FUSE - BUDDY.QUIET then buddyBark() end
+end)
+function BUDDY.inWater()
+    if not BUDDY.live then return end
+    buddyStop()
+    stopVoice(BUDDY.voice)                              -- a bark that started just before the splash
+    BUDDY.voice = nil
+end
+subscribe("Payload.CollideWithWater", BUDDY.inWater)
+subscribe("Payload.CollideWithDisarmPlane", BUDDY.inWater)
+subscribe("Payload.Sunk", BUDDY.inWater)
+subscribe("GameLogic.Turn.Started", buddyStop)
+subscribe("GameLogic.Turn.Ended", buddyStop)
 subscribe("melange.match.start", resetAll)
 subscribe("melange.match.end", resetAll)
 -- A mod switched on or off, or a match starting: look at the other plugins again (at the next half second).

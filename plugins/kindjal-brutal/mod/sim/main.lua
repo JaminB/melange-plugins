@@ -1,13 +1,15 @@
 -- Kindjal Brutal, the sim side (Lua 5.0, the match VM; no "#", no "%"). Runs identically on every peer.
 --
--- An add-on for Kindjal 1.1.0 or later. It restores the knockback Kindjal 1.0.0 shipped with, two to three times the
+-- An add-on for Kindjal 1.2.0 or later. It restores the knockback Kindjal 1.0.0 shipped with, two to three times the
 -- game's own. Melange runs every mod's sim script in load order and this mod depends on kindjal, so this chunk runs
 -- after Kindjal's and its values win (wum.sim.weapon(name):set is last-write-wins; Melange restores the game's own
 -- numbers at match end).
 --
 -- The values are absolute, copied from Kindjal 1.0.0's sim script and manifest, so they do not move with Kindjal's own
 -- KNOCKBACK / REACH / MELEE constants. Where 1.0.0 set no ImpulseRadius (the melee weapons, the Slug Gun, the Acid
--- Spitter and the Acid Flask) none is set here and Kindjal 1.1.0's stays.
+-- Spitter and the Acid Flask) none is set here and Kindjal 1.1.0's stays. The one value that is not 1.0.0's is the
+-- Buddy Bomb's (the sheep's slot, a weapon 1.0.0 did not have): its blast is bigger than the Plague Ram's, so it throws
+-- harder than the Plague Ram's 0.70 / 170 here too.
 --
 -- A content mod: its sim script is in the content hash, so every player in an online match must have the same Kindjal
 -- add-on enabled, or none.
@@ -36,7 +38,7 @@ local KNOCKBACK = {
     kWeaponAirstrike      = { 0.50, 150 },
     kWeaponSuperAirstrike = { 0.70, 180 },
     kWeaponConcreteDonkey = { 1.30, 280 },
-    kWeaponSheep          = { 0.70, 170 },
+    kWeaponSheep          = { 0.85, 200 },   -- the Buddy Bomb; not a 1.0.0 number (see above)
     kWeaponSuperSheep     = { 0.70, 170 },
     kWeaponOldWoman       = { 0.90, 170 },
     kWeaponScouser        = { 0.50, 90 },

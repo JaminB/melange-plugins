@@ -1,6 +1,6 @@
 -- Kindjal Heavy, the sim side (Lua 5.0, the match VM; no "#", no "%"). Runs identically on every peer.
 --
--- An add-on for Kindjal 1.1.0 or later. Melange runs every mod's sim script in load order and this mod depends on
+-- An add-on for Kindjal 1.2.0 or later. Melange runs every mod's sim script in load order and this mod depends on
 -- kindjal, so by the time this chunk runs Kindjal has already written its knockback. Each field is read back with
 -- w:get(field) (that is the value Kindjal wrote, its own KNOCKBACK / REACH / MELEE multipliers included), scaled, and
 -- written again; wum.sim.weapon(name):set is last-write-wins and Melange restores the game's own numbers at match end.
