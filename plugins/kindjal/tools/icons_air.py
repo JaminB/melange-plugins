@@ -311,105 +311,96 @@ def draw_earthquake_ass():
 
 # ---------------------------------------------------------------- icon 5: Buddy Bomb
 def draw_buddy_bomb():
+    """A head portrait: the black curly face looking out of the frame, floppy ears, big brown eyes, a glossy nose and
+    the tongue out, with a lit stick of dynamite tucked under his collar."""
     cv = Canvas(SIZE, SIZE)
     rng = random.Random(71)
     coat = [DG0, DG1, DG2, DG3]
 
-    # tail first: a curly plume over the rump
-    blob(cv, [(222, 98, 13), (232, 82, 12), (238, 66, 10), (232, 52, 8)], [DG1, DG2, DG3], [(-3, -4), (-6, -7)],
-         outline=OUTLINE, ow=3.0)
-    # legs: the far pair darker, set back; the near pair trotting, each ending in a pale curly paw
-    for x0, y0, x1, y1, far in ((114, 152, 100, 214, 1), (190, 150, 206, 210, 1), (96, 156, 70, 222, 0),
-                                (176, 158, 180, 226, 0)):
-        cols = [DG0, DG1, DG2] if far else [DG1, DG2, DG3]
-        cel(cv, IDENT, chain([(x0, y0), ((x0 + x1) / 2 + 4, (y0 + y1) / 2), (x1, y1)], [15, 12, 11]), cols,
-            [(-2, -2), (-4, -4)], ow=3.0)
-        blob(cv, [(x1 - 4, y1 + 6, 9), (x1 + 6, y1 + 7, 8)], [DG2, DG3, (0x80, 0x80, 0x8A)], [(-2, -2), (-4, -4)],
-             outline=OUTLINE, ow=2.6)
-    # the body: a long cloud of tight curls
-    curls = [(150, 128, 44), (112, 132, 36), (192, 124, 36), (130, 102, 32), (176, 98, 32), (214, 116, 26),
-             (96, 112, 26), (150, 158, 30), (120, 156, 26), (186, 152, 26)]
-    body = union(*[circle(*c) for c in curls])
-    cel(cv, IDENT, body, coat, [(-6, -7), (-13, -15), (-20, -24)], ow=3.6)
-    # curl texture: little dark hooks and grey highlights clipped to the coat
-    for _ in range(30):
-        cx, cy = rng.uniform(80, 228), rng.uniform(76, 178)
-        a = rng.uniform(1.2, 2.4)                    # each curl a short arc open to the upper left, lit from there
-        r = rng.uniform(3.5, 5.5)
-        pts = [(cx + math.cos(a + t * 0.8) * r, cy + math.sin(a + t * 0.8) * r) for t in range(4)]
-        stroke(cv, pts, 2.0, DG0, 0.6, clip=body)
-    for _ in range(18):
-        cv.paint(inter(circle(rng.uniform(86, 222), rng.uniform(80, 150), rng.uniform(2.0, 3.6)), body), DG3, 0.8)
-    # the harness: two red straps round the chest and the belly, each with a brass buckle
-    for sx in (118, 186):
-        strap = inter(rbox(sx, 132, 7, 60, 3), grow(body, -1))
-        cv.paint(strap, HR0)
-        cv.paint(inter(strap, shift(strap, -2, 0)), HR1)
-        cv.paint(circle(sx, 158, 4.2), OUTLINE)
-        cv.paint(circle(sx, 158, 2.8), N3)
-    # dynamite: three red sticks strapped across the back, the third peeking over the other two
-    for sx, sy in ((152, 64), (146, 80), (158, 92)):
-        def St(f, sx=sx, sy=sy):
-            return place(f, sx, sy, -6)
-        cel(cv, St, rbox(0, 0, 50, 9, 8), [DY0, DY1, DY2, DY3], [(0, -3), (0, -6), (0, -8)], ow=3.0)
-        for ex in (-50, 50):                                         # paper end caps
-            cel(cv, St, ellipse(ex, 0, 4, 8.5), [N1, N2, N3], [(-1, -1), (-2, -2)], ow=2.2)
-    for tx in (126, 180):                                            # black tape round the bundle
-        cv.paint(place(rbox(0, 0, 5, 26, 2), tx, 80, -6), OUTLINE)
-        cv.paint(place(rbox(-1, -1, 3, 24, 1.5), tx, 80, -6), (0x3A, 0x36, 0x30))
-    # the lit fuse: a cord from the front stick's cap up into a spark
-    fz = bezier((98, 82), (82, 70), (96, 46), (80, 30), 20)
-    stroke(cv, fz, 5.4, OUTLINE)
-    stroke(cv, fz, 3.0, (0x4A, 0x40, 0x34))
-    sx, sy = fz[-1]
-    for ang, ln in ((0, 22), (45, 14), (90, 20), (135, 14), (180, 22), (225, 14), (270, 20), (315, 14)):
-        tipx = sx + math.cos(math.radians(ang)) * ln
-        tipy = sy + math.sin(math.radians(ang)) * ln
-        cv.paint(capsule(sx, sy, tipx, tipy, 2.4), E1, 0.95)
-    cv.paint(circle(sx, sy, 9), E0, 0.9)
-    cv.paint(circle(sx, sy, 6.5), E2)
-    cv.paint(circle(sx, sy, 3.6), E3)
-
-    # the head, held up and happy, facing left
-    def Hd(f):
-        return place(f, 64, 118, -8)
-    skull = smooth_union(ellipse(0, 0, 34, 31), ellipse(-30, 14, 24, 17), 12)
-    cel(cv, Hd, skull, coat, [(-3, -4), (-7, -8), (-12, -13)], ow=3.4)
-    cel(cv, Hd, union(circle(-6, -28, 16), circle(12, -26, 14), circle(-20, -22, 11)), coat,
-        [(-3, -4), (-6, -8), (-10, -12)], ow=3.0)                    # top-knot
+    # the neck and chest, leaving the frame at the bottom, behind everything
+    neck = smooth_union(ellipse(128, 236, 62, 40), rbox(128, 206, 44, 30, 18), 14)
+    cel(cv, IDENT, neck, coat[:3], [(-4, -5), (-9, -11)], ow=3.4)
+    # the long floppy ears: lumpy curly flaps hanging beside the face, behind the head
+    ear_fs = []
+    for sg in (-1, 1):
+        cx = 128 + sg * 70
+        circs = [(cx - sg * 4, 80, 25), (cx + sg * 4, 106, 28), (cx + sg * 9, 134, 28), (cx + sg * 9, 162, 26),
+                 (cx + sg * 4, 188, 22), (cx - sg * 2, 206, 15)]
+        ear_fs.append(blob(cv, circs, [EA0, EA1, EA2], [(-4, -5), (-9, -10)], outline=OUTLINE, ow=3.4))
+    for f in ear_fs:
+        for _ in range(9):
+            cx, cy = rng.uniform(f.bb[0] + 8, f.bb[2] - 8), rng.uniform(f.bb[1] + 8, f.bb[3] - 8)
+            a, r = rng.uniform(1.2, 2.4), rng.uniform(4.0, 6.0)
+            stroke(cv, [(cx + math.cos(a + t * 0.8) * r, cy + math.sin(a + t * 0.8) * r) for t in range(4)], 2.4,
+                   (0x05, 0x05, 0x06), 0.7, clip=f)
+            cv.paint(inter(circle(cx - 2, cy - 2, rng.uniform(1.8, 3.0)), f), DG2, 0.8)
+    # the head: a broad round skull, a top-knot of curls and a full muzzle
+    skull = smooth_union(ellipse(128, 106, 60, 56), ellipse(128, 152, 46, 38), 16)
+    fluff = [circle(128 + math.cos(math.radians(a)) * 57, 108 + math.sin(math.radians(a)) * 53, 10.5)
+             for a in range(-30, 211, 24)]                  # a curly rim round the cheeks and jaw
+    skull = union(skull, *fluff)
+    cel(cv, IDENT, skull, coat, [(-5, -6), (-11, -13), (-18, -22)], ow=3.6)
+    knot = union(circle(102, 58, 21), circle(128, 46, 25), circle(154, 58, 21), circle(114, 40, 14), circle(144, 40, 14))
+    cel(cv, IDENT, knot, coat, [(-3, -4), (-7, -8), (-11, -13)], ow=3.2)
+    head = union(skull, knot)
+    for _ in range(26):                              # curl texture: dark hooks and cool grey tips
+        cx, cy = rng.uniform(72, 184), rng.uniform(26, 140)
+        a, r = rng.uniform(1.2, 2.4), rng.uniform(3.5, 5.5)
+        stroke(cv, [(cx + math.cos(a + t * 0.8) * r, cy + math.sin(a + t * 0.8) * r) for t in range(4)], 2.2,
+               (0x05, 0x05, 0x06), 0.65, clip=head)
+    for _ in range(16):
+        cv.paint(inter(circle(rng.uniform(76, 180), rng.uniform(30, 120), rng.uniform(2.0, 3.4)), head), DG3, 0.75)
+    # a greyer muzzle round the nose and mouth
+    muzzle = smooth_union(ellipse(110, 160, 26, 24), ellipse(146, 160, 26, 24), 10)
+    cv.paint(inter(muzzle, skull), DG2)
+    cv.paint(inter(inter(muzzle, shift(muzzle, -4, -5)), skull), (0x4A, 0x4A, 0x52))
     for _ in range(10):
-        cx, cy = rng.uniform(-40, 26), rng.uniform(-40, 26)
-        cv.paint(Hd(inter(circle(cx, cy, rng.uniform(1.8, 3.0)), skull)), DG3, 0.75)
-    # open, panting mouth with the tongue hanging out
-    mouth = polygon([(-50, 22), (-14, 20), (-18, 30), (-44, 32)], 2)
-    cv.paint(Hd(mouth), OUTLINE)
-    cv.paint(Hd(grow(mouth, -2)), (0x5A, 0x14, 0x18))
-    tongue = smooth_union(ellipse(-30, 34, 9, 7), ellipse(-28, 44, 8, 9), 6)
-    cel(cv, Hd, tongue, [(0xB0, 0x3C, 0x50), (0xE4, 0x6E, 0x82), (0xFF, 0xA4, 0xB2)], [(-1, -2), (-3, -4)], ow=2.6)
-    cv.paint(Hd(capsule(-29, 30, -28, 46, 1.0)), (0xA0, 0x30, 0x44))
-    # the nose: a glossy dark-grey button at the end of the snout
-    cel(cv, Hd, ellipse(-52, 6, 9, 7), [(0x2A, 0x28, 0x2C), (0x48, 0x46, 0x4C), (0x6C, 0x6A, 0x72)],
-        [(-1, -2), (-3, -3)], ow=2.4)
-    cv.paint(Hd(circle(-55, 3, 2.2)), (0xD8, 0xD4, 0xD0), 0.9)
-    # a big brown eye with a catch-light, eyebrow raised
-    ex, ey = rot_pt((-16, -6), 64, 118, -8)
-    cv.paint(circle(ex, ey, 9.5), OUTLINE)
-    cv.paint(circle(ex, ey, 7.6), (0x9C, 0x5C, 0x24))
-    cv.paint(circle(ex, ey, 4.6), (0x10, 0x0A, 0x06))
-    cv.paint(circle(ex - 2.6, ey - 2.8, 2.4), (0xFF, 0xFC, 0xF0))
-    cv.paint(Hd(capsule(-26, -20, -8, -22, 2.4)), DG3)
-    # the floppy ear hangs over the back of the head
-    ear = smooth_union(ellipse(18, 12, 14, 26), circle(14, -10, 11), 8)
-    cel(cv, Hd, ear, [EA0, EA1, EA2], [(-2, -3), (-5, -6)], ow=3.0)
-    for _ in range(6):
-        cv.paint(Hd(inter(circle(rng.uniform(8, 28), rng.uniform(-10, 34), rng.uniform(1.6, 2.6)), ear)), DG2, 0.7)
-    # red collar with a brass tag
-    cv.paint(Hd(inter(rbox(22, 22, 6, 30, 3), grow(skull, 6))), HR0)
-    cv.paint(Hd(inter(rbox(21, 22, 4, 28, 2), grow(skull, 5))), HR1)
-    tx, ty = rot_pt((24, 46), 64, 118, -8)
-    cv.paint(circle(tx, ty, 6.6), OUTLINE)
-    cv.paint(circle(tx, ty, 5.0), N2)
-    cv.paint(circle(tx - 1.2, ty - 1.4, 2.0), N3)
+        cv.paint(inter(circle(rng.uniform(90, 166), rng.uniform(146, 180), rng.uniform(1.8, 2.8)), muzzle), DG3, 0.8)
+    # the eyes: big warm brown, a pale rim of fur round each, raised brows, two catch-lights
+    for sg in (-1, 1):
+        ex, ey = 128 + sg * 28, 110
+        cv.paint(circle(ex, ey, 21), DG3, 0.55)
+        cv.paint(circle(ex, ey, 16.5), OUTLINE)
+        cv.paint(circle(ex, ey, 14), (0x7A, 0x40, 0x16))
+        cv.paint(circle(ex - 1.5, ey - 1.5, 11.5), (0xC0, 0x76, 0x30))
+        cv.paint(circle(ex, ey + 0.5, 7.4), (0x0C, 0x07, 0x04))
+        cv.paint(circle(ex - 4.6, ey - 5.2, 4.0), (0xFF, 0xFC, 0xF0))
+        cv.paint(circle(ex + 4.2, ey + 4.4, 1.8), (0xFF, 0xF0, 0xD8), 0.85)
+        stroke(cv, [(ex - sg * 16, ey - 20), (ex - sg * 2, ey - 27), (ex + sg * 12, ey - 23)], 5.0, DG3, 0.95)
+    # the nose: a big glossy dark-grey button
+    nose = smooth_union(ellipse(128, 142, 20, 13), ellipse(128, 152, 10, 8), 8)
+    cel(cv, IDENT, nose, [(0x0A, 0x0A, 0x0C), (0x2C, 0x2A, 0x30), (0x50, 0x4E, 0x58)], [(-2, -3), (-5, -6)], ow=3.0)
+    cv.paint(ellipse(119, 138, 6, 3.6), (0xE8, 0xE6, 0xEC), 0.95)
+    for sg in (-1, 1):                               # nostrils
+        cv.paint(ellipse(128 + sg * 8, 147, 3.4, 2.2), (0x02, 0x02, 0x03))
+    # the mouth: a line down from the nose into a wide happy grin, the tongue lolling out of the middle
+    tongue = smooth_union(ellipse(128, 186, 15, 11), ellipse(130, 200, 13, 15), 9)
+    cel(cv, IDENT, tongue, [(0xB0, 0x34, 0x4C), (0xEC, 0x6C, 0x84), (0xFF, 0xA8, 0xB8)], [(-2, -3), (-5, -6)], ow=3.0)
+    stroke(cv, [(129, 190), (130, 208)], 2.2, (0xA0, 0x2A, 0x42))
+    stroke(cv, [(128, 160), (128, 174)], 3.6, OUTLINE)
+    for sg in (-1, 1):
+        stroke(cv, bezier((128, 174), (128 + sg * 6, 182), (128 + sg * 22, 184), (128 + sg * 32, 170), 14), 3.8, OUTLINE)
+    # red collar round the neck, and a stick of dynamite tucked under it with the fuse fizzing
+    collar = inter(rbox(128, 226, 70, 7, 4), grow(neck, -1))
+    cv.paint(grow(collar, 2.6), OUTLINE)
+    cv.paint(collar, HR0)
+    cv.paint(inter(collar, shift(collar, 0, 3)), HR1)
+
+    def St(f):
+        return place(f, 196, 226, -28)
+    cel(cv, St, rbox(0, 0, 26, 9, 6), [DY0, DY1, DY2, DY3], [(0, -3), (0, -6), (0, -8)], ow=3.0)
+    cv.paint(St(box(-12, -10, -7, 10)), OUTLINE)                     # black tape band
+    cel(cv, St, ellipse(26, 0, 3.6, 8.6), [N1, N2, N3], [(-1, -1), (-2, -2)], ow=2.2)
+    fx, fy = rot_pt((28, 0), 196, 226, -28)
+    fz = bezier((fx, fy), (fx + 10, fy - 4), (fx + 4, fy - 16), (fx + 14, fy - 24), 12)
+    stroke(cv, fz, 4.6, OUTLINE)
+    stroke(cv, fz, 2.4, (0x4A, 0x40, 0x34))
+    sx, sy = fz[-1]
+    for ang, ln in ((0, 13), (60, 9), (120, 12), (180, 9), (240, 13), (300, 9)):
+        cv.paint(capsule(sx, sy, sx + math.cos(math.radians(ang)) * ln, sy + math.sin(math.radians(ang)) * ln, 1.8), E1, 0.95)
+    cv.paint(circle(sx, sy, 6.4), E0, 0.9)
+    cv.paint(circle(sx, sy, 4.4), E2)
+    cv.paint(circle(sx, sy, 2.4), E3)
     cv.shadow_under(5, 8, 3, 0.30)
     return cv
 

@@ -24,3 +24,4 @@ regenerate; commit the PNGs together with the script. This folder (`tools/`) doe
 | `kj_spark.png` | 64x64 | Spark streak: horizontal lens tapering to points, hot core and a faint halo; rotate at draw time. |
 | `kj_glint.png` | 64x64 | Glint: four-point star with needle tips and a soft glow at the centre, for blade and spike flashes. |
 | `kj_drop.png` | 64x64 | Droplet: teardrop pointing up, brighter skin, specular dot and a dim bounce light. |
+| `kj_heart.png` | 64x64 | Heart, point down, with a solid rim and a slightly lighter body: the Buddy Bomb's launch hearts. |

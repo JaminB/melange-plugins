@@ -1,3 +1,14 @@
+## 1.3.1
+
+- The Buddy Bomb's panel and HUD icon is now his face: a black curly labradoodle with floppy ears, big brown eyes and
+  his tongue out, with a lit stick of dynamite under his collar.
+- He is a longer dog: his body is stretched by about a third, and his legs and walk are unchanged.
+- His dynamite is a whole vest now: rows of bright red sticks round his back and down both flanks, taped, with a timer
+  and a red light on top and a lit fuse, so it reads from the side at the game's camera distance.
+- A few little pink and red hearts float up when he is set down.
+- More blood when he goes off: a red mist, a wider and denser spray with heavy gouts in it, and a pool of blood on the
+  ground under the blast. With Bloodsand on, the burst is a little smaller, as Bloodsand gibs the worms caught in it.
+
 ## 1.3.0
 
 - The Rabid Flock (the Sheep's slot) is now the Buddy Bomb: a black curly labradoodle with three sticks of dynamite on his

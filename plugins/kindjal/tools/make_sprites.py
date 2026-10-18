@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate Kindjal's particle and decal sprites into mod/textures/: kj_smoke1..3, kj_wisp1..2, kj_bubble,
-kj_puddle1..2, kj_spark, kj_glint, kj_drop (see README-sprites.md for what each one is for).
+kj_puddle1..2, kj_spark, kj_glint, kj_drop, kj_heart (see README-sprites.md for what each one is for).
 
 Every sprite is RGBA with RGB pure white on every pixel, including the transparent ones, so the tint the client applies
 at draw time never fringes; the shape lives entirely in the alpha channel. Shapes are signed-distance fields or
@@ -397,6 +397,35 @@ def make_drop():
     return to_bytes(alpha, size, size), size, size
 
 
+# ---- heart: 64x64 ----
+def make_heart():
+    """A plump heart, point down, for the Buddy Bomb's launch: a solid rim so it keeps its outline against anything and
+    a slightly lighter body. The exact signed distance of a heart made of two round lobes on a square tip (the lobes
+    centred at (+-0.25, 0.75) with radius sqrt(2)/4, the point at the origin, y up)."""
+    size = 64
+    sc = 46.0                                    # pixels per unit: the heart is 1.2 units wide and 1.1 tall
+    ox, oy = 32.0, 57.5                          # where the point sits
+
+    def sd(px, py):
+        x, y = abs(px - ox) / sc, (oy - py) / sc
+        if x + y > 1.0:
+            return (math.hypot(x - 0.25, y - 0.75) - math.sqrt(2.0) / 4.0) * sc
+        m = max(x + y, 0.0) * 0.5
+        d = math.sqrt(min(x * x + (y - 1.0) ** 2, (x - m) ** 2 + (y - m) ** 2))
+        return d * sc * (1.0 if x > y else -1.0)
+
+    alpha = [0.0] * (size * size)
+    for y in range(size):
+        for x in range(size):
+            d = sd(x + 0.5, y + 0.5)
+            cov = aa(d, 1.4)
+            if cov <= 0:
+                continue
+            rim = math.exp(-(max(0.0, -d) / 2.6) ** 2)
+            alpha[y * size + x] = clamp01(lerp(0.86, 1.0, rim) * cov)
+    return to_bytes(alpha, size, size), size, size
+
+
 SPRITES = {
     "kj_smoke1.png": smoke1,
     "kj_smoke2.png": smoke2,
@@ -409,6 +438,7 @@ SPRITES = {
     "kj_spark.png": make_spark,
     "kj_glint.png": make_glint,
     "kj_drop.png": make_drop,
+    "kj_heart.png": make_heart,
 }
 
 
