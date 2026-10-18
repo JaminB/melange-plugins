@@ -810,7 +810,7 @@ def _paint_carcass(prims):
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-# BuddyBomb (Sheep) - a curly black labradoodle with three sticks of dynamite strapped to its back
+# BuddyBomb (Sheep) - a long, curly black labradoodle in a vest of dynamite
 # ----------------------------------------------------------------------------------------------------------------------
 
 # The ear is the same 12-vertex fin as the PlagueRam's (_EAR_MID / _EAR_TIP above: the Sheep and the SuperSheep share
@@ -821,6 +821,15 @@ _DOG_EAR_TIP_TO = (4.75, -2.7, 6.95)     # the bottom of the ear flap
 _DOG_EAR_TURN = 70.0                     # degrees the ring is turned about z, so a fin that stuck out now hangs down
 # the tail: the back's rear top vertex, dragged up and back into a short plume
 _DOG_TAIL = ((0.0, 4.22, -5.96), (0.0, 1.5, -3.2))
+# the long body: everything in front of z -1 moves forward by _DOG_FRONT, everything behind z -4 back by _DOG_REAR, fading
+# over _DOG_FADE between them, so the trunk grows from about 11 to about 15 units while the legs keep their shape. The
+# skin weights and bones stay the vanilla ones, so a moved leg swings about a joint that is now that far behind (or in front
+# of) it: kept to about a third of a leg's length, which shows as a slightly longer stride, not as a broken leg.
+_DOG_SPLIT = (-4.0, -1.0)
+_DOG_FADE = 2.6
+_DOG_FRONT, _DOG_REAR = 1.6, 2.4
+# the dynamite vest, in the final (stretched) coordinates: z from the hips to the shoulders
+_DOG_VEST = (-7.6, 3.8)
 
 
 def _ear_flop_ops():
@@ -863,6 +872,18 @@ def buddy_deform():
         {"op": "region", "box": [[-2.2, -5.2, 9.0], [2.2, -1.0, 11.6]], "falloff": 0.6,
          "then": [{"op": "translate", "t": [0.0, -0.15, 1.35]}]},
     ]
+    # a longer dog: the front (shoulders, front legs, neck and head) moves forward and the rear (hips, hind legs, tail) back,
+    # each as one rigid piece, so only the middle of the trunk stretches. The legs keep their shape and only sit a little
+    # off their joints (see _DOG_FRONT).
+    ops += [
+        {"op": "region", "box": [[-20.0, -20.0, _DOG_SPLIT[1]], [20.0, 20.0, 30.0]], "falloff": _DOG_FADE,
+         "then": [{"op": "translate", "t": [0.0, 0.0, _DOG_FRONT]}]},
+        {"op": "region", "box": [[-20.0, -20.0, -30.0], [20.0, 20.0, _DOG_SPLIT[0]]], "falloff": _DOG_FADE,
+         "then": [{"op": "translate", "t": [0.0, 0.0, -_DOG_REAR]}]},
+        # the vest stands proud of the coat: the back and the upper flanks of the trunk swell out under it
+        {"op": "region", "box": [[-7.0, 0.2, _DOG_VEST[0]], [7.0, 7.5, _DOG_VEST[1]]], "falloff": 0.9,
+         "then": [{"op": "push", "dist": 0.45}]},
+    ]
     return {"ops": ops}
 
 
@@ -897,42 +918,64 @@ def _paint_buddy(prims):
         c = mix(c, (96, 96, 104), 0.45 * smooth(0.55, 0.95, lit))                 # grey sheen on each curl's tip
         return scale(c, 0.78 + 0.22 * smooth(-6.0, 2.0, y))
 
-    def dynamite(t):
-        """Three red sticks along the spine, two black tape bands, a brass cap at each end; None off the bundle."""
-        x, y, z = t.p
-        if t.n[1] < 0.3 or y < 2.4 or abs(x) > 3.0 or z < -4.8 or z > 2.1:
+    # the vest: dynamite sticks laid along the dog from the hips to the shoulders, side by side round the back and down both
+    # flanks to below the middle, so the side view (the game's camera) shows a whole wall of red sticks
+    VZ0, VZ1 = _DOG_VEST
+    VMID = (VZ0 + VZ1) / 2.0
+    YC = 0.9                                     # the trunk's long axis: the sticks are counted round it
+    TH0 = -0.42                                  # the lowest stick's lower edge (radians below the flank's middle)
+    NST = 5                                      # sticks on each side, the top one meeting its twin on the spine
+    DTH = (math.pi / 2 - TH0) / NST
+
+    def vest(x, y, z):
+        """Colour of the vest at a body point, or None off it: red sticks with a lit sheen and dark gaps, paper end caps,
+        black tape bands, a black timer box with a red light on the back."""
+        if z < VZ0 or z > VZ1:
             return None
-        k = (x + 2.9) / 1.94                     # stick index 0..3 across the back
-        i = min(2, max(0, int(k)))
-        u = abs(k - (i + 0.5)) * 2.0             # 0 on a stick's centre line, 1 at its edge
-        col = mix((222, 52, 40), (112, 14, 14), smooth(0.25, 1.0, u))
-        col = mix(col, (255, 150, 120), 0.5 * smooth(0.35, 0.0, abs(u - 0.3)))   # the sheen along each stick
-        col = mix(col, (40, 8, 8), smooth(0.85, 1.0, u))                           # dark gap between sticks
-        for bz in (-3.0, 0.5):
-            col = mix(col, (24, 22, 20), smooth(0.36, 0.24, abs(z - bz)))        # tape
-        if z < -4.3 or z > 1.6:
-            col = mix(col, (176, 150, 88), 0.85)                                    # brass end caps
+        th = math.atan2(y - YC, abs(x))
+        if th < TH0:
+            return None
+        k = (th - TH0) / DTH
+        u = k - math.floor(k)                    # 0..1 across a stick
+        col = mix((255, 44, 30), (150, 10, 10), smooth(0.2, 0.5, abs(u - 0.5)))
+        col = mix(col, (255, 128, 104), 0.6 * smooth(0.14, 0.0, abs(u - 0.32)))   # the sheen along each stick
+        col = mix(col, (34, 4, 4), smooth(0.40, 0.5, abs(u - 0.5)))                 # dark gap between sticks
+        # two sticks along each row, butted end to end in the middle; a paper cap at the two outer ends
+        cap = min(z - VZ0, VZ1 - z)
+        col = mix(col, mix((236, 222, 184), (150, 128, 90), smooth(0.2, 0.5, abs(u - 0.5))), smooth(0.42, 0.3, cap))
+        col = mix(col, (40, 6, 6), smooth(0.12, 0.0, abs(z - VMID)))               # the seam between two sticks
+        # two black tape bands round the bundle, a grey edge on each
+        for bz in (VZ0 + (VZ1 - VZ0) * 0.24, VZ0 + (VZ1 - VZ0) * 0.76):
+            d = abs(z - bz)
+            col = mix(col, (96, 92, 86), smooth(0.5, 0.4, d))
+            col = mix(col, (16, 14, 14), smooth(0.42, 0.32, d))
+        # the timer on the spine, near the front: a black box with a bright red light
+        tz = VZ1 - 1.6
+        if abs(x) < 1.6 and abs(z - tz) < 1.2 and th > 0.9:
+            col = mix((20, 20, 22), (60, 60, 66), smooth(0.85, 1.0, max(abs(x) / 1.6, abs(z - tz) / 1.2)))
+            ld = math.sqrt(x * x + (z - tz - 0.3) ** 2)
+            col = mix(col, (255, 30, 20), smooth(0.7, 0.4, ld))
+            col = mix(col, (255, 236, 210), smooth(0.2, 0.05, ld))
         return col
 
     def body(t):
         x, y, z = t.p
         c = coat(x, y, z)
-        # the harness: a red strap round the chest and one round the belly, joined along the spine
-        strap = max(smooth(0.6, 0.45, abs(z - 2.4)), smooth(0.6, 0.45, abs(z + 4.9)))
-        strap = max(strap, smooth(0.5, 0.35, abs(x)) * smooth(-5.0, -4.6, z) * smooth(2.9, 2.5, z) * smooth(2.0, 3.0, y))
-        c = mix(c, mix((150, 26, 22), (92, 14, 12), fbm(x, y, z, 411, 2)), strap * 0.95)
-        d = dynamite(t)
-        if d is not None:
-            c = d
-        # the lit fuse: a black cord from the middle stick's front cap forward, with a spark at its end
+        # the harness: a red strap round the chest in front of the vest and one round the belly behind it
+        strap = max(smooth(0.55, 0.4, abs(z - (VZ1 + 0.8))), smooth(0.55, 0.4, abs(z - (VZ0 - 0.8))))
+        c = mix(c, mix((190, 30, 24), (110, 14, 12), fbm(x, y, z, 411, 2)), strap * 0.95)
+        v = vest(x, y, z)
+        if v is not None:
+            c = v
+        # the lit fuse: a black cord from the timer forward up the back of the neck, a bright spark at its end
         if t.n[1] > 0.2 and y > 2.6:
-            fz = z - 2.1
-            if 0.0 < fz < 1.4:
+            fz = z - (VZ1 - 0.8)
+            if 0.0 < fz < 1.6:
                 wig = 0.25 * math.sin(fz * 5.0)
-                c = mix(c, (16, 12, 10), smooth(0.28, 0.16, abs(x - wig)))
-            sd = math.sqrt(x * x + (z - 3.6) ** 2)
-            c = mix(c, (255, 120, 20), smooth(0.9, 0.3, sd))
-            c = mix(c, (255, 240, 170), smooth(0.45, 0.1, sd))
+                c = mix(c, (16, 12, 10), smooth(0.3, 0.18, abs(x - wig)))
+            sd = math.sqrt(x * x + (z - (VZ1 + 1.0)) ** 2)
+            c = mix(c, (255, 120, 20), smooth(1.0, 0.35, sd))
+            c = mix(c, (255, 240, 170), smooth(0.5, 0.12, sd))
         return c
 
     def knot(t):
@@ -941,6 +984,7 @@ def _paint_buddy(prims):
 
     def face(t):
         x, y, z = t.p
+        z -= _DOG_FRONT                                                # the head moved forward with the front: paint as before
         ax = abs(x)
         c = coat(x, y, z, 1.6, 431)                                    # shorter, finer curls on the face
         c = mix(c, (64, 62, 68), 0.3 * smooth(9.0, 11.5, z))           # a slightly greyer muzzle

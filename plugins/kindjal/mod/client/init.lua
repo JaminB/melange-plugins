@@ -10,8 +10,9 @@
 --                  (kindjal/hit post-FX) and a matching sound. Optional spike glints on the swing.
 --   Sounds         Swing, impact, launch and explosion sounds through wum.audio (Melange 0.9 and later). Every audio call
 --                  is guarded, so an older Melange simply plays none.
---   Buddy Bomb     The labradoodle in the sheep's slot barks while it walks, yelps before it blows, and leaves tufts of fur
---                  and a spray of blood where it went off.
+--   Buddy Bomb     The labradoodle in the sheep's slot sends up a few little hearts when he is set down, barks while he
+--                  walks, yelps before he blows, and leaves tufts of fur, a red mist, a spray of blood and a pool of it
+--                  where he went off.
 --
 -- Messages used: Kindjal.Burst (sim -> client, p.value = "x,y,z,r,kind"), Explosion, Weapon.Fired, Worm.Damaged,
 -- Payload.BigJump, Payload.CollideWithWater, Payload.CollideWithDisarmPlane, Payload.Sunk, GameLogic.Turn.Started /
@@ -115,10 +116,11 @@ local function smooth(u)
 end
 
 -- ---------------------------------------------------------------- textures
--- Eleven sprites, all white with the shape in alpha so that they take any tint (see the asset list in the README).
+-- Twelve sprites, all white with the shape in alpha so that they take any tint (see the asset list in the README).
 local TEX = {}
 do
-    local names = { "smoke1", "smoke2", "smoke3", "wisp1", "wisp2", "bubble", "puddle1", "puddle2", "spark", "glint", "drop" }
+    local names = { "smoke1", "smoke2", "smoke3", "wisp1", "wisp2", "bubble", "puddle1", "puddle2", "spark", "glint", "drop",
+                    "heart" }
     if wum.draw.texture then
         for _, n in ipairs(names) do
             local ok, id = pcall(wum.draw.texture, "textures/kj_" .. n .. ".png")
@@ -893,7 +895,8 @@ end
 
 -- ---------------------------------------------------------------- puddles
 -- A puddle lies on the ground where the acid came down: grows for a second, holds about twelve seconds, shrinks over eight and
--- smokes while it lasts. At most three; a fourth replaces the oldest.
+-- smokes while it lasts. At most three; a fourth replaces the oldest. A blood pool (p.blood, where the Buddy Bomb went off)
+-- is the same puddle in dark red, silent and without smoke, and drawn whatever the smoke setting says.
 local PUD = {}
 local PK = { MAX = 3, GROW = 1, HOLD = 12, SHRINK = 8, MIN_NY = 0.766 }      -- 0.766 is cos(40 degrees)
 local nPuddles = 0
@@ -915,7 +918,7 @@ local function puddleScale(age)
     return 1 - u * u
 end
 
-local function puddleAdd(x, y, z, r)
+local function puddleAdd(x, y, z, r, blood)
     if not RAY.ok then return end
     -- Straight down from just above the burst; the first ray starts inside land when the crater is deep, then try from higher.
     local t, nx, ny, nz = castRay(x, y + 20, z, x, y - 160, z)
@@ -932,7 +935,11 @@ local function puddleAdd(x, y, z, r)
     end
     nPuddles = nPuddles + 1
     local p = { x = x, y = py, z = z, nx = nx, ny = ny, nz = nz, R = clamp(r * 0.5, 18, 46), t0 = now, wacc = 0, wrate = rnd(2, 4), bias = (nPuddles % 6) * 0.15 }
-    p.voice = play("acid_hiss", 0.35, x, py + 2, z, true)
+    if blood then
+        p.blood = true
+    else
+        p.voice = play("acid_hiss", 0.35, x, py + 2, z, true)
+    end
     PUD[#PUD + 1] = p
 end
 
@@ -957,12 +964,15 @@ local function puddleDraw(p, sc, alpha)
     local a8 = floor(clamp(alpha, 0, 1) * 255 + 0.5)
     if a8 <= 0 then return end
     local sprite = wum.draw.sprite
-    sprite(TEX.puddle1, cx, cy, cz, halfW, R, tx, ty, tz, rgb8(0.36, 0.58, 0.09) | a8, "alpha")
+    sprite(TEX.puddle1, cx, cy, cz, halfW, R, tx, ty, tz, (p.blood and rgb8(0.30, 0.015, 0.025) or rgb8(0.36, 0.58, 0.09)) | a8,
+           "alpha")
     if TEX.puddle2 then
-        -- The shine layer sits a fixed half unit nearer the camera, so the two never fight over one depth.
-        local b8 = floor(a8 * 0.6)
+        -- The shine layer sits a fixed half unit nearer the camera, so the two never fight over one depth. Blood throws the
+        -- ragged splash wider than the pool under it.
+        local b8 = floor(a8 * (p.blood and 0.85 or 0.6))
+        local k = p.blood and 1.25 or 0.72
         sprite(TEX.puddle2, cx + tx * R * 0.1 - CAM.fx * 0.5, cy + ty * R * 0.1 - CAM.fy * 0.5, cz + tz * R * 0.1 - CAM.fz * 0.5,
-               halfW * 0.72, R * 0.72, tx, ty, tz, rgb8(0.62, 0.84, 0.16) | b8, "alpha")
+               halfW * k, R * k, tx, ty, tz, (p.blood and rgb8(0.52, 0.03, 0.04) or rgb8(0.62, 0.84, 0.16)) | b8, "alpha")
     end
 end
 
@@ -975,6 +985,8 @@ local function puddleUpdate(dt)
         if not pre or age >= PK.GROW + PK.HOLD + PK.SHRINK then
             puddleEnd(p)
             table.remove(PUD, i)
+        elseif p.blood then
+            puddleDraw(p, 0.15 + 0.85 * sc, smooth(sc * 1.5) * 0.85)
         else
             if S.smoke then
                 puddleDraw(p, 0.15 + 0.85 * sc, smooth(sc * 1.5) * 0.62)
@@ -1301,12 +1313,15 @@ local function buddyUpdate(t)
     if age < BUDDY.FUSE - BUDDY.QUIET and t >= BUDDY.nextBark then buddyBark() end
 end
 
--- What is left of the dog: black tufts of fur, a spray of blood and a few dark chunks, all thrown up and out and falling
--- back. Worms caught in the blast are Bloodsand's to gib; this is only the dog.
+-- What is left of the dog: black tufts of fur, a red mist, a wide spray of blood with heavy gouts in it, and a pool of blood
+-- on the ground under the blast, the drops thrown up and out and falling back. About 90 particles at the full intensity (half
+-- at the subtle one), a burst and not a stream, so it stays well inside the pool of 400. Worms caught in the blast are
+-- Bloodsand's to gib; this is only the dog, which Bloodsand does not know about, so his blood is drawn with Bloodsand too. With
+-- it the burst is trimmed by a fifth: Bloodsand's own gibs of the worms caught in the same blast fill the screen as well.
 local function buddyGibs(x, y, z)
     local pre = S.preset
     if not pre then return end
-    local R = pre.rate
+    local R = pre.rate * (COMPAT.bloodsand and 0.8 or 1)
     for _ = 1, floor(rnd(14, 20) * R + 0.5) do
         local a, sp = rnd(0, 2 * pi), rnd(50, 150)
         spawn(K_PUFF, SMOKE_T[random(1, 3)], false, x + rnd(-6, 6), y + rnd(2, 10), z + rnd(-6, 6),
@@ -1314,17 +1329,43 @@ local function buddyGibs(x, y, z)
               rnd(0.10, 0.16), rnd(0.10, 0.16), rnd(0.11, 0.18), rnd(0.75, 0.9), 1.0, -160, rnd(0, 2 * pi), rnd(-3, 3), false,
               rnd(0, 0.05))
     end
+    -- the red mist: a few dark red puffs that billow out of the blast and hang for a moment
+    for _ = 1, floor(rnd(6, 9) * R + 0.5) do
+        local a, sp = rnd(0, 2 * pi), rnd(20, 70)
+        spawn(K_PUFF, SMOKE_T[random(1, 3)], false, x + rnd(-8, 8), y + rnd(4, 16), z + rnd(-8, 8),
+              cos(a) * sp, rnd(20, 60), sin(a) * sp, rnd(5, 8), rnd(16, 26), rnd(1.2, 1.9),
+              rnd(0.42, 0.55), rnd(0.02, 0.05), rnd(0.03, 0.06), rnd(0.5, 0.65), 2.2, -12, rnd(0, 2 * pi), rnd(-1, 1), false,
+              rnd(0, 0.06))
+    end
     if TEX.drop then
-        for _ = 1, floor(rnd(18, 26) * R + 0.5) do
-            local a, sp = rnd(0, 2 * pi), rnd(40, 140)
-            spawn(K_DROP, TEX.drop, false, x, y + 6, z, cos(a) * sp, rnd(110, 240), sin(a) * sp, rnd(1.2, 2.2),
-                  rnd(0.9, 1.5), rnd(0.8, 1.3), rnd(0.45, 0.6), 0.02, 0.03, 0.95, 0, -320, 0, 0, false, rnd(0, 0.04))
+        -- the spray: many small, fast drops, the first ones out a little ahead of the rest
+        for _ = 1, floor(rnd(36, 46) * R + 0.5) do
+            local a, sp = rnd(0, 2 * pi), rnd(50, 230)
+            spawn(K_DROP, TEX.drop, false, x + rnd(-3, 3), y + 6, z + rnd(-3, 3), cos(a) * sp, rnd(110, 300), sin(a) * sp,
+                  rnd(1.0, 2.0), rnd(0.8, 1.4), rnd(0.9, 1.5), rnd(0.45, 0.62), 0.02, 0.03, 0.95, 0, -320, 0, 0, false,
+                  rnd(0, 0.06))
         end
-        for _ = 1, floor(rnd(5, 8) * R + 0.5) do
-            local a, sp = rnd(0, 2 * pi), rnd(30, 110)
-            spawn(K_DROP, TEX.drop, false, x, y + 6, z, cos(a) * sp, rnd(140, 260), sin(a) * sp, rnd(2.6, 3.6),
-                  rnd(2.2, 3.0), rnd(1.1, 1.6), rnd(0.3, 0.4), 0.04, 0.05, 1, 0, -360, 0, 0, false, rnd(0, 0.03))
+        -- heavy gouts, slower and bigger
+        for _ = 1, floor(rnd(10, 14) * R + 0.5) do
+            local a, sp = rnd(0, 2 * pi), rnd(30, 120)
+            spawn(K_DROP, TEX.drop, false, x, y + 6, z, cos(a) * sp, rnd(140, 280), sin(a) * sp, rnd(2.8, 4.2),
+                  rnd(2.4, 3.4), rnd(1.2, 1.8), rnd(0.3, 0.42), 0.03, 0.05, 1, 0, -360, 0, 0, false, rnd(0, 0.05))
         end
+    end
+    puddleAdd(x, y, z, 84, true)                        -- the pool: R 42, the splash round it wider
+end
+
+-- A few little hearts float up where he is set down, pink and red, swaying as they rise and popping at the top: whatever is
+-- strapped to him, he is a good boy. Up to eight at the full intensity, staggered so they rise as a short stream.
+function BUDDY.hearts(x, y, z)
+    local pre = S.preset
+    if not (pre and TEX.heart) then return end
+    for k = 1, max(3, floor(rnd(6, 8) * pre.rate + 0.5)) do
+        local pink = random() < 0.6
+        spawn(K_BUBBLE, TEX.heart, false, x + rnd(-7, 7), y + CENTRE_Y + rnd(-4, 6), z + rnd(-7, 7),
+              rnd(-6, 6), rnd(18, 30), rnd(-6, 6), rnd(1.8, 2.6), rnd(2.8, 3.8), rnd(1.7, 2.5),
+              pink and 1 or 0.92, pink and 0.42 or 0.14, pink and 0.62 or 0.26, 0.95, 0.9, 10, rnd(0, 2 * pi), 0, false,
+              (k - 1) * 0.12 + rnd(0, 0.06))
     end
 end
 
@@ -1370,6 +1411,7 @@ local function onFired()
         if m.spikes then spikeGlints(a) end
     elseif wid == BUDDY.WEAPON then
         buddyFired()                                    -- no launch thump: he is set down, not shot
+        if s then BUDDY.hearts(s.px, s.py, s.pz) end
     elseif s then
         play("launch", 0.6, s.px, s.py + CENTRE_Y, s.pz)
     end

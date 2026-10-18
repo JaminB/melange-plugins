@@ -124,15 +124,15 @@ All of this is client-side and off by a setting; none of it touches the simulati
   screen-space pass on skin-coloured pixels inside the worm's body, after Bloodsand's blood if that plugin is on, so
   blood still shows through acid.
 - **Acid bursts.** Green-yellow smoke and a bubbling puddle at the burst that smokes and dies over about twenty seconds
-  (at most three puddles).
+  (at most three puddles, the Buddy Bomb's pool of blood among them).
 - **Melee impact.** A spray of dark sparks at the victim and a short red hit-flash on a bat, prod, punch or nail hit,
   with its own impact sound. Spike glints on the swing are an experimental setting, off by default.
-- **Buddy Bomb.** The sheep's slot is a black, curly labradoodle with three sticks of dynamite strapped to his back. He
-  walks and hops like the sheep did and goes off on a second press of fire or when the 30 s fuse runs out, with a
-  bigger blast than the sheep (115 damage over 160, crater 130, knockback 0.50 over 175) and the large explosion
-  effect. He barks while he walks, yelps just before the fuse runs out (or at the blast when he is set off early), and
-  leaves tufts of fur and a spray of blood where he went off. A worm the blast kills is Bloodsand's to gib, if that
-  plugin is on.
+- **Buddy Bomb.** The sheep's slot is a long, black, curly labradoodle in a vest of dynamite. A few little hearts float
+  up when he is set down. He walks and hops like the sheep did and goes off on a second press of fire or when the 30 s
+  fuse runs out, with a bigger blast than the sheep (115 damage over 160, crater 130, knockback 0.50 over 175) and the
+  large explosion effect. He barks while he walks, yelps just before the fuse runs out (or at the blast when he is set
+  off early), and leaves tufts of fur, a red mist, a spray of blood and a pool of it where he went off. A worm the
+  blast kills is Bloodsand's to gib, if that plugin is on.
 - **Sounds.** A swing, four impacts, a launch thump, three explosion sizes, the Crucible, two acid sounds and the
   Buddy Bomb's two barks and yelp, all
   synthesised by `tools/make_sounds.py`, played through Melange's `wum.audio` on top of the game's own sounds with
@@ -140,7 +140,7 @@ All of this is client-side and off by a setting; none of it touches the simulati
 - **Icons.** Every renamed weapon has its own panel icon and HUD icon in the game's cel style, drawn by
   `tools/make_icons.py` and its group modules (`tools/icons_*.py`): a nail bat, a flaming fist, a shiv, a railspike,
   a black rocket, a pipe bomb, a powder keg, a profane orb, black bananas, a nail-studded cluster, a bear trap, a
-  harpoon, a bomber, a falling carcass, a cracked stone donkey, a black labradoodle with dynamite on his back, a ram in a
+  harpoon, a bomber, a falling carcass, a cracked stone donkey, a black labradoodle's face with dynamite under his collar, a ram in a
   gas mask, a hooded crone with
   a noose, a hooded knifeman, a falling glutton, a dead star, a sawn-off, an elephant gun, a gallows turret, a
   dripping arrow and a rusted drum.
@@ -257,9 +257,9 @@ read from `Bundl09.xom` at build time:
   made with `xomtool clone`): the vanilla skinned mesh is kept as the base, so its skeleton, node names, skin weights,
   animation clips, texture stages, vertex count and order, and UV layout are the game's. Only the vertex positions
   (deformed) and the texture pixels (repainted per UV island) are new; the gunships also use the vanilla atlas as
-  shading detail under the new colours. The Buddy Bomb (the vanilla sheep reshaped into a labradoodle: leaner trunk,
+  shading detail under the new colours. The Buddy Bomb (the vanilla sheep reshaped into a labradoodle: a leaner, longer trunk,
   hanging ears, a snout and a tail pulled out of the sheep's own vertices, repainted as a black curly coat with a harness
-  and dynamite), the rabid sheep the Plague Ram and Dead Star hold before they take off, the Plague Ram, Carrion
+  and a dynamite vest), the rabid sheep the Plague Ram and Dead Star hold before they take off, the Plague Ram, Carrion
   Drop's carcass, the Hangwoman, the
   Knifeman, the Gorger, both gunships, the Slug Gun, Gibbet Turret, Harpoon launcher and Harpoon, the Plague Arrow's
   bow, the Nail Cluster and its piece, the Carpet Bombing shell, the Bear Trap and the Dead Star are of this kind.
