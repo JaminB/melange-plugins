@@ -1,3 +1,16 @@
+## 1.2.0
+
+- The acid eats Sunstone's human skin: with Sunstone 2.2's Worm skin on a tone, the acid finds the skin by the mark
+  Sunstone leaves in the scene instead of by the game's peach colour (which a human tone no longer has), and lights itself
+  by that worm's skin brightness, so it looks the same on a dark skin as on the peach. It still leaves blood, wounds and
+  guts alone. With Sunstone 2.2 the game's peach is found by the mark too, so the acid also shows under Lunar's purple
+  light. The colour test always counts too, so should Sunstone's shader not run the peach is still found. On a dark tone
+  the acid covers more of the skin under it, so it reads as the poison's green, not a faint olive stain. Nothing changes
+  without Sunstone 2.2.
+- With Sunstone 2.2, the acid also shows on a worm seen through a ledge (the game shows the worm whose turn it is through
+  what stands in front of it), a little fainter, instead of stopping in a hard line at the ledge's edge.
+- The preview event (`mod.kindjal.preview`, `what = "acid"`) takes `target = "active"` to coat the active worm.
+
 ## 1.1.0
 
 - Knockback brought back to near the game's own: every weapon now throws worms about 1.2 times as hard as vanilla, over

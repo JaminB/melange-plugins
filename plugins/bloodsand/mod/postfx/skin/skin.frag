@@ -40,6 +40,23 @@
 // moves. In a gash the floor is clotted blood; in the belly it is coils of intestine in the same colours as the
 // bloodsand/guts effect that draws the loops hanging out of it. Blood on the skin has a wet sheen from the same normal.
 //
+// Sunstone's Worm skin re-tones the skin to a human tone, which the colour test cannot find. Sunstone's model shader marks the
+// skin it draws in the scene's alpha instead (245 of 255 on skin, 1 everywhere else; the game's peach too, whenever that
+// shader runs), and the mark counts as skin (sunSkin) as well as the colour test (always: if Sunstone's shader does not run,
+// nothing is marked and the game's peach is still found by its colour; the price is that a moustache Sunstone draws as
+// real hair can catch a wound where its highlights have the skin's colour). What Sunstone draws comes in sunskin
+// (Bloodsand's Lua hears it): 0 no mark; 1 the game's peach marked (under any light and a poisoned worm's tint); 2 its
+// hair on; 3 a re-toned skin. Its tone's brightness against the game's peach comes per slot in tone0..3 (1 = the peach), and the light
+// read off a marked pixel is divided by it, so a wound, the blood's sheen and a burn are as bright on a dark skin as on the
+// peach. On a re-toned skin the blood that pools is the colour it has on the peach (it hides the skin under it; a thin
+// smear only stains it), so it shows as red on a dark skin too, and a black eye is the skin's own colour gone purple-red
+// and dark, as on a real face (plum on a fair skin, a deep brown on a dark one) instead of the cartoon's near-black mask.
+// Where this effect paints, the mark is cleared (alpha 1), so Kindjal's acid, which comes after, does not eat the blood.
+// Where the turn's worm stands behind a ledge, the game shows it through as a see-through silhouette, and the depth there is
+// the ledge's: Sunstone marks that skin 244 instead (behind), and the body is found along the view ray instead (the first
+// worm body the ray enters past the ledge, in Pick), so the paint goes on through the ledge, at BEHIND_PAINT, instead of
+// stopping in a hard line at its edge.
+//
 // The long code runs once per pixel: only a short test runs for every slot, to find the worm the pixel belongs to, and one
 // worm's gashes are only tested for their blood trails while the single nearest one is shaded in full. A shader that
 // expands this much code once per slot can link and then draw nothing on some drivers.
@@ -54,6 +71,8 @@ uniform vec3 p_worm0, p_worm1, p_worm2, p_worm3, p_worm4, p_worm5, p_worm6, p_wo
 uniform vec3 p_worm0b, p_worm1b, p_worm2b, p_worm3b, p_worm4b, p_worm5b, p_worm6b, p_worm7b, p_worm8b, p_worm9b, p_worm10b, p_worm11b, p_worm12b, p_worm13b, p_worm14b, p_worm15b;
 uniform vec3 p_worm0c, p_worm1c, p_worm2c, p_worm3c, p_worm4c, p_worm5c, p_worm6c, p_worm7c, p_worm8c, p_worm9c, p_worm10c, p_worm11c, p_worm12c, p_worm13c, p_worm14c, p_worm15c;
 uniform vec4 p_scorch0, p_scorch1, p_scorch2, p_scorch3;
+uniform vec4 p_tone0, p_tone1, p_tone2, p_tone3;
+uniform float p_sunskin;
 uniform vec3 p_blood;
 uniform float p_strength;
 uniform float p_seed;
@@ -515,6 +534,23 @@ float Opening(vec2 o, vec2 osz, vec3 Vf, vec3 Kf, vec3 Ff, vec3 Nf, vec3 qu, flo
 
 vec3 ViewPos(vec2 uv);
 
+// 1 where Sunstone's model shader marked the pixel as skin (see the top), set by main(); behind 1 on the skin of the turn's
+// worm seen through a ledge (see the top), whose body Pick then finds along the view ray: the distance to it in rayT.
+float sunSkin = 0.0;
+float behind = 0.0;
+float rayT = 1e9;
+// The body for that ray (an upright ellipsoid round the capsule, in world units) and how strongly the paint shows there.
+const vec3 BODY = vec3(6.0, 14.0, 6.0);
+const float BEHIND_PAINT = 0.7;
+
+// A slot's skin brightness against the game's peach (tone0..3, four slots each); unset (0) counts as the peach.
+float SlotTone(float i) {
+    vec4 t = i < 3.5 ? p_tone0 : (i < 7.5 ? p_tone1 : (i < 11.5 ? p_tone2 : p_tone3));
+    float k = i - 4.0 * floor(i / 4.0 + 0.01);
+    float v = k < 0.5 ? t.x : (k < 1.5 ? t.y : (k < 2.5 ? t.z : t.w));
+    return v > 0.02 ? v : 1.0;
+}
+
 // Paints one worm's blood, bruises, scorching and openings into col, which holds the scene's colour on the way in. b is the
 // blood amount (0..1, plus 2 times the bin of the side the worm was last hit from), wound level and heading and ex the eye
 // level, gut level and gut azimuth. P is the pixel's view-space
@@ -592,22 +628,30 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
         }
     }
     if (mask <= 0.0) return;
-    mask *= SkinTone(col, strict);
+    mask *= max(SkinTone(col, strict), sunSkin);
     if (mask <= 0.0) return;
     // A worm stands clear of what is behind it: a little more than the body's width to either side of the pixel the depth
     // falls away (the background is farther, or a wall at least a couple of units behind). A flat face of ground or rock
     // between the camera and a worm, or the crest of a ridge a hidden worm stands behind, goes on to both sides at its own
     // depth, even where its colour, its distance from the axis and its slope are those of skin. (After the colour test, which
     // is cheaper and lets most of what is not skin go.)
-    float sxo = clamp(7.6 * ppx, 4.0, 160.0) * mg_resolution.z;
-    float gapL = P.z - ViewPos(mg_uv - vec2(sxo, 0.0)).z;
-    float gapR = P.z - ViewPos(mg_uv + vec2(sxo, 0.0)).z;
-    mask *= max(smoothstep(1.2, 3.5, gapL), smoothstep(1.2, 3.5, gapR));
-    if (mask <= 0.0) return;
+    // (Behind a ledge the depth around is the ledge's: there the body was found along the view ray, which is enough.)
+    if (behind < 0.5) {
+        float sxo = clamp(7.6 * ppx, 4.0, 160.0) * mg_resolution.z;
+        float gapL = P.z - ViewPos(mg_uv - vec2(sxo, 0.0)).z;
+        float gapR = P.z - ViewPos(mg_uv + vec2(sxo, 0.0)).z;
+        mask *= max(smoothstep(1.2, 3.5, gapL), smoothstep(1.2, 3.5, gapR));
+        if (mask <= 0.0) return;
+    }
 
     vec3 tint = p_blood / max(max(p_blood.r, p_blood.g), max(p_blood.b, 1e-3));
     vec3 lumW = vec3(0.299, 0.587, 0.114);
-    float lum = dot(col, lumW);
+    // The light on the skin, as on the game's peach (lumSkin: the skin's own brightness, for the bruise).
+    float lumSkin = dot(col, lumW);
+    float tone = mix(1.0, SlotTone(slotIdx), sunSkin);
+    float lum = lumSkin / tone;
+    // 1 on a skin Sunstone re-toned (see the top).
+    float retone = p_sunskin > 2.5 ? sunSkin : 0.0;
     vec3 base = col;
 
     // The light falls on a smooth body: the depth buffer's normal is flat across each facet of the worm's mesh and jumps at
@@ -719,10 +763,14 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
         float socket = clamp(oval * (smoothstep(0.05, 0.45 - 0.15 * farB, wn.x) * mix(0.75, 1.0, wn.y) * (0.85 + 0.3 * lvl) + 0.35 * farB), 0.0, 1.0);
         float lid = oval * smoothstep(0.1, 0.5, wn.x) * smoothstep(0.4, 0.85, wn.y) * (0.55 + 0.45 * lvl);
         float rim = oval * smoothstep(0.02, 0.16, wn.x) * (1.0 - smoothstep(0.16, 0.42, wn.x)) * (1.0 - wn.y);
-        float shade = clamp(lum * 1.15, 0.3, 1.1);
+        float shade = clamp(lumSkin * 1.15, 0.3, 1.1);
         vec3 bru = mix(vec3(0.40, 0.15, 0.44), vec3(0.045, 0.014, 0.075), socket) * shade;
         bru = mix(bru, vec3(0.02, 0.006, 0.035) * shade, lid);
-        col = mix(col, bru, 0.97 * bruise);
+        // A re-toned skin: its own colour, purple-red and darker toward the socket and the lid.
+        vec3 bruH = col * mix(vec3(0.64, 0.44, 0.64), vec3(0.30, 0.16, 0.29), socket);
+        bruH = mix(bruH, col * vec3(0.24, 0.12, 0.22), lid);
+        bru = mix(bru, bruH, retone);
+        col = mix(col, bru, mix(0.97, 0.88, retone) * bruise);
         col += vec3(1.0, 0.86, 0.84) * rim * 0.07 * (0.3 + lum);
     }
     float keep = 0.7 * bruise;
@@ -787,13 +835,20 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
     if (cov > 0.0) {
         // Multiplying keeps the worm's shading and face: the blood stains the skin instead of covering it, and the core
         // goes darker and thicker than the rest.
-        vec3 soaked = col * tint * mix(0.75, 0.38, core) + p_blood * 0.08 * (0.5 + core);
+        // (On a re-toned skin the pooled blood is coloured as on the peach: see the top. A thin smear stains the skin's own
+        // colour, with a little of the blood's own red lit as on the peach over a dark one, so it reads as red over the
+        // brown; it does not lift the skin under it toward the peach, which washed a dark skin pale wherever blood was
+        // spread thin. The pooled blood's own red and its wet sheen, stronger on a dark skin, show the rest.)
+        float darkTone = clamp(1.25 * (1.0 - tone), 0.0, 1.0);
+        vec3 under = mix(col, min(col / max(tone, 0.2), vec3(1.0)), retone * core * core);
+        vec3 soaked = under * tint * mix(0.75, 0.38, core)
+                    + p_blood * (0.08 * (0.5 + core) + 0.3 * retone * darkTone * (1.0 - core) * smoothstep(0.1, 0.5, cov) * (0.3 + 0.8 * lum));
         vec3 Kv = normalize(vec3(0.35, 0.85, 0.25) * mat3(mg_view));
         vec3 Vv = normalize(-P);
         float spec = pow(max(dot(ns, normalize(Kv + Vv)), 0.0), 50.0);
         float edge = cov * (1.0 - cov) * 4.0;
         float wet = (0.25 + 0.75 * core) * cov;
-        soaked += vec3(1.0, 0.92, 0.9) * (spec * 0.7 * wet + edge * 0.06 * spec) * (0.4 + lum);
+        soaked += vec3(1.0, 0.92, 0.9) * (spec * 0.7 * wet + edge * 0.06 * spec) * (0.4 + lum) * (1.0 + 1.0 * retone * darkTone);
         soaked += p_blood * 0.15 * edge * (1.0 - core);
         col = mix(col, soaked, cov);
     }
@@ -873,10 +928,22 @@ vec3 SurfaceNormal(vec3 P, vec3 Cv, out float cover) {
 void Pick(vec3 P, vec3 centre, vec3 b, vec3 ex, float sc, float slotIdx,
           inout float best, inout vec3 wc, inout vec3 wb, inout vec3 wex, inout float wsc, inout float wslot) {
     if (b.x <= 0.0 && b.y <= 0.0 && ex.x <= 0.0 && ex.y <= 0.0 && sc <= 0.0) return;
-    vec3 d = P - (mg_view * vec4(centre, 1.0)).xyz;
-    vec3 L = d * mat3(mg_view);
+    vec3 Cv = (mg_view * vec4(centre, 1.0)).xyz;
+    vec3 L = (P - Cv) * mat3(mg_view);
     float e = (L.x * L.x + L.z * L.z) / (9.5 * 9.5) + L.y * L.y / (16.0 * 16.0);
-    if (e < best) {
+    if (behind > 0.5) {
+        // Where the view ray enters this body (in its own axes, scaled to a unit sphere), or the ledge at P if the ray is
+        // already inside it there; a body the ray leaves before the ledge is not the one behind it.
+        vec3 o = (-Cv * mat3(mg_view)) / BODY;
+        vec3 v = (normalize(P) * mat3(mg_view)) / BODY;
+        float qa = dot(v, v), qb = dot(o, v), disc = qb * qb - qa * (dot(o, o) - 1.0);
+        float s = sqrt(max(disc, 0.0)), lp = length(P);
+        float t = max((-qb - s) / qa, lp);
+        if (disc <= 0.0 || (-qb + s) / qa < lp || t >= rayT) return;
+        rayT = t;
+        e = 0.0;
+    }
+    if (e < best || behind > 0.5) {
         best = e;
         wc = centre;
         wb = b;
@@ -900,6 +967,7 @@ void main() {
     // any normal is worked out. Whether the surface faces away from the worm is decided in Worm().
     float best = 1.0, wslot = 0.0, wsc = 0.0;
     vec3 wc = vec3(0.0), wb = vec3(0.0), wex = vec3(0.0);
+    behind = abs(scene.a * 255.0 - 244.0) < 0.5 ? 1.0 : 0.0;
     Pick(P, p_worm0, p_worm0b, p_worm0c, p_scorch0.x, 0.0, best, wc, wb, wex, wsc, wslot);
     Pick(P, p_worm1, p_worm1b, p_worm1c, p_scorch0.y, 1.0, best, wc, wb, wex, wsc, wslot);
     Pick(P, p_worm2, p_worm2b, p_worm2c, p_scorch0.z, 2.0, best, wc, wb, wex, wsc, wslot);
@@ -921,10 +989,20 @@ void main() {
         return;
     }
 
-    float cover;
-    vec3 n = SurfaceNormal(P, (mg_view * vec4(wc, 1.0)).xyz, cover);
+    float cover = BEHIND_PAINT;
+    vec3 n;
+    if (behind > 0.5) {
+        // Behind a ledge: the point where the ray enters the body, with the body's own normal.
+        P = normalize(P) * rayT;
+        vec3 L = (P - (mg_view * vec4(wc, 1.0)).xyz) * mat3(mg_view);
+        n = normalize(mat3(mg_view) * (L / (BODY * BODY)));
+    } else {
+        n = SurfaceNormal(P, (mg_view * vec4(wc, 1.0)).xyz, cover);
+    }
 
     vec3 col = scene.rgb;
+    sunSkin = abs(scene.a * 255.0 - 245.0) < 0.5 || behind > 0.5 ? 1.0 : 0.0;
     Worm(P, n, wc, wb, wex, wslot, wsc, col);
-    gl_FragColor = vec4(mix(scene.rgb, col, p_strength * cover), scene.a);
+    vec3 outc = mix(scene.rgb, col, p_strength * cover);
+    gl_FragColor = vec4(outc, sunSkin > 0.5 && length(outc - scene.rgb) > 0.04 ? 1.0 : scene.a);
 }

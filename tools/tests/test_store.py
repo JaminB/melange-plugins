@@ -241,6 +241,84 @@ class PackAndVerify(unittest.TestCase):
                     self.assertEqual(mode & 0o777, 0o644)
 
 
+class ChangelogSection(unittest.TestCase):
+    TEXT = (
+        "# Changes\n\n"
+        "## 1.1.0\n\n"
+        "- First item, wrapped onto\n  a second line.\n"
+        "- Second item.\n\n"
+        "A closing paragraph that is\nalso wrapped.\n\n"
+        "## 1.0.0\n\n"
+        "First release: a sentence that is hard-wrapped in the\n"
+        "source so the name Renewation HD\n0.2A2 is split.\n"
+    )
+
+    def test_unwraps_paragraph_lines(self):
+        self.assertEqual(
+            store.changelog_section(self.TEXT, "1.0.0"),
+            "First release: a sentence that is hard-wrapped in the source so the name Renewation HD 0.2A2 is split.",
+        )
+
+    def test_keeps_list_items_and_paragraph_breaks(self):
+        self.assertEqual(
+            store.changelog_section(self.TEXT, "1.1.0"),
+            "- First item, wrapped onto a second line.\n- Second item.\n\nA closing paragraph that is also wrapped.",
+        )
+
+    def test_missing_version_is_empty(self):
+        self.assertEqual(store.changelog_section(self.TEXT, "9.9.9"), "")
+
+    def test_crlf_keeps_paragraph_breaks(self):
+        self.assertEqual(
+            store.changelog_section(self.TEXT.replace("\n", "\r\n"), "1.1.0"),
+            "- First item, wrapped onto a second line.\n- Second item.\n\nA closing paragraph that is also wrapped.",
+        )
+
+    def test_heading_with_trailing_text_matches_pack(self):
+        text = "## 1.2.0 - 2026-10-09\n\nA note.\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "CHANGELOG.md"
+            path.write_text(text, encoding="utf-8")
+            self.assertEqual(store.newest_changelog_version(path), "1.2.0")
+        self.assertEqual(store.changelog_section(text, "1.2.0"), "A note.")
+
+    def test_keeps_other_markdown_blocks(self):
+        text = (
+            "## 1.0.0\n\n"
+            "### Fixed\nA wrapped\nline.\n"
+            "1. One\n2. Two\n"
+            "+ Plus\n  - nested\n\n"
+            "```\nx = 1\ny = 2\n```\n"
+        )
+        self.assertEqual(
+            store.changelog_section(text, "1.0.0"),
+            "### Fixed\nA wrapped line.\n1. One\n2. Two\n+ Plus\n  - nested\n\n```\nx = 1\ny = 2\n```",
+        )
+
+    def test_hash_number_is_prose_not_a_heading(self):
+        text = "## 1.0.0\n\nWorks with the Steam build\n#1077 only.\n"
+        self.assertEqual(store.changelog_section(text, "1.0.0"), "Works with the Steam build #1077 only.")
+
+    def test_longer_fence_is_not_closed_by_a_shorter_one(self):
+        text = "## 1.0.0\n\n````\n```\n\nx = 1\n```\n````\nafter\nmore\n"
+        self.assertEqual(
+            store.changelog_section(text, "1.0.0"),
+            "````\n```\n\nx = 1\n```\n````\nafter more",
+        )
+
+    def test_tables_rules_and_tilde_fences_stay_as_written(self):
+        text = (
+            "## 1.0.0\n\n"
+            "| a | b |\n|---|---|\n| 1 | 2 |\n\n"
+            "Before\n\n---\n\nAfter\n\n"
+            "~~~\nx = 1\ny = 2\n~~~\n"
+        )
+        self.assertEqual(
+            store.changelog_section(text, "1.0.0"),
+            "| a | b |\n|---|---|\n| 1 | 2 |\n\nBefore\n\n---\n\nAfter\n\n~~~\nx = 1\ny = 2\n~~~",
+        )
+
+
 class IndexGeneration(unittest.TestCase):
     def test_index_omits_plugin_with_no_versions(self):
         with tempfile.TemporaryDirectory() as tmp:

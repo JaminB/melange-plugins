@@ -243,6 +243,7 @@ void main() {
       set(`u_wmouth[${i}]`, gl.FLOAT_VEC4, w.mouth || [0, 0, 0, 0]);
       set(`u_wlip[${i}]`, gl.FLOAT_VEC3, w.lip || [0, 0, 0]);
       set(`u_wvomit[${i}]`, gl.FLOAT, [w.vomit || 0]);
+      set(`u_wmark[${i}]`, gl.FLOAT, [w.mark || 0]);
     });
     let imgTex = null;
     const dummy = makeTex(1, 1, 'rgba8');

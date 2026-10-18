@@ -3599,6 +3599,45 @@ end
 function VIS.zeroScorch()
     for g = 1, 4 do sendParam4(SKIN, SCORCH_NAMES[g], 0, 0, 0, 0) end
 end
+
+-- Sunstone's Worm skin: each slot's skin brightness against the game's peach (1 without it), as Sunstone tells it in the
+-- event mod.sunstone.skin; the skin effect lights its wounds on a darker skin by it (see skin.frag). And how the skin is
+-- found (sunskin): 0 by its colour (no Sunstone, or one that does not mark the skin); otherwise by its colour or Sunstone's
+-- mark (the colour test stays, so the peach is still found if Sunstone's shader does not run), with 1 the game's peach
+-- marked, 2 Sunstone's hair on and 3 a skin Sunstone re-toned (the wounds and bruises then take that skin's own colour,
+-- see skin.frag).
+local TONE_NAMES = {}
+for g = 1, 4 do TONE_NAMES[g] = "tone" .. (g - 1) end
+VIS.tone = {}
+VIS.sunskin = 0
+function VIS.sendTone()
+    local t = VIS.tone
+    for g = 1, 4 do
+        local b = (g - 1) * 4
+        sendParam4(SKIN, TONE_NAMES[g], t[b + 1] or 1, t[b + 2] or 1, t[b + 3] or 1, t[b + 4] or 1)
+    end
+    sendParam(SKIN, "sunskin", VIS.sunskin)
+end
+-- (For the insurance resend: forget what was sent, so sendTone sends it all again.)
+function VIS.resendTone()
+    for g = 1, 4 do SKIN.cache[TONE_NAMES[g]] = nil end
+    SKIN.cache.sunskin = nil
+end
+function VIS.hearSkin(p)
+    local t = {}
+    local mode = 0
+    if type(p) == "table" then
+        if p.on == true and type(p.lum) == "table" then
+            for i = 1, SKIN_SLOTS do
+                local v = tonumber(p.lum[i])
+                t[i] = (v and v > 0.02 and v < 4) and v or 1
+            end
+        end
+        if p.marks == true then mode = p.on == true and 3 or (p.hair == true and 2 or 1) end
+    end
+    VIS.tone = t
+    VIS.sunskin = mode
+end
 end
 build()
 end
@@ -4647,6 +4686,7 @@ local function updateSkin()
             end
         end
         VIS.sendScorch()
+        VIS.sendTone()
     end
     for i = 1, SKIN_SLOTS do
         if skFrame[i] ~= frameId and (skSentGore[i] ~= 0 or skSentWound[i] ~= 0 or skSentEyes[i] ~= 0 or skSentGut[i] ~= 0) then
@@ -4845,6 +4885,9 @@ if wum.events and wum.events.on then
         MEL.onFired(os.clock())
     end)
     wum.events.on("melange.match.start", resetAll)
+    wum.events.on("mod.sunstone.skin", function(p) VIS.hearSkin(p) end)
+    -- A mod switched on or off (Sunstone among them): back to the colour test until Sunstone, if still there, says again.
+    wum.events.on("melange.mods.changed", function() VIS.hearSkin(nil) end)
     wum.events.on("melange.match.end", resetAll)
 end
 
@@ -4921,6 +4964,7 @@ local function resendStep()
     else
         DECALS.resendMisc()
         SKIN.cache.blood, SKIN.cache.seed = nil, nil
+        VIS.resendTone()
         local c = palette.stain
         sendParam(STAINS, "blood", c[1], c[2], c[3])
         sendParam(SKIN, "blood", c[1], c[2], c[3])
