@@ -6,7 +6,7 @@ knockback back to near vanilla; Brutal puts the old power back. It ships one Lua
 
 ## Using it
 
-Enable Kindjal Brutal on the Mods page next to Kindjal (1.1.0 or later is required). Enable at most one Kindjal
+Enable Kindjal Brutal on the Mods page next to Kindjal (1.3.0 or later is required). Enable at most one Kindjal
 knockback preset: Brutal conflicts with Kindjal Heavy.
 
 ## It is a content mod
@@ -23,7 +23,10 @@ Where 1.0.0 set no reach (the four melee weapons, the Slug Gun, the Acid Spitter
 and Kindjal 1.1.0's stays. Damage, blast radius and craters are untouched. The game's own numbers come back at the end
 of the match.
 
-| Weapon | Kindjal 1.1.0 | Brutal |
+The one exception is the Buddy Bomb, the labradoodle that took the sheep's slot after 1.0.0: its blast is bigger than
+the Plague Ram's, so Brutal gives it more than the Plague Ram's 0.70 / 170, 0.85 over 200.
+
+| Weapon | Kindjal | Brutal |
 | --- | --- | --- |
 | Ripper (Bazooka) | 0.35 / 120 | 0.64 / 155 |
 | Pipe Bomb (Grenade) | 0.34 / 120 | 0.45 / 110 |
@@ -31,6 +34,7 @@ of the match.
 | Gorger (Fatkins) | 0.72 / 220 | 1.80 / 260 |
 | Earthquake Ass | 0.56 / 185 | 1.30 / 280 |
 | Crucible | 0.62 / 185 | 1.35 / 195 |
+| Buddy Bomb (Sheep) | 0.50 / 175 | 0.85 / 200 |
 
 The log line `kindjal-brutal 1.0.0: N fields applied, M refused` says how many writes landed; a refused field is logged
 as a warning and skipped.

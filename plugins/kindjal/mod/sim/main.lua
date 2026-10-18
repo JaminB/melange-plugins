@@ -63,8 +63,14 @@ STATS = {
     kWeaponSuperAirstrike  = { WormDamageMagnitude = 100, WormDamageRadius = 145, LandDamageRadius = 105,
                                ImpulseMagnitude = 0.36, ImpulseRadius = 145 },
     kWeaponConcreteDonkey  = { LandDamageRadius = 180, ImpulseMagnitude = 0.56, ImpulseRadius = 185 },
-    kWeaponSheep           = { WormDamageMagnitude = 95, WormDamageRadius = 130, LandDamageRadius = 105,
-                               ImpulseMagnitude = 0.39, ImpulseRadius = 145 },
+    -- The Buddy Bomb (the sheep's slot): a bigger blast than the Plague Ram, short of the Dead Star's throw. The client
+    -- knows its explosion by WormDamageRadius 160 (client/init.lua BUDDY.radius), so keep the two the same.
+    -- He is a dog, so the sheep's bleats go: LaunchSfx and BigJumpSfx are weapons/SheepBaa and HoldLoopSfx is
+    -- weapons/SheepHeld (the same SheepBaa.wav). An empty name plays nothing; the client barks instead. Only this
+    -- container is written, so the Plague Ram (kWeaponSuperSheep) and the Dead Star keep their own sounds.
+    kWeaponSheep           = { WormDamageMagnitude = 115, WormDamageRadius = 160, LandDamageRadius = 130,
+                               ImpulseMagnitude = 0.50, ImpulseRadius = 175, DetonationFx = "WXP_ExplosionX_Large",
+                               LaunchSfx = "", BigJumpSfx = "", HoldLoopSfx = "" },
     kWeaponSuperSheep      = { WormDamageMagnitude = 95, WormDamageRadius = 130, LandDamageRadius = 105,
                                ImpulseMagnitude = 0.39, ImpulseRadius = 145 },
     kWeaponOldWoman        = { WormDamageMagnitude = 82, ImpulseMagnitude = 0.38, ImpulseRadius = 120 },
@@ -113,7 +119,7 @@ MESHES = {
     kWeaponAirstrike       = { W = "kindjal.FieldRadio", P = "kindjal.CarpetShell" },
     kWeaponSuperAirstrike  = { W = "kindjal.FieldRadio", P = "kindjal.Carcass" },
     kWeaponConcreteDonkey  = { W = "kindjal.FieldRadio", P = "kindjal.StoneDonkey" },
-    kWeaponSheep           = { W = "kindjal.RabidSheep", P = "kindjal.RabidSheep" },
+    kWeaponSheep           = { W = "kindjal.BuddyBomb", P = "kindjal.BuddyBomb" },
     kWeaponSuperSheep      = { W = "kindjal.RabidSheep", P = "kindjal.RabidSheep", F = "kindjal.PlagueRam" },
     kWeaponStarburst       = { W = "kindjal.RabidSheep", P = "kindjal.RabidSheep", F = "kindjal.DeadStar" },
     kWeaponOldWoman        = { W = "kindjal.Hangwoman", P = "kindjal.Hangwoman" },

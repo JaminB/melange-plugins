@@ -1,6 +1,6 @@
 # Kindjal sounds
 
-`make_sounds.py` synthesises every sound effect into `../mod/sounds/` (12 WAVs, PCM16 mono 44.1 kHz, about 1.1 MB in
+`make_sounds.py` synthesises every sound effect into `../mod/sounds/` (15 WAVs, PCM16 mono 44.1 kHz, about 1.3 MB in
 total, each under 300 KB). It is stdlib-only Python 3 (the `wave` module, no numpy) and deterministic: every random
 source is a seeded `random.Random`, so re-running gives identical bytes.
 
@@ -16,6 +16,7 @@ throughout:
 - pitch-dropping sine (optionally blended with a triangle for a harder edge) for sub-booms and thumps
 - a few decaying inharmonic sine partials for struck metal
 - short band-passed noise grains for crunch and debris, short rising-pitch sine blips for bubbles
+- a harmonic buzz (a glottal source with a moving pitch) through parallel formant band-passes for the dog's voice
 - tanh soft clipping for grit, and a few low-passed delayed copies for room reflections on the big blasts
 
 I could not listen while building these. The numbers below (durations, level shape) are verified; how they sound is for
@@ -35,6 +36,9 @@ the owner to audition. Every recipe has gain and tuning constants in one place, 
 | `kj_crucible.wav` | 2.8 s | The detonation. Hard crack, two stacked subs (75 to 20 Hz and 48 to 16 Hz), a long dark body, slow rumble, three rolling reflections, 300 debris grains, then low molten glops and a faint sizzle lingering after the blast. |
 | `kj_acid_burst.wav` | 1.2 s | Glass shatter and acid splash. Bright crack, about 130 glass tinks (2.5 to 9 kHz, thickest in the first 0.15 s, gone by 0.5 s), a wet band-passed splash, rising bubbles and a fading sizzle. |
 | `kj_acid_hiss.wav` | 2.0 s | Loopable hiss and bubbling. High-passed noise slowly modulated, a faint mid layer, about 28 random rising bubbles per second and a few low glops. The sound is stationary by design, and 0.25 s of extra tail generated past the loop end is crossfaded (equal power) into the head, so the last sample flows straight into the first with no click. No fades, so play it with `loop=true`. |
+| `kj_bark.wav` | 0.32 s | The Buddy Bomb's bark ("woof"). A 14-harmonic buzz whose pitch jumps from about 375 Hz to 555 Hz in the first 25 ms and falls away, with a slow wobble for the growl, through three formant band-passes (700, 1350 and 2600 Hz) and a low body; a raspy noise burst on the attack, one short room reflection, light saturation. |
+| `kj_bark2.wav` | 0.42 s | A higher, quicker double bark ("ruff-ruff"): the same recipe twice, at 560 and 520 Hz, 0.17 s apart, the second softer. The client picks one of the two barks at random every 1 to 1.9 s while the dog walks. |
+| `kj_yelp.wav` | 0.6 s | The yelp before the blast. A thinner 7-harmonic voice that shoots up from 850 Hz to about 1500 Hz in 70 ms and sags back to about 800 Hz with an 11 Hz tremble, through formants at 1.5 and 3 kHz with a little breath noise, dying away. |
 
 The boom family shares one recipe (`boom()`), so small, medium and large differ only in pitch range, decay times, debris
 count and reflections; that keeps them recognisably one family at three sizes.
