@@ -535,7 +535,9 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
     // The body is roughly an upright ellipsoid, and the outer 15% fades out.
     float e = (L.x * L.x + L.z * L.z) / (9.5 * 9.5) + L.y * L.y / (16.0 * 16.0);
     float mask = 1.0 - smoothstep(0.85, 1.0, e);
-    if (mask <= 0.0) return;
+    // The eye whites stand out of the body (and of its shell below), so the bloodshot veins take a looser volume of their own.
+    float eyeMask = eyeLevel > 0.0 ? 1.0 - smoothstep(1.1, 1.3, e) : 0.0;
+    if (mask <= 0.0 && eyeMask <= 0.0) return;
 
     // Only the worm's own surface takes anything, and that is a thin shell: the body is a capsule about 5.6 units in radius
     // standing on the worm's vertical axis (its head and face stand a little out of it, a slumped head a few units), and
@@ -551,7 +553,7 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
     // (Along the straight part of the body the skin stands upright, its normal near horizontal: a slope of sand is not.)
     float upright = 1.0 - smoothstep(0.55, 0.85, abs(nWorld.y)) * (1.0 - smoothstep(0.0, 2.0, abs(rv.y)));
     mask *= shell * upright * smoothstep(0.1, 0.5, dot(nWorld, rv / rl));
-    if (mask <= 0.0) return;
+    if (mask <= 0.0 && eyeMask <= 0.0) return;
 
     // The pattern is rotated about +Y by -heading so it turns with the worm, and offset by the seed so no two worms match.
     float seed = p_seed + slotIdx * 37.0;
@@ -565,6 +567,31 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
     // sits on the face, so the front of the head under the eyes counts as the mouth).
     float strict = max(smoothstep(EYE_Y + 0.5, EYE_Y + 3.5, qu.y),
                        smoothstep(0.0, 2.0, qu.z) * Edge(EYE_Y - 1.0, EYE_Y + 1.0, qu.y) * smoothstep(EYE_Y - 12.0, EYE_Y - 8.0, qu.y));
+    // Bloodshot eyes: the white takes a pink wash and thin broken vessels running in from the rim, as the eyeLevel rises
+    // (the lead eye first, as the black eye does). Done before the skin test, which would zero the white; no loop, one tap.
+    float ppx = 0.5 * mg_resolution.y / (abs(mg_invProj[1][1]) * max(-P.z, 1.0));
+    if (eyeLevel > 0.0) {
+        // Only on the front of the head round the eyes (not a white hat brim or the chin), and not on dark grey such as
+        // sunglasses, which WhiteTone alone lets through.
+        float lw = dot(col, vec3(0.299, 0.587, 0.114));
+        float w = WhiteTone(col) * eyeMask * smoothstep(-2.0, 1.0, qu.z) * smoothstep(0.4, 0.55, lw)
+                * smoothstep(EYE_Y - 5.0, EYE_Y - 2.0, qu.y) * (1.0 - smoothstep(EYE_Y + 7.0, EYE_Y + 9.0, qu.y));
+        if (w > 0.02) {
+            float side = qu.x >= 0.0 ? 1.0 : -1.0;
+            float lead = Hash(vec2(seed, 91.0)) < 0.5 ? 1.0 : -1.0;
+            float lv = side == lead ? clamp(eyeLevel / 0.35, 0.0, 1.0) : clamp((eyeLevel - 0.12) / 0.4, 0.0, 1.0);
+            vec2 ep = vec2(qu.x - side * EYE_X, qu.y - EYE_Y);
+            float rad = length(ep);
+            float ang = atan(ep.y, ep.x);
+            float line = 1.0 - smoothstep(0.05, 0.16, abs(sin(ang * 7.0 + Noise2(ep * 1.3 + seed) * 3.0)));
+            float fork = smoothstep(0.35, 0.7, Noise2(ep * 3.0 + seed * 1.7));
+            float vein = line * fork * smoothstep(0.8, 4.5, rad);
+            vein *= smoothstep(3.5, 7.0, ppx);
+            col = mix(col, vec3(0.85, 0.5, 0.5) * lw / 0.8, 0.25 * lv * w);
+            col = mix(col, vec3(0.55, 0.05, 0.06) * min(lw / 0.8, 1.0), vein * (0.35 + 0.5 * lv) * lv * w);
+        }
+    }
+    if (mask <= 0.0) return;
     mask *= SkinTone(col, strict);
     if (mask <= 0.0) return;
     // A worm stands clear of what is behind it: a little more than the body's width to either side of the pixel the depth
@@ -572,7 +599,6 @@ void Worm(vec3 P, vec3 n, vec3 centre, vec3 b, vec3 ex, float slotIdx, float sco
     // between the camera and a worm, or the crest of a ridge a hidden worm stands behind, goes on to both sides at its own
     // depth, even where its colour, its distance from the axis and its slope are those of skin. (After the colour test, which
     // is cheaper and lets most of what is not skin go.)
-    float ppx = 0.5 * mg_resolution.y / (abs(mg_invProj[1][1]) * max(-P.z, 1.0));
     float sxo = clamp(7.6 * ppx, 4.0, 160.0) * mg_resolution.z;
     float gapL = P.z - ViewPos(mg_uv - vec2(sxo, 0.0)).z;
     float gapR = P.z - ViewPos(mg_uv + vec2(sxo, 0.0)).z;

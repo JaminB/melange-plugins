@@ -244,6 +244,22 @@ local VOMIT = {
     GORE = 0.05,
 }
 
+-- Blood from the mouth after a melee hit to the face: a strong spurt, then a slow dribble. VOMIT.startMouth and
+-- VOMIT.updateMouth are defined after the melee code that calls them. (Fields of VOMIT, not locals: the file's main
+-- function is at its 200-local limit.)
+VOMIT.FACE = {
+    SPURT = 0.35,                   -- seconds of the strong spurt
+    DRIBBLE = 4,                    -- seconds of dribble after it
+    SPURT_RATE = 90,                -- droplets per second, times the amount's bleed multiplier
+    DRIBBLE_RATE = 9,
+    SPURT_SPEED = { 60, 115 },
+    DRIBBLE_SPEED = { 3, 18 },
+    FACE_DOT = 0.5,                 -- the attacker is this far in front of the victim's facing (cosine)
+    PER_FRAME = 4,
+    STAIN = 3,
+    GORE = 0.03,
+}
+
 -- Lens splatter.
 local LENS_MAX = 6
 local LENS_MIN_DAMAGE, LENS_NEAR, LENS_DEATH_NEAR = 25, 250, 500
@@ -1677,6 +1693,7 @@ local function newSlot(x, y, z, health, alive)
         -- The gut is rolled once per slot, so once per match: whether this worm can show one and on which side.
         hasGut = random() < GUT.CHANCE, gutAz = rnd(-GUT.AZ, GUT.AZ), gut = 0, previewGut = 0,
         gutLive = false, gutPx = x, gutPy = y, gutPz = z,
+        mouthStart = 0, mouthUntil = 0, mouthAcc = 0,
         vomitAt = nil, vomitStart = 0, vomitUntil = 0, vomitAcc = 0, -- vomitUntil is 0 when no heave is going on
     }
     VIS.initGut(s)
@@ -1689,6 +1706,7 @@ local function resetSlot(s)
     s.credited, s.shownAt, s.bleedUntil, s.bleedRate, s.bleedAcc = 0, -100, 0, 0, 0
     s.stainRadius, s.restSince = nil, nil
     s.vomitAt, s.vomitUntil, s.vomitAcc = nil, 0, 0
+    s.mouthUntil, s.mouthAcc = 0, 0
     s.gutLive = false
     s.dead, s.dying, s.dieNow = false, nil, nil
 end
@@ -2207,7 +2225,9 @@ do
     SIG[10] = { name = "Baseball bat", fn = F.sprayBat, dmg = 32, melee = true, reach = 52, shots = 1, generic = 0.25 }
     SIG[11] = { name = "Prod", fn = F.sprayProd, dmg = 15, melee = true, reach = 42, shots = 1, generic = 0 }
     SIG[12] = { name = "Fire punch", fn = F.sprayFire, dmg = 30, melee = true, reach = 48, shots = 1, generic = 0.15 }
-    SIG[25] = { name = "No more nails", fn = F.sprayNails, dmg = 20, melee = true, reach = 44, shots = 1, generic = 0.1 }
+    -- noImpulse: the spike gives (almost) no knockback, so no impulse is ever seen; without this the hit was dropped here and
+    -- the blood only came when the game took the health off, at the end of the turn.
+    SIG[25] = { name = "No more nails", fn = F.sprayNails, dmg = 20, melee = true, reach = 44, shots = 1, generic = 0.1, noImpulse = true }
     SIG[18] = { name = "Concrete donkey", fn = F.sprayCrush, dmg = 55, proj = true, expl = true, window = 20, shots = 1, generic = 0.3 }
     SIG[23] = { name = "Fatkins", fn = F.sprayCrush, dmg = 45, proj = true, expl = true, window = 20, shots = 1, generic = 0.3 }
     SIG[17] = { name = "Old woman", fn = F.sprayShred, dmg = 40, proj = true, expl = true, window = 20, shots = 1, generic = 1 }
@@ -2622,6 +2642,13 @@ do
     function MEL.hit(sig, s, vslot, damage, dx, dy, dz, hasA, ax, ay, az, expl)
         MEL.vslot, MEL.hasA, MEL.ax, MEL.ay, MEL.az, MEL.expl = vslot, hasA, ax or 0, ay or 0, az or 0, expl or false
         burst(s, damage, dx, dy, dz, false, sig)
+        -- A melee hit from the front (the attacker where the victim faces) is a hit to the face.
+        if sig and sig.melee and hasA and VOMIT.startMouth and s.alive and not s.dead then
+            local fx, fz = facing(s)
+            local rx, rz = (ax or 0) - (s.sx or s.px), (az or 0) - (s.sz or s.pz)
+            local h = sqrt(rx * rx + rz * rz)
+            if h > 1e-3 and (rx * fx + rz * fz) / h > VOMIT.FACE.FACE_DOT then VOMIT.startMouth(s) end
+        end
     end
 
     -- The explosion path: sets the context for the worms of one blast.
@@ -2656,7 +2683,7 @@ do
                             ok = d <= sig.reach and abs(ry) <= 30
                             -- With the weapon only held, a worm that just landed from a fall is a fall, and only a worm that was
                             -- knocked can be the victim (any other worm that stands near the attacker is not one).
-                            if ok and not MEL.snapFired and ((s.fallV or 0) < -FALL_MIN or imp <= 0) then ok = false end
+                            if ok and not MEL.snapFired and ((s.fallV or 0) < -FALL_MIN or (imp <= 0 and not sig.noImpulse)) then ok = false end
                             if ok and sig.needImpulse and imp <= 0 then ok = false end
                         else
                             local along = rx * fx + rz * fz
@@ -3582,6 +3609,52 @@ local function startHeave(s)
     s.vomitStart, s.vomitUntil, s.vomitAcc = now, now + VOMIT.SECS, 0
 end
 
+function VOMIT.startMouth(s)
+    if not (cfg.vomit and preset) then return end
+    s.mouthStart, s.mouthUntil, s.mouthAcc = now, now + VOMIT.FACE.SPURT + VOMIT.FACE.DRIBBLE, 0
+end
+
+function VOMIT.updateMouth(s, dt)
+    if (s.mouthUntil or 0) == 0 then return end
+    local MOUTH = VOMIT.FACE
+    if not (s.alive and cfg.vomit and preset) or s.dead then
+        s.mouthUntil, s.mouthAcc = 0, 0
+        return
+    end
+    local fx, fz = facing(s)
+    if now >= s.mouthUntil then
+        s.mouthUntil, s.mouthAcc = 0, 0
+        s.gore = min(1, s.gore + MOUTH.GORE)
+        return
+    end
+    local rest = s.vx * s.vx + s.vy * s.vy + s.vz * s.vz < REST_SPEED * REST_SPEED
+    if not rest then return end
+    local t = now - s.mouthStart
+    local spurt = t < MOUTH.SPURT
+    local rate = spurt and MOUTH.SPURT_RATE * (1 - 0.5 * t / MOUTH.SPURT)
+        or MOUTH.DRIBBLE_RATE * (1 - (t - MOUTH.SPURT) / MOUTH.DRIBBLE * 0.7)
+    s.mouthAcc = s.mouthAcc + rate * preset.bleed * dt
+    local c = palette.droplet
+    local mx, my, mz = s.px + fx * VOMIT.MOUTH_OUT, s.py + VOMIT.MOUTH_Y, s.pz + fz * VOMIT.MOUTH_OUT
+    local n, room = 0, min(MOUTH.PER_FRAME, poolRoom())
+    while s.mouthAcc >= 1 and n < room do
+        s.mouthAcc = s.mouthAcc - 1
+        n = n + 1
+        local shade = rnd(0.65, 1.1)
+        local speed, vy, size, life
+        if spurt then
+            speed, vy, size, life = rnd(MOUTH.SPURT_SPEED[1], MOUTH.SPURT_SPEED[2]), rnd(-20, 12), rnd(1.0, 2.2), rnd(0.5, 1.0)
+        else
+            speed, vy, size, life = rnd(MOUTH.DRIBBLE_SPEED[1], MOUTH.DRIBBLE_SPEED[2]), rnd(-8, 0), rnd(0.8, 1.6), rnd(0.6, 1.2)
+        end
+        local side = rnd(-6, 6)
+        spawn(DROPLET, mx + rnd(-0.6, 0.6), my + rnd(-0.6, 0.6), mz + rnd(-0.6, 0.6),
+              fx * speed + fz * side, vy, fz * speed - fx * side, size, life,
+              min(1, c[1] * shade), min(1, c[2] * shade), min(1, c[3] * shade), DROPLET_ALPHA)
+    end
+    if s.mouthAcc > 2 then s.mouthAcc = 0 end
+end
+
 local function updateVomit(s, dt)
     if not (s.alive and cfg.vomit) or s.dead then
         s.vomitAt, s.vomitUntil, s.vomitAcc = nil, 0, 0
@@ -4430,6 +4503,7 @@ local function trackWorms(worms, dt)
                 updateEyes(s, dt)
                 updateGut(s, dt)
                 updateVomit(s, dt)
+                VOMIT.updateMouth(s, dt)
                 emitBleed(s, dt)
                 PT.track(s, dt)
                 settleStain(s)

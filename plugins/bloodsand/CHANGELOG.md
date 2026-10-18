@@ -1,3 +1,14 @@
+## 1.4.0
+
+Three gore fixes and additions.
+
+- Mouth blood. A melee hit to a worm's face (from the front) now makes it spurt blood from the mouth for a moment, then
+  dribble for a few seconds. It follows the Blood setting and the "Worms throw up blood" setting.
+- The nail weapon's gore comes when it hits. No More Nails has no knockback, so Bloodsand used to drop the hit and the blood
+  only appeared when the game took the health off at the end of the turn, many seconds later.
+- Bloodshot eyes. As a worm takes damage, broken blood vessels spread over the whites of its eyes (a pink wash with red
+  veins), reaching their most at low health. The effect fades with distance.
+
 ## 1.3.1
 
 Runs on Melange 0.7 and every later version: the plugin no longer names an upper Melange version, so a new
