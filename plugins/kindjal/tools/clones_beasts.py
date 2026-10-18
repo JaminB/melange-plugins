@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Kindjal animal clones: RabidSheep, PlagueRam, Carcass.
+"""Kindjal animal clones: RabidSheep, PlagueRam, Carcass, BuddyBomb.
 
 Each model is a CLONE of a vanilla skinned Worms Ultimate Mayhem mesh made with `xomtool clone`: the skeleton, node
 names, skin weights and clip library stay exactly as in the vanilla bank. What changes is (a) vertex positions, through
 an `xomtool --deform` script (same vertex count and order, so the weights and clips still fit) and (b) every texture,
 repainted here procedurally into the vanilla UV layout.
 
-    kindjal.RabidSheep  <- Sheep         section 505  (held sheep, walking projectile, Super Sheep / Starburst held mesh)
+    kindjal.RabidSheep  <- Sheep         section 505  (Super Sheep / Starburst held mesh and walking projectile)
     kindjal.PlagueRam   <- SuperSheep    section 506  (flying sheep: Fly / FlyLR / RollLR clips, 19 bones)
     kindjal.Carcass     <- Cow.Payload   section 507  (Hang / Skydive / Run2Sink / Sink clips, 24 bones)
+    kindjal.BuddyBomb   <- Sheep         section 513  (the Sheep weapon: a labradoodle with dynamite, held and walking)
 
 Stdlib only and deterministic (hash noise, fixed seeds).  Importing this module has no side effects.
 
@@ -809,6 +810,195 @@ def _paint_carcass(prims):
 
 
 # ----------------------------------------------------------------------------------------------------------------------
+# BuddyBomb (Sheep) - a curly black labradoodle with three sticks of dynamite strapped to its back
+# ----------------------------------------------------------------------------------------------------------------------
+
+# The ear is the same 12-vertex fin as the PlagueRam's (_EAR_MID / _EAR_TIP above: the Sheep and the SuperSheep share
+# it). Here the fin is swung down so it hangs beside the head: the six mid vertices turn about the ear's root and drop,
+# the tip hangs lowest, a little forward. (x is mirrored for the other side.)
+_DOG_EAR_MID_TO = (4.45, 0.35, 6.55)     # centre of the hanging ear's middle ring
+_DOG_EAR_TIP_TO = (4.75, -2.7, 6.95)     # the bottom of the ear flap
+_DOG_EAR_TURN = 70.0                     # degrees the ring is turned about z, so a fin that stuck out now hangs down
+# the tail: the back's rear top vertex, dragged up and back into a short plume
+_DOG_TAIL = ((0.0, 4.22, -5.96), (0.0, 1.5, -3.2))
+
+
+def _ear_flop_ops():
+    ops = []
+    cx = sum(p[0] for p in _EAR_MID) / 6.0
+    cy = sum(p[1] for p in _EAR_MID) / 6.0
+    cz = sum(p[2] for p in _EAR_MID) / 6.0
+    c, s = math.cos(math.radians(_DOG_EAR_TURN)), math.sin(math.radians(_DOG_EAR_TURN))
+    for sgn in (1, -1):
+        for p in _EAR_MID:
+            dx, dy, dz = p[0] - cx, p[1] - cy, p[2] - cz
+            # turn the ring offset about z (out-pointing x becomes down-pointing y) and widen it a little: a broad flap
+            rx, ry = (dx * c + dy * s) * 1.1, (-dx * s + dy * c) * 1.1
+            new = (_DOG_EAR_MID_TO[0] + rx, _DOG_EAR_MID_TO[1] + ry, _DOG_EAR_MID_TO[2] + dz * 1.15)
+            t = [round((new[0] - p[0]) * sgn, 3), round(new[1] - p[1], 3), round(new[2] - p[2], 3)]
+            ops.append({"op": "region", "box": _vbox(p, sgn, 0.05), "falloff": 0.02, "then": [{"op": "translate", "t": t}]})
+        t = [round((_DOG_EAR_TIP_TO[0] - _EAR_TIP[0]) * sgn, 3), round(_DOG_EAR_TIP_TO[1] - _EAR_TIP[1], 3),
+             round(_DOG_EAR_TIP_TO[2] - _EAR_TIP[2], 3)]
+        ops.append({"op": "region", "box": _vbox(_EAR_TIP, sgn, 0.05), "falloff": 0.02, "then": [{"op": "translate", "t": t}]})
+    return ops
+
+
+def buddy_deform():
+    # the single-vertex moves first, while every vertex is still where the vanilla bind pose has it
+    ops = _ear_flop_ops()
+    p, t = _DOG_TAIL
+    ops.append({"op": "region", "box": _vbox(p, 1, 0.05), "falloff": 0.02, "then": [{"op": "translate", "t": list(t)}]})
+    ops += [
+        # a leaner, slightly longer trunk than the sheep's barrel (kept off the legs: the box stops above the hips)
+        {"op": "region", "box": [[-6.5, -3.0, -7.5], [6.5, 6.5, 4.0]], "falloff": 1.5,
+         "then": [{"op": "scale", "s": [0.88, 0.92, 1.06], "about": [0.0, 0.8, -1.3]}]},
+        # tight curls all over the coat: higher frequency and smaller than the sheep's matted lumps
+        {"op": "region", "box": [[-6.5, -10.8, -9.6], [6.5, 6.5, 4.4]], "falloff": 1.0,
+         "then": [{"op": "push", "dist": 0.2}, {"op": "noise", "amp": 0.32, "freq": 1.35, "seed": 41}]},
+        # a rounder, flatter top-knot instead of the sheep's woolly forelock
+        {"op": "region", "box": [[-3.6, 2.8, 3.2], [3.6, 8.5, 11.6]], "falloff": 0.5,
+         "then": [{"op": "scale", "s": [1.0, 0.8, 0.96], "about": [0.0, 3.0, 7.5]},
+                  {"op": "noise", "amp": 0.35, "freq": 1.2, "seed": 43}]},
+        # the snout: the face below the eyes reaches forward (the box stops under the eyes so they keep their shape)
+        {"op": "region", "box": [[-2.2, -5.2, 9.0], [2.2, -1.0, 11.6]], "falloff": 0.6,
+         "then": [{"op": "translate", "t": [0.0, -0.15, 1.35]}]},
+    ]
+    return {"ops": ops}
+
+
+def _paint_buddy(prims):
+    pr = prims[0]
+    ROLE = {}
+    for isl in pr["islands"]:
+        n = len(isl.tris)
+        if isl.uvb[2] < 0.7 and isl.uvb[3] < 0.55 and n > 100:
+            ROLE[isl.idx] = "body"
+        elif n == 40:
+            ROLE[isl.idx] = "knot"           # the forelock: top of the head
+        elif n == 86:
+            ROLE[isl.idx] = "face"
+        elif n == 54:
+            ROLE[isl.idx] = "leg"
+        elif n == 17:
+            ROLE[isl.idx] = "ear"
+        elif n == 6:
+            ROLE[isl.idx] = "eye"
+        else:
+            ROLE[isl.idx] = "collar"         # the 8-triangle neck cap sits right where a collar goes
+
+    def coat(x, y, z, freq=1.1, seed=401):
+        """Black curls: each curl a soft dark-grey dome with a near-black crease round it (3D cellular noise), a cool
+        grey sheen on the tips so the coat does not read as flat, a little drift across the dog, darker underneath."""
+        cl = worley(x * freq, y * freq, z * freq, seed)
+        n = fbm(x * 0.35, y * 0.35, z * 0.35, seed + 7, 3)
+        base = mix((30, 28, 31), (50, 48, 52), n)
+        lit = clamp(1.0 - cl / 0.8)
+        c = mix((10, 9, 11), base, smooth(0.0, 0.55, lit))                        # near-black crease between curls
+        c = mix(c, (96, 96, 104), 0.45 * smooth(0.55, 0.95, lit))                 # grey sheen on each curl's tip
+        return scale(c, 0.78 + 0.22 * smooth(-6.0, 2.0, y))
+
+    def dynamite(t):
+        """Three red sticks along the spine, two black tape bands, a brass cap at each end; None off the bundle."""
+        x, y, z = t.p
+        if t.n[1] < 0.3 or y < 2.4 or abs(x) > 3.0 or z < -4.8 or z > 2.1:
+            return None
+        k = (x + 2.9) / 1.94                     # stick index 0..3 across the back
+        i = min(2, max(0, int(k)))
+        u = abs(k - (i + 0.5)) * 2.0             # 0 on a stick's centre line, 1 at its edge
+        col = mix((222, 52, 40), (112, 14, 14), smooth(0.25, 1.0, u))
+        col = mix(col, (255, 150, 120), 0.5 * smooth(0.35, 0.0, abs(u - 0.3)))   # the sheen along each stick
+        col = mix(col, (40, 8, 8), smooth(0.85, 1.0, u))                           # dark gap between sticks
+        for bz in (-3.0, 0.5):
+            col = mix(col, (24, 22, 20), smooth(0.36, 0.24, abs(z - bz)))        # tape
+        if z < -4.3 or z > 1.6:
+            col = mix(col, (176, 150, 88), 0.85)                                    # brass end caps
+        return col
+
+    def body(t):
+        x, y, z = t.p
+        c = coat(x, y, z)
+        # the harness: a red strap round the chest and one round the belly, joined along the spine
+        strap = max(smooth(0.6, 0.45, abs(z - 2.4)), smooth(0.6, 0.45, abs(z + 4.9)))
+        strap = max(strap, smooth(0.5, 0.35, abs(x)) * smooth(-5.0, -4.6, z) * smooth(2.9, 2.5, z) * smooth(2.0, 3.0, y))
+        c = mix(c, mix((150, 26, 22), (92, 14, 12), fbm(x, y, z, 411, 2)), strap * 0.95)
+        d = dynamite(t)
+        if d is not None:
+            c = d
+        # the lit fuse: a black cord from the middle stick's front cap forward, with a spark at its end
+        if t.n[1] > 0.2 and y > 2.6:
+            fz = z - 2.1
+            if 0.0 < fz < 1.4:
+                wig = 0.25 * math.sin(fz * 5.0)
+                c = mix(c, (16, 12, 10), smooth(0.28, 0.16, abs(x - wig)))
+            sd = math.sqrt(x * x + (z - 3.6) ** 2)
+            c = mix(c, (255, 120, 20), smooth(0.9, 0.3, sd))
+            c = mix(c, (255, 240, 170), smooth(0.45, 0.1, sd))
+        return c
+
+    def knot(t):
+        x, y, z = t.p
+        return coat(x, y, z, 1.25, 421)
+
+    def face(t):
+        x, y, z = t.p
+        ax = abs(x)
+        c = coat(x, y, z, 1.6, 431)                                    # shorter, finer curls on the face
+        c = mix(c, (64, 62, 68), 0.3 * smooth(9.0, 11.5, z))           # a slightly greyer muzzle
+        # a faint grey rim of fur round each eye so the brown eye stands out (eyes at x ~ +-1.1, y ~ 0.8, z ~ 10.7)
+        e = math.sqrt((ax - 1.1) ** 2 + (y - 0.8) ** 2 + ((z - 10.7) * 0.5) ** 2)
+        c = mix(c, (84, 82, 88), smooth(1.7, 1.2, e) * smooth(0.8, 1.2, e) * 0.5)
+        # the nose: a glossy dark-grey button at the end of the snout, with a bright shine
+        nd = math.sqrt((x / 1.25) ** 2 + ((y + 1.0) / 0.95) ** 2 + ((z - 12.6) / 0.9) ** 2)
+        c = mix(c, (4, 3, 4), smooth(1.3, 1.1, nd))                     # a black rim so it reads against the coat
+        c = mix(c, (84, 80, 86), smooth(1.05, 0.85, nd))
+        c = mix(c, (222, 220, 226), smooth(0.4, 0.12, math.sqrt((x + 0.35) ** 2 + (y + 0.55) ** 2)) * smooth(1.0, 0.8, nd))
+        # the mouth: a dark line under the nose and a pink tongue hanging out of the middle
+        if z > 10.0:
+            c = mix(c, (6, 4, 4), smooth(0.3, 0.12, abs(y + 2.9 + 0.12 * ax * ax)))
+            if ax < 0.85 and y < -3.0 and z > 11.0:
+                tg = mix((236, 120, 132), (176, 64, 84), smooth(0.2, 0.85, ax))
+                c = mix(c, tg, smooth(-3.0, -3.3, y))
+        # the collar at the back of the head: red leather with a brass tag hanging under the chin
+        cz = smooth(4.4, 4.7, z) * smooth(5.6, 5.3, z)
+        c = mix(c, (176, 28, 34), cz)
+        tag = math.sqrt(x * x + ((y + 3.8) / 1.3) ** 2)
+        if z < 5.8:
+            c = mix(c, (214, 178, 70), smooth(0.75, 0.6, tag))
+        return c
+
+    def leg(t):
+        x, y, z = t.p
+        c = coat(x, y, z, 1.3, 441)
+        return mix(c, (128, 108, 108), smooth(-9.2, -10.0, y) * 0.85)  # lighter, pinkish-grey paw pads
+
+    def ear(t):
+        x, y, z = t.p
+        return mix(scale(coat(x, y, z, 1.4, 451), 0.9), (18, 16, 20), 0.15)  # the long ears a touch darker
+
+    def collar(t):
+        x, y, z = t.p
+        return mix((176, 28, 34), (110, 14, 18), fbm(x, y, z, 461, 2))
+
+    def eye(t):
+        # the eye island's UV is shared by both eyes: paint relative to its own UV box
+        u0, v0, u1, v1 = t.isl.uvb
+        fu = (t.u - u0) / max(u1 - u0, 1e-6)
+        fv = (t.v - v0) / max(v1 - v0, 1e-6)
+        d = math.sqrt(((fu - 0.5) / 0.5) ** 2 + ((fv - 0.5) / 0.5) ** 2)
+        col = mix((176, 108, 44), (96, 52, 20), smooth(0.2, 0.7, d))     # warm brown iris, bright against the black coat
+        col = mix(col, (10, 6, 4), smooth(0.42, 0.3, d))                  # big round pupil
+        col = mix(col, (20, 12, 8), smooth(0.75, 1.0, d))                 # dark rim
+        hl = math.sqrt((fu - 0.36) ** 2 + (fv - 0.66) ** 2)
+        return mix(col, (255, 252, 240), smooth(0.14, 0.06, hl))          # a catch-light
+
+    def fn(t):
+        return {"body": body, "knot": knot, "face": face, "leg": leg, "ear": ear, "eye": eye,
+                "collar": collar}[ROLE[t.isl.idx]](t)
+
+    return {0: paint_texture(pr, 128, 128, fn, fill=(30, 28, 31))}
+
+
+# ----------------------------------------------------------------------------------------------------------------------
 # model table
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -825,6 +1015,7 @@ MODELS = [
     Model("rabid_sheep", "Sheep", "RabidSheep", 505, [(128, 128)], sheep_deform, _paint_sheep),
     Model("plague_ram", "SuperSheep", "PlagueRam", 506, [(128, 128)], plague_deform, _paint_plague),
     Model("carcass", "Cow.Payload", "Carcass", 507, [(128, 128), (32, 32)], carcass_deform, _paint_carcass),
+    Model("buddy_bomb", "Sheep", "BuddyBomb", 513, [(128, 128)], buddy_deform, _paint_buddy),
 ]
 
 # ----------------------------------------------------------------------------------------------------------------------

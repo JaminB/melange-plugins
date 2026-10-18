@@ -3,7 +3,7 @@
 
 Six more 256x256 drawings in the same house style (thin near-black outline, three-tone cel shading from the upper
 left, tilted pose filling the frame, faint soft shadow, dark gritty palette): harpoon, carpet-bombing, carrion-drop,
-earthquake-ass, rabid-flock, plague-ram. Every function returns a Canvas exactly like draw_crucible does; ICONS lists
+earthquake-ass, buddy-bomb, plague-ram. Every function returns a Canvas exactly like draw_crucible does; ICONS lists
 (slug, draw) pairs for build() to pick up. Geometry and random seeds are fixed, so the output is deterministic.
 """
 import math
@@ -32,6 +32,11 @@ Y0, Y1, Y2, Y3 = (0x3A, 0x38, 0x30), (0x6A, 0x66, 0x56), (0x9A, 0x96, 0x80), (0x
 V0, V1, V2 = (0x44, 0x0C, 0x0E), (0x80, 0x18, 0x18), (0xB8, 0x2C, 0x26)
 F0, F1, F2, F3 = (0x1E, 0x32, 0x0C), (0x3E, 0x62, 0x14), (0x6E, 0x98, 0x24), (0xA4, 0xC4, 0x4A)
 RED0, RED1, RED2 = (0x8C, 0x10, 0x10), (0xE8, 0x24, 0x1C), (0xFF, 0x9A, 0x80)
+# buddy bomb: black curls with cool grey highlights, the darker ears, a red harness, dynamite red
+DG0, DG1, DG2, DG3 = (0x12, 0x12, 0x15), (0x26, 0x26, 0x2B), (0x3C, 0x3C, 0x43), (0x60, 0x60, 0x6A)
+EA0, EA1, EA2 = (0x0E, 0x0E, 0x10), (0x1C, 0x1C, 0x21), (0x30, 0x30, 0x37)
+HR0, HR1 = (0x6A, 0x0E, 0x10), (0xA8, 0x1C, 0x1E)
+DY0, DY1, DY2, DY3 = (0x6A, 0x0E, 0x0E), (0xB4, 0x20, 0x1A), (0xE4, 0x46, 0x34), (0xFF, 0x86, 0x6C)
 IDENT = lambda f: f  # noqa: E731
 
 
@@ -304,72 +309,107 @@ def draw_earthquake_ass():
     return cv
 
 
-# ---------------------------------------------------------------- icon 5: Rabid Flock
-def draw_rabid_flock():
+# ---------------------------------------------------------------- icon 5: Buddy Bomb
+def draw_buddy_bomb():
     cv = Canvas(SIZE, SIZE)
-    rng = random.Random(67)
-    wool = [W0, W1, W2, W3]
+    rng = random.Random(71)
+    coat = [DG0, DG1, DG2, DG3]
 
-    # legs: front pair braced and bent, back pair driving
-    for x0, y0, x1, y1, d in ((92, 146, 76, 226, 0), (124, 158, 130, 228, 1), (176, 150, 204, 224, 0), (202, 132, 232, 200, 1)):
-        cel(cv, IDENT, chain([(x0, y0), ((x0 + x1) / 2 - 6, (y0 + y1) / 2), (x1, y1)], [12, 9.5, 7.5]),
-            [(0x0C, 0x0A, 0x0A), (0x22, 0x1C, 0x1C), (0x3E, 0x32, 0x30)], [(-1.5, -1.5), (-3, -3)], ow=2.8)
-        cel(cv, IDENT, rbox(x1 - 2, y1 + 2, 8, 5, 2), [W0, W0, W1], [(-1, -1), (-2, -2)], ow=2.4)
-    # the hunched, matted fleece: a lump of overlapping tufts with ragged spikes along the top
-    tufts = [(150, 98, 40), (104, 100, 34), (186, 110, 36), (126, 136, 34), (168, 142, 32), (78, 120, 28),
-             (206, 140, 26), (146, 66, 30), (108, 68, 26), (182, 76, 28), (212, 100, 24), (94, 138, 26)]
-    spikes = [polygon([(x - 8, y), (x + 1, y - 20), (x + 10, y)], 2) for x, y in ((120, 50), (156, 40), (190, 56), (86, 80))]
-    fleece = union(*[circle(*t) for t in tufts], *spikes)
-    cel(cv, IDENT, fleece, wool, [(-6, -7), (-13, -15), (-20, -24)], ow=3.6)
-    # matted clumps: dark swirls, a few pale burrs, dried mud
-    for _ in range(16):
-        cx, cy = rng.uniform(70, 220), rng.uniform(52, 150)
-        a = rng.uniform(0, 6.28)
-        r = rng.uniform(8, 15)
-        pts = [(cx + math.cos(a + t * 0.7) * r * (1 - t * 0.12), cy + math.sin(a + t * 0.7) * r * (1 - t * 0.12)) for t in range(5)]
-        stroke(cv, pts, 2.6, W0, 0.85, clip=fleece)
-    for _ in range(14):
-        cv.paint(inter(circle(rng.uniform(80, 215), rng.uniform(56, 140), rng.uniform(1.6, 3.2)), fleece), W3, 0.7)
-    cv.paint(inter(ellipse(168, 128, 18, 9), fleece), R0, 0.8)
-    cv.paint(inter(ellipse(124, 102, 10, 6), fleece), R0, 0.7)
-    # head, lowered and thrust forward, nose pointing left and down
+    # tail first: a curly plume over the rump
+    blob(cv, [(222, 98, 13), (232, 82, 12), (238, 66, 10), (232, 52, 8)], [DG1, DG2, DG3], [(-3, -4), (-6, -7)],
+         outline=OUTLINE, ow=3.0)
+    # legs: the far pair darker, set back; the near pair trotting, each ending in a pale curly paw
+    for x0, y0, x1, y1, far in ((114, 152, 100, 214, 1), (190, 150, 206, 210, 1), (96, 156, 70, 222, 0),
+                                (176, 158, 180, 226, 0)):
+        cols = [DG0, DG1, DG2] if far else [DG1, DG2, DG3]
+        cel(cv, IDENT, chain([(x0, y0), ((x0 + x1) / 2 + 4, (y0 + y1) / 2), (x1, y1)], [15, 12, 11]), cols,
+            [(-2, -2), (-4, -4)], ow=3.0)
+        blob(cv, [(x1 - 4, y1 + 6, 9), (x1 + 6, y1 + 7, 8)], [DG2, DG3, (0x80, 0x80, 0x8A)], [(-2, -2), (-4, -4)],
+             outline=OUTLINE, ow=2.6)
+    # the body: a long cloud of tight curls
+    curls = [(150, 128, 44), (112, 132, 36), (192, 124, 36), (130, 102, 32), (176, 98, 32), (214, 116, 26),
+             (96, 112, 26), (150, 158, 30), (120, 156, 26), (186, 152, 26)]
+    body = union(*[circle(*c) for c in curls])
+    cel(cv, IDENT, body, coat, [(-6, -7), (-13, -15), (-20, -24)], ow=3.6)
+    # curl texture: little dark hooks and grey highlights clipped to the coat
+    for _ in range(30):
+        cx, cy = rng.uniform(80, 228), rng.uniform(76, 178)
+        a = rng.uniform(1.2, 2.4)                    # each curl a short arc open to the upper left, lit from there
+        r = rng.uniform(3.5, 5.5)
+        pts = [(cx + math.cos(a + t * 0.8) * r, cy + math.sin(a + t * 0.8) * r) for t in range(4)]
+        stroke(cv, pts, 2.0, DG0, 0.6, clip=body)
+    for _ in range(18):
+        cv.paint(inter(circle(rng.uniform(86, 222), rng.uniform(80, 150), rng.uniform(2.0, 3.6)), body), DG3, 0.8)
+    # the harness: two red straps round the chest and the belly, each with a brass buckle
+    for sx in (118, 186):
+        strap = inter(rbox(sx, 132, 7, 60, 3), grow(body, -1))
+        cv.paint(strap, HR0)
+        cv.paint(inter(strap, shift(strap, -2, 0)), HR1)
+        cv.paint(circle(sx, 158, 4.2), OUTLINE)
+        cv.paint(circle(sx, 158, 2.8), N3)
+    # dynamite: three red sticks strapped across the back, the third peeking over the other two
+    for sx, sy in ((152, 64), (146, 80), (158, 92)):
+        def St(f, sx=sx, sy=sy):
+            return place(f, sx, sy, -6)
+        cel(cv, St, rbox(0, 0, 50, 9, 8), [DY0, DY1, DY2, DY3], [(0, -3), (0, -6), (0, -8)], ow=3.0)
+        for ex in (-50, 50):                                         # paper end caps
+            cel(cv, St, ellipse(ex, 0, 4, 8.5), [N1, N2, N3], [(-1, -1), (-2, -2)], ow=2.2)
+    for tx in (126, 180):                                            # black tape round the bundle
+        cv.paint(place(rbox(0, 0, 5, 26, 2), tx, 80, -6), OUTLINE)
+        cv.paint(place(rbox(-1, -1, 3, 24, 1.5), tx, 80, -6), (0x3A, 0x36, 0x30))
+    # the lit fuse: a cord from the front stick's cap up into a spark
+    fz = bezier((98, 82), (82, 70), (96, 46), (80, 30), 20)
+    stroke(cv, fz, 5.4, OUTLINE)
+    stroke(cv, fz, 3.0, (0x4A, 0x40, 0x34))
+    sx, sy = fz[-1]
+    for ang, ln in ((0, 22), (45, 14), (90, 20), (135, 14), (180, 22), (225, 14), (270, 20), (315, 14)):
+        tipx = sx + math.cos(math.radians(ang)) * ln
+        tipy = sy + math.sin(math.radians(ang)) * ln
+        cv.paint(capsule(sx, sy, tipx, tipy, 2.4), E1, 0.95)
+    cv.paint(circle(sx, sy, 9), E0, 0.9)
+    cv.paint(circle(sx, sy, 6.5), E2)
+    cv.paint(circle(sx, sy, 3.6), E3)
+
+    # the head, held up and happy, facing left
     def Hd(f):
-        return place(f, 66, 146, -22)
-    for ex in ((-14, -34), (6, -36)):                                                 # ears pinned back
-        cel(cv, Hd, polygon([(ex[0], ex[1]), (ex[0] + 36, ex[1] - 12), (ex[0] + 38, ex[1] + 4), (ex[0] + 6, ex[1] + 14)], 3),
-            [(0x2A, 0x18, 0x18), (0x4C, 0x2A, 0x28), (0x6C, 0x40, 0x3C)], [(-1.5, -1.5), (-3, -3)], ow=2.8)
-    skull = smooth_union(ellipse(0, 0, 40, 32), ellipse(-34, 8, 28, 19), 14)
-    cel(cv, Hd, skull, [(0x24, 0x1C, 0x1C), (0x44, 0x38, 0x36), (0x68, 0x58, 0x52), (0x8A, 0x78, 0x6E)],
-        [(-3, -4), (-7, -8), (-12, -13)], ow=3.4)
-    # snarl: dark open mouth between the upper muzzle and a dropped jaw, fangs top and bottom
-    jaw = chain([(-56, 30), (-30, 40), (-4, 34)], [8, 9, 8])
-    cel(cv, Hd, jaw, [(0x20, 0x18, 0x18), (0x3A, 0x2E, 0x2C), (0x58, 0x46, 0x42)], [(-1, -2), (-2, -3)], ow=2.6)
-    mouth = polygon([(-62, 20), (-14, 18), (-8, 30), (-52, 32)], 1.5)
+        return place(f, 64, 118, -8)
+    skull = smooth_union(ellipse(0, 0, 34, 31), ellipse(-30, 14, 24, 17), 12)
+    cel(cv, Hd, skull, coat, [(-3, -4), (-7, -8), (-12, -13)], ow=3.4)
+    cel(cv, Hd, union(circle(-6, -28, 16), circle(12, -26, 14), circle(-20, -22, 11)), coat,
+        [(-3, -4), (-6, -8), (-10, -12)], ow=3.0)                    # top-knot
+    for _ in range(10):
+        cx, cy = rng.uniform(-40, 26), rng.uniform(-40, 26)
+        cv.paint(Hd(inter(circle(cx, cy, rng.uniform(1.8, 3.0)), skull)), DG3, 0.75)
+    # open, panting mouth with the tongue hanging out
+    mouth = polygon([(-50, 22), (-14, 20), (-18, 30), (-44, 32)], 2)
     cv.paint(Hd(mouth), OUTLINE)
-    cv.paint(Hd(grow(mouth, -2)), (0x70, 0x0C, 0x14))
-    cv.paint(Hd(inter(ellipse(-34, 28, 14, 5), mouth)), (0xB0, 0x2C, 0x30))        # tongue
-    for tx in (-54, -44, -34, -24):
-        cv.paint(Hd(polygon([(tx - 3, 19), (tx + 3, 19), (tx, 29)], 0.6)), (0xEC, 0xE4, 0xCC))
-    for tx in (-48, -36, -24):
-        cv.paint(Hd(polygon([(tx - 3, 33), (tx + 3, 33), (tx, 25)], 0.6)), (0xE0, 0xD8, 0xC0))
-    # red eye with a hard brow
-    ex, ey = rot_pt((-12, -10), 66, 146, -22)
-    cv.paint(circle(ex, ey, 11), RED0, 0.5)
-    cv.paint(circle(ex, ey, 7), OUTLINE)
-    cv.paint(circle(ex, ey, 5.2), RED1)
-    cv.paint(circle(ex - 1, ey - 1.4, 2.2), RED2)
-    cv.paint(Hd(capsule(-28, -26, 6, -12, 3.2)), OUTLINE)
-    # foam: froth around the lips and a string of drool
-    for fx, fy, fr in ((-62, 30, 6), (-52, 38, 6.4), (-40, 46, 5), (-28, 44, 4), (-66, 20, 4.4)):
-        cx, cy = rot_pt((fx, fy), 66, 146, -22)
-        cv.paint(circle(cx, cy, fr + 1.6), OUTLINE, 0.9)
-        cv.paint(circle(cx, cy, fr), (0xD8, 0xDA, 0xD4))
-        cv.paint(circle(cx - fr * 0.3, cy - fr * 0.3, fr * 0.4), (0xFF, 0xFF, 0xFF), 0.9)
-    dx, dy = rot_pt((-48, 46), 66, 146, -22)
-    stroke(cv, [(dx, dy), (dx - 2, dy + 14)], 3.2, OUTLINE)
-    stroke(cv, [(dx, dy), (dx - 2, dy + 14)], 1.6, (0xD8, 0xDA, 0xD4))
-    cv.paint(circle(dx - 2, dy + 18, 4.6), OUTLINE)
-    cv.paint(circle(dx - 2, dy + 18, 3.2), (0xD8, 0xDA, 0xD4))
+    cv.paint(Hd(grow(mouth, -2)), (0x5A, 0x14, 0x18))
+    tongue = smooth_union(ellipse(-30, 34, 9, 7), ellipse(-28, 44, 8, 9), 6)
+    cel(cv, Hd, tongue, [(0xB0, 0x3C, 0x50), (0xE4, 0x6E, 0x82), (0xFF, 0xA4, 0xB2)], [(-1, -2), (-3, -4)], ow=2.6)
+    cv.paint(Hd(capsule(-29, 30, -28, 46, 1.0)), (0xA0, 0x30, 0x44))
+    # the nose: a glossy dark-grey button at the end of the snout
+    cel(cv, Hd, ellipse(-52, 6, 9, 7), [(0x2A, 0x28, 0x2C), (0x48, 0x46, 0x4C), (0x6C, 0x6A, 0x72)],
+        [(-1, -2), (-3, -3)], ow=2.4)
+    cv.paint(Hd(circle(-55, 3, 2.2)), (0xD8, 0xD4, 0xD0), 0.9)
+    # a big brown eye with a catch-light, eyebrow raised
+    ex, ey = rot_pt((-16, -6), 64, 118, -8)
+    cv.paint(circle(ex, ey, 9.5), OUTLINE)
+    cv.paint(circle(ex, ey, 7.6), (0x9C, 0x5C, 0x24))
+    cv.paint(circle(ex, ey, 4.6), (0x10, 0x0A, 0x06))
+    cv.paint(circle(ex - 2.6, ey - 2.8, 2.4), (0xFF, 0xFC, 0xF0))
+    cv.paint(Hd(capsule(-26, -20, -8, -22, 2.4)), DG3)
+    # the floppy ear hangs over the back of the head
+    ear = smooth_union(ellipse(18, 12, 14, 26), circle(14, -10, 11), 8)
+    cel(cv, Hd, ear, [EA0, EA1, EA2], [(-2, -3), (-5, -6)], ow=3.0)
+    for _ in range(6):
+        cv.paint(Hd(inter(circle(rng.uniform(8, 28), rng.uniform(-10, 34), rng.uniform(1.6, 2.6)), ear)), DG2, 0.7)
+    # red collar with a brass tag
+    cv.paint(Hd(inter(rbox(22, 22, 6, 30, 3), grow(skull, 6))), HR0)
+    cv.paint(Hd(inter(rbox(21, 22, 4, 28, 2), grow(skull, 5))), HR1)
+    tx, ty = rot_pt((24, 46), 64, 118, -8)
+    cv.paint(circle(tx, ty, 6.6), OUTLINE)
+    cv.paint(circle(tx, ty, 5.0), N2)
+    cv.paint(circle(tx - 1.2, ty - 1.4, 2.0), N3)
     cv.shadow_under(5, 8, 3, 0.30)
     return cv
 
@@ -465,4 +505,4 @@ def draw_plague_ram():
 
 
 ICONS = [("harpoon", draw_harpoon), ("carpet-bombing", draw_carpet_bombing), ("carrion-drop", draw_carrion_drop),
-         ("earthquake-ass", draw_earthquake_ass), ("rabid-flock", draw_rabid_flock), ("plague-ram", draw_plague_ram)]
+         ("earthquake-ass", draw_earthquake_ass), ("buddy-bomb", draw_buddy_bomb), ("plague-ram", draw_plague_ram)]
