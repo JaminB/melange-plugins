@@ -167,6 +167,18 @@ written. Uniforms are params.ini's defaults with what `applyLighting`/`applySkin
 the Quality preset and theme (`PRESETS`, `THEMES` read from the Lua source); the game's own light colours are
 representative constants (`--diffuse`, `--ambient`, `--specular`).
 
+`--shader landscape` renders the landscape's fragment shader (`Landscape.LandscapeFragmentMain.glsl`, candidate from
+`build_materials.py --out-land`) with the landscape's uniforms as `applyLighting` sends them (`landMatDetail` or
+`matDetail`), no sun shadow, and is meant for `--shape terrain`: rolling ground `--world` across (600) with a block on
+it, UVs planar on the world axes as the game's (`--tile`: world units per texture repeat, 100; the game's are 40 to
+150), the camera 170 units out as the turn camera. The tiles' tags come from the table as for models
+(`classes_extra.json`); `--class` tries another class.
+
+```sh
+node tools/preview/model.mjs --shader landscape --shape terrain --tile 66 --dist 70 --pitch 30 \
+  --id 9d42c1 --theme WILDWEST --panels sunstone,candidate --out /tmp/w01.png
+```
+
 The inventory (`inventory.json`, `classes.json`, `cache/<id>.png`) is read at run time and never committed: pass
 `--inventory <dir>` or set `SUNSTONE_INVENTORY`. Playwright: `PLAYWRIGHT=<path to the playwright package>` if it is
 not on the module path (as for `run.mjs`). One run takes 5 to 20 s.
@@ -183,7 +195,8 @@ node tools/preview/model.mjs --sheet ee3d95,548ff2,944413 --baseline /tmp/old.gl
 | Option | Meaning |
 |---|---|
 | `--id x` / `--sheet a,b,…` / `--sheet @file` / `--sheet class:<name>` | one texture, or a contact sheet (a row per texture); ids may be unique prefixes; `class:` takes the class from the tag table; `--limit n` |
-| `--shape box\|sphere\|plane\|cone`, `--world 20` | the object and its size in world units (a crate is about 20, a worm's head 12) |
+| `--shape box\|sphere\|plane\|cone\|terrain`, `--world 20` | the object and its size in world units (a crate is about 20, a worm's head 12; terrain 600) |
+| `--shader texlit\|texlitcol\|landscape`, `--tile 100` | the shader previewed; the terrain's world units per texture repeat |
 | `--mesh f.gltf` | a real game mesh instead of a shape (`xomtool convert <mesh> --from <bundle> --out f.gltf`), centred, `--world` long, its own UVs; `cone` is a bore with polar UVs converging at the apex (`--uvdisc u,v,r` or `--uvrect u0,v0,u1,v1` to place them on a texture patch) |
 | `--density t` | texel density: texels per world unit (default: the texture once per box face) |
 | `--dist d`, `--yaw`, `--pitch`, `--fov`, `--px` | camera distance (default 2.6 × size), angles (32°, 22°), field of view (40°), panel size (320) |

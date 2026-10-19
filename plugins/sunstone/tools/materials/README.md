@@ -175,6 +175,46 @@ derivatives, or ask the library for a rotated helper. To change the maps, edit `
 and keep the PNG under 1.5 MB. Never paste in pixels from anywhere else. The model preview binds the same strip
 (`--maps`, `--no-maps`).
 
+## The landscape
+
+The landscape's two fragment shaders (`mod/shaders/Landscape.LandscapeFragmentMain.glsl` and
+`Landscape.HeightMapFragmentMain.glsl`) get their own block between the same markers from `build_materials.py`:
+`_common.glsl`, the light tier `_land.glsl`, a generated `MatLandHas`/`MatDispatchLand` for `LANDSCAPE_CLASSES`
+(stone_rock, brick, concrete_plaster, wood_planks, painted_metal, rusted_metal, sand_dirt, grass_turf, snow_ice,
+leaf_foliage), and `_evaluate_land.glsl` (`MatSetupLand`, the tag, the blend, the debug views). `python
+tools/build_materials.py --only landscape` rewrites just these two; `--check` covers all four shaders. The Shade() code
+that calls it, outside the block, is hand-written (the HeightMap shader is the Landscape one with its own header and
+`main`). Tiles of other classes, and untagged ones, keep the landscape's World detail alone.
+
+What the landscape is, found in game (Sunstone 2.3 study, a probe build of these shaders and a GL capture):
+
+- It draws each chunk one theme tile at a time: one `glDrawElements` per tile and chunk, blend layers and grass edges
+  as further alpha-blended draws. So a draw's `mg_texTag` is its tile's tag and every layer gets its own class; with
+  the tags right, all landscape draws were tagged (Wild West, Building).
+- Its UVs are planar projections on the world axes (ground u along x, v along z; walls along their face), one tile
+  repeat every 40 to 150 world units (a texel 0.2 to 0.6 units), the same density over a whole surface.
+- The Cg runtime binds the tile to the landscape program's texture0 unit (1) with `glBindMultiTextureEXT`, and the
+  shadow map to unit 0, without changing the active unit. **Melange's texture tags must follow that call**: without it
+  the tag of every landscape draw is whatever texture unit 1 held when Melange first looked (one wrong class on all
+  tiles). The fix (hook `glBindMultiTextureEXT` in `textags.cpp`, set that unit's binding) was built and checked in
+  game; it is not in Melange yet.
+
+Why a light tier: the model snippets cost 0.3 to 0.9 ms (stone 0.5, concrete 0.9) more than the landscape's own
+shading on a 4K screen of landscape (Ultra renders 2x2 supersampled), timed with GL timer queries on the RX 7800 XT,
+while the landscape may take 0.2 ms of the 0.5 ms Ultra budget and covers most of the screen. `_land.glsl` draws each
+class from what its snippet is mostly made of, the shared maps at the snippet's world sizes, with one sample (painted
+metal two, for its wear): 0.08 to 0.21 ms on a 4K screen of landscape, 0.03 to 0.07 ms at 1080p, 0.03 to 0.05 ms (4K)
+with detail off (its register cost). `--land-tier full` builds the snippets instead, for comparisons. The tag's
+fields keep their meaning where `_land.glsl` reads them (scale, strength, rough, wear, tint; wood's b grain direction,
+sand's a clods, painted metal's a gloss, stone's a < 0 polish); the snippets' art relief is the landscape's own texture
+relief.
+
+Parameters (params.ini `[Landscape.cg:*FragmentMain]`): `sunstoneMatDetail` (init.lua sends the preset's
+`landMatDetail`, else its `matDetail`), `sunstoneMatFade` (700 world units: full to a third of it), `sunstoneMatSplit`,
+`sunstoneMatDebug` (1 class colours, striped grey where the World detail draws alone; 2 amount; 3 normal detail;
+4 cavity). init.lua binds the shared maps to `Landscape.cg:*FragmentMain` too. Preview: `node tools/preview/model.mjs
+--shader landscape --shape terrain --tile 66 ...` (see tools/preview/README.md).
+
 ## How a class worker iterates
 
 1. Copy `generic.glsl` to `<class>.glsl`, rename the function and `@class`, set `@default` and `@param` lines.

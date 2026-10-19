@@ -144,7 +144,7 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 -- here. Should the functions still be missing, material detail stays off (logged once). A texture that fails to load
 -- leaves the sampler on Melange's neutral texture (0.502, which the maps treat as "no change"): the procedural detail
 -- still draws.
-local MAT = { supported = false, tex = nil, bound = false, warned = false }
+local MAT = { supported = false, tex = nil, bound = false, boundLand = false, warned = false }
 local function matWarn(msg)
     if MAT.warned then return end
     MAT.warned = true
@@ -163,16 +163,21 @@ local function loadMaterialMaps()
         matWarn("material maps not loaded (" .. tostring(ok and err or tex) .. "); material detail is procedural only")
     end
 end
--- Binds the maps to both lit textured model shaders; retried from apply() while GLSL replacements are off (false).
+-- Binds the maps to both lit textured model shaders and the two landscape shaders; retried from apply() while GLSL
+-- replacements are off (false).
 local function bindMaterialMaps()
-    if MAT.bound or not MAT.tex then return end
-    local ok, r = pcall(wum.shaders.setTexture, "FixedFunction.cg", "FFFragmentMain*TexLit*", "sunstoneMat", MAT.tex)
-    if not ok then
-        MAT.tex = nil
-        matWarn("material maps not bound (" .. tostring(r) .. "); material detail is procedural only")
-        return
+    if not MAT.tex then return end
+    for _, t in ipairs({ { "bound", "FixedFunction.cg", "FFFragmentMain*TexLit*" }, { "boundLand", "Landscape.cg", "*FragmentMain" } }) do
+        if not MAT[t[1]] then
+            local ok, r = pcall(wum.shaders.setTexture, t[2], t[3], "sunstoneMat", MAT.tex)
+            if not ok then
+                MAT.tex = nil
+                matWarn("material maps not bound (" .. tostring(r) .. "); material detail is procedural only")
+                return
+            end
+            MAT[t[1]] = r == true
+        end
     end
-    MAT.bound = r == true
 end
 
 -- Per theme: landscape specular reflectance and gloss, relief depth (world units), the ambient tints for surfaces
@@ -373,6 +378,9 @@ local function applyLighting(l, m, on, foliage, people, materials)
     modelParam("sunstoneGroundDip", l.groundDip or 0)
     modelParam("sunstoneFoliage", (l.leaves or 0) * green)
     modelParam("sunstoneMatDetail", materials and MAT.supported and (l.matDetail or 0) or 0)
+    -- The landscape's material detail (its theme tiles' classes from the same tag table); landMatDetail tunes it apart
+    -- from the models'.
+    landscapeParam("sunstoneMatDetail", materials and MAT.supported and (l.landMatDetail or l.matDetail or 0) or 0)
     -- With nothing of Sunstone's left to draw, the game's own programs come back.
     local landscape = l.shadows or lit > 0
     for _, e in ipairs(LANDSCAPE) do pcall(wum.shaders.enableGlsl, "Landscape.cg", e, landscape) end

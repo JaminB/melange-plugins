@@ -27,6 +27,9 @@ const PLUGIN = path.resolve(HERE, '..', '..');
 const SHADERS = {
   texlit: path.join(PLUGIN, 'mod', 'shaders', 'FixedFunction.FFFragmentMainTexLit.glsl'),
   texlitcol: path.join(PLUGIN, 'mod', 'shaders', 'FixedFunction.FFFragmentMainTexLitCol.glsl'),
+  // The landscape's fragment shader (--shader landscape): its own uniforms (applyLighting's landscape half), no
+  // shadow (the shadow position lies outside the map), and best with --shape terrain.
+  landscape: path.join(PLUGIN, 'mod', 'shaders', 'Landscape.LandscapeFragmentMain.glsl'),
 };
 
 // ---------------------------------------------------------------- arguments
@@ -52,7 +55,8 @@ const inventoryDir = opt.inventory || process.env.SUNSTONE_INVENTORY;
 if (!inventoryDir) { console.error('pass --inventory <dir> or set SUNSTONE_INVENTORY (the folder with inventory.json and cache/)'); process.exit(2); }
 const python = process.env.PYTHON || 'python';
 const shaderKind = opt.shader || 'texlit';
-if (!SHADERS[shaderKind]) { console.error('--shader is texlit or texlitcol'); process.exit(2); }
+if (!SHADERS[shaderKind]) { console.error('--shader is texlit, texlitcol or landscape'); process.exit(2); }
+const isLand = shaderKind === 'landscape';
 
 // ---------------------------------------------------------------- inventory
 const inventory = JSON.parse(fs.readFileSync(path.join(inventoryDir, 'inventory.json'), 'utf8'));
@@ -127,6 +131,8 @@ PRESETS.ultra = PRESETS.bold; // init.lua: Ultra is Bold supersampled (its light
 const THEMES = luaTable(lua, 'THEMES');
 const DEFAULT_THEME = luaTable(lua, 'DEFAULT_THEME');
 const BASE = luaTable(lua, 'BASE');
+const SUN_TINT = luaTable(lua, 'SUN_TINT');
+const SHADOW_TINT = luaTable(lua, 'SHADOW_TINT');
 
 const quality = (opt.quality || 'bold').toLowerCase();
 const preset = PRESETS[quality];
@@ -161,6 +167,31 @@ function modelParams() {
   });
   return p;
 }
+// The landscape parameters as applyLighting sends them (its landscapeParam calls).
+function landscapeParams() {
+  const p = iniParams('Landscape.cg:*FragmentMain');
+  const l = preset.lighting || {};
+  const k = l.hemisphere || 1;
+  const spread = (t) => t.map((x) => 1 + (x - 1) * k);
+  const green = (theme.foliage ?? 1) * (preset.foliage ?? 1);
+  Object.assign(p, {
+    sunstoneLight: l.light || 0,
+    sunstoneSpecular: theme.specular, sunstoneGloss: theme.gloss, sunstoneRelief: theme.relief * (l.relief || 0),
+    sunstoneRim: l.rim || 0, sunstoneSky: spread(theme.sky), sunstoneGround: spread(theme.ground),
+    sunstoneSunTint: theme.sunColour || SUN_TINT, sunstoneShadowTint: theme.shadowTint || SHADOW_TINT,
+    sunstoneSunGain: l.sunGain || 1, sunstoneAmbientGain: l.ambientGain || 1,
+    sunstoneShadowAmbient: (l.shadowAmbient ?? 0.2) * (theme.shadowDip ?? 1), sunstoneShadeChroma: theme.shadeChroma ?? 0.5,
+    sunstoneDetail: l.detail || 0, sunstoneDetailBump: l.detailBump || 0, sunstoneGrassWrap: l.grassWrap || 0,
+    sunstoneTransmit: l.transmit || 0, sunstonePatch: l.patch || 0, sunstonePatchHue: l.patchHue || 0,
+    sunstoneGreenSpec: l.greenSpec || 0, sunstoneGreenWarm: (l.greenWarm || 0) * Math.min(green, 1),
+    sunstoneTint: (l.tint || 0) * (theme.tint ?? 1), sunstoneFoliage: (l.meadow || 0) * green,
+    sunstoneFoliageCap: green > 0 && theme.meadowCap !== false ? 1 : 0, sunstoneShadeShift: l.shadeShift ?? 1,
+    sunstoneTuft: (l.tuft || 0) * Math.min(green, 1), sunstoneSheen: (l.sheen || 0) * Math.min(green, 1),
+    sunstoneMatDetail: opt.materials === 'off' ? 0 : (l.landMatDetail ?? l.matDetail ?? 0),
+    sunstoneRenderScale: 1,
+  });
+  return p;
+}
 const sets = (list) => Object.fromEntries((list || []).flatMap((s) => s.split(';')).filter(Boolean).map((kv) => {
   const [k, v] = kv.split('=');
   const vs = v.split(/[ ,]+/).map(Number);
@@ -181,7 +212,8 @@ let candidatePath = opt.candidate;
 const tablePath = path.join(tmp, 'classes.json');
 if (!candidatePath) {
   candidatePath = path.join(tmp, 'candidate.glsl');
-  py([path.join('tools', 'build_materials.py'), shaderKind === 'texlit' ? '--out' : '--out-col', candidatePath, '--table', tablePath]);
+  py([path.join('tools', 'build_materials.py'), { texlit: '--out', texlitcol: '--out-col', landscape: '--out-land' }[shaderKind],
+    candidatePath, '--table', tablePath]);
 } else {
   py([path.join('tools', 'build_materials.py'), '--out', path.join(tmp, 'unused.glsl'), '--table', tablePath]);
 }
@@ -223,23 +255,30 @@ function tagFor(id) {
   return { t, src };
 }
 
-// GLSL 1.20 (Melange's replacements) -> GLSL ES 3.00; #line keeps error lines those of the source.
+// GLSL 1.20/1.30 (Melange's replacements) -> GLSL ES 3.00; #line keeps error lines those of the source. The landscape
+// reads five texture coordinates (the fifth its shadow-map position) and a sampler2DShadow.
+const NTC = isLand ? 5 : 4;
 function toEs(src) {
   const body = src.replace(/^#version.*$/m, '')
     .replace(/\btexture2D\b/g, 'texture')
+    .replace(/\bshadow2D\b/g, 'mgShadow2D')
+    .replace(/\bpatch\b/g, 'mg_patch') // reserved in GLSL ES 3.00 (the landscape's green patches)
     .replace(/\bgl_FragColor\b/g, 'mg_FragColor')
     .replace(/\bgl_TexCoord\b/g, 'v_tc')
     .replace(/\bgl_Color\b/g, 'v_col');
-  return '#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2DArray;\nin vec4 v_tc[4];\nin vec4 v_col;\nout vec4 mg_FragColor;\n#line 1\n' + body;
+  return '#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2DArray;\nprecision highp sampler2DShadow;\n'
+    + `in vec4 v_tc[${NTC}];\nin vec4 v_col;\nout vec4 mg_FragColor;\nvec4 mgShadow2D(sampler2DShadow s, vec3 c) { return vec4(texture(s, c)); }\n#line 1\n` + body;
 }
+// v_tc[4] (the landscape's shadow-map position) lies outside the map: no sun shadow.
 const VS = `#version 300 es
 in vec3 aPos; in vec3 aNrm; in vec2 aUv;
 uniform mat4 view, proj; uniform vec3 toSunEye;
-out vec4 v_tc[4]; out vec4 v_col;
+out vec4 v_tc[${NTC}]; out vec4 v_col;
 void main() {
   vec4 e = view * vec4(aPos, 1.0);
   v_tc[0] = vec4(aUv, 0.0, 1.0); v_tc[1] = vec4(-e.xyz, 1.0); v_tc[2] = vec4(mat3(view) * aNrm, 0.0);
   v_tc[3] = vec4(-toSunEye, 0.0); v_col = vec4(1.0);
+  ${isLand ? 'v_tc[4] = vec4(2.0, 2.0, 0.5, 1.0);' : ''}
   gl_Position = proj * e;
 }`;
 
@@ -270,7 +309,7 @@ if (opt.sheet) {
   if (opt.limit) ids = ids.slice(0, +opt.limit);
 } else ids = [resolveId(opt.id)];
 
-const base = modelParams();
+const base = isLand ? landscapeParams() : modelParams();
 const common = sets(opt.set);
 const candSet = sets(opt['set-candidate']);
 const detailOn = opt.detail !== undefined ? +opt.detail : (base.sunstoneMatDetail || 1);
@@ -314,11 +353,12 @@ const scene = {
   mesh: opt.mesh ? loadMesh(opt.mesh) : null,
   uvdisc: opt.uvdisc ? opt.uvdisc.split(',').map(Number) : null,
   uvrect: opt.uvrect ? opt.uvrect.split(',').map(Number) : null,
-  world: num(opt.world, 20),               // object size, world units (a crate is about 20; a worm's head 12)
+  world: num(opt.world, opt.shape === 'terrain' ? 600 : 20), // object size, world units (a crate is about 20; a worm's head 12)
   density: opt.density ? +opt.density : null, // texels per world unit (default: the texture once per face)
   dist: opt.dist ? +opt.dist : null,       // camera distance, world units (default 2.6 x size)
   yaw: num(opt.yaw, 32), pitch: num(opt.pitch, 22), fov: num(opt.fov, 40),
   px: num(opt.px, 320),
+  tile: num(opt.tile, 100),                // --shape terrain: world units per texture repeat (the game's: 40 to 150)
   sun: opt.sun ? vec(opt.sun) : (theme.sunDir || BASE.hdr.sunDir),
   diffuse: opt.diffuse ? vec(opt.diffuse) : [0.85, 0.82, 0.75],
   ambient: opt.ambient ? vec(opt.ambient) : [0.42, 0.42, 0.46],
@@ -382,6 +422,34 @@ const res = await page.evaluate(async ({ VS, shaders, rows, panels, base, common
       const ext = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]), k = W / ext;
       for (let i = 0; i < pp.length; i++) P.push((pp[i] - (lo[i % 3] + hi[i % 3]) / 2) * k);
       N.push(...nn); U.push(...uu); I.push(...ii);
+    } else if (scene.shape === 'terrain') {
+      // A piece of landscape as the game draws it: rolling ground --world across with a block (a building) on it, the
+      // UVs planar projections on the world axes (ground u = x, v = z; walls along their face), one texture repeat every
+      // --tile world units, as measured in game (40 to 150).
+      const G = 64, T = scene.tile;
+      const hgt = (x, z) => 6 * Math.sin(x * 0.021 + 0.7) * Math.cos(z * 0.017) + 3 * Math.sin(x * 0.05 + z * 0.043);
+      for (let i = 0; i <= G; i++) for (let j = 0; j <= G; j++) {
+        const x = (j / G - 0.5) * W, z = (i / G - 0.5) * W, y = hgt(x, z), e = 0.5;
+        const nx = -(hgt(x + e, z) - hgt(x - e, z)) / (2 * e), nz = -(hgt(x, z + e) - hgt(x, z - e)) / (2 * e), nl = Math.hypot(nx, 1, nz);
+        P.push(x, y, z); N.push(nx / nl, 1 / nl, nz / nl); U.push(x / T, z / T);
+      }
+      for (let i = 0; i < G; i++) for (let j = 0; j < G; j++) { const a = i * (G + 1) + j, b = a + G + 1; I.push(a, b, a + 1, b, b + 1, a + 1); }
+      // The block: 60 x 40 x 60 world units, its base sunk into the ground.
+      const c = [-10, 12, -40], hx = 30, hy = 26, hz = 30;
+      for (const n of [[0, 0, 1], [0, 0, -1], [1, 0, 0], [-1, 0, 0], [0, 1, 0]]) {
+        const b0 = P.length / 3;
+        const ax = Math.abs(n[0]) > 0.5 ? [0, 1, 2] : Math.abs(n[1]) > 0.5 ? [1, 0, 2] : [2, 0, 1];
+        const hs = [hx, hy, hz];
+        for (const [s, r] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+          const p = [0, 0, 0];
+          p[ax[0]] = c[ax[0]] + n[ax[0]] * hs[ax[0]];
+          const ua = ax[0] === 1 ? 0 : (ax[0] === 0 ? 2 : 0), va = ax[0] === 1 ? 2 : 1;
+          p[ua] = c[ua] + s * hs[ua]; p[va] = c[va] + r * hs[va];
+          P.push(...p); N.push(...n); U.push(p[ua] / T, p[va] / T);
+        }
+        const flip = (n[0] + n[1] + n[2]) < 0;
+        I.push(...(flip ? [b0, b0 + 2, b0 + 1, b0, b0 + 3, b0 + 2] : [b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3]));
+      }
     } else if (scene.shape === 'cone') {
       // A bore: a cone seen down its axis (camera --yaw 0 --pitch 0 or a little off), apex at -z with a polar texture
       // mapping (u around, v along), so the texture coordinates converge at the apex: the degenerate footprint of a
@@ -439,7 +507,7 @@ const res = await page.evaluate(async ({ VS, shaders, rows, panels, base, common
   const norm = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-  const D = scene.dist || scene.world * 2.6, ya = scene.yaw * Math.PI / 180, pa = scene.pitch * Math.PI / 180;
+  const D = scene.dist || (scene.shape === 'terrain' ? 170 : scene.world * 2.6), ya = scene.yaw * Math.PI / 180, pa = scene.pitch * Math.PI / 180;
   const eye = [D * Math.sin(ya) * Math.cos(pa), D * Math.sin(pa), D * Math.cos(ya) * Math.cos(pa)];
   const f = norm(eye.map((x) => -x)), s = norm(cross(f, [0, 1, 0])), u = cross(s, f);
   const view = [s[0], u[0], -f[0], 0, s[1], u[1], -f[1], 0, s[2], u[2], -f[2], 0, -dot(s, eye), -dot(u, eye), dot(f, eye), 1];
@@ -487,9 +555,23 @@ const res = await page.evaluate(async ({ VS, shaders, rows, panels, base, common
     gl.activeTexture(gl.TEXTURE0);
   }
 
+  // The landscape's shadow map: a 1x1 depth texture with comparison on unit 1 (never reached: the shadow position lies
+  // outside the map, but WebGL wants a matching texture on a shadow sampler).
+  const SHADOW_UNIT = 1;
+  {
+    const st = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0 + SHADOW_UNIT);
+    gl.bindTexture(gl.TEXTURE_2D, st);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT16, 1, 1, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_SHORT, new Uint16Array([65535]));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.activeTexture(gl.TEXTURE0);
+  }
   const setUniforms = (prog, values) => {
     for (const un of prog.uniforms) {
       let v = values[un.name];
+      if (un.type === gl.SAMPLER_2D_SHADOW) { gl.uniform1i(un.loc, SHADOW_UNIT); continue; }
       if (un.type === gl.SAMPLER_2D) { gl.uniform1i(un.loc, 0); continue; }
       if (un.type === gl.SAMPLER_2D_ARRAY) { gl.uniform1i(un.loc, MAP_UNIT); continue; }
       if (v === undefined) continue; // as in Melange: an unknown uniform stays 0
@@ -536,6 +618,8 @@ const res = await page.evaluate(async ({ VS, shaders, rows, panels, base, common
       setUniforms(prog, {
         ...base, ...common, ...pn.set, view, proj, toSunEye, materialMatrix: row.material, mg_texTag: row.tag,
         lightDiffuseCol: scene.diffuse, lightAmbientCol: scene.ambient, lightSpecularCol: scene.specular,
+        globalDiffuse: scene.diffuse, globalAmbient: scene.ambient, globalSpecular: scene.specular, globalFresnel: [1, 1, 1],
+        shadowSize: [2048, 2048, 0],
       });
       gl.enable(gl.DEPTH_TEST); gl.viewport(0, 0, S, S);
       gl.clearColor(0.24, 0.27, 0.31, 1);
