@@ -9,7 +9,9 @@ ever shipped.
 A **Quality** setting (Off / Low / Subtle / Bold / Ultra) on the Mods page turns Sunstone's effects on together with
 sensible parameters; a **Look** setting (Golden / Dusk) picks which of the two colour-grading LUTs the grade
 leans toward, **Sunstone lighting** and **Sunstone water** turn the lighting and the water below on or off on their
-own, **Distance blur**, **Film grain** and **Lens effects** (dirt, flare and colour fringes) turn those off, and
+own, **Distance blur**, **Film grain** and **Lens effects** (dirt, flare and colour fringes) turn those off,
+**Material detail** (on by default; Subtle draws it lighter, Bold and Ultra in full, Low and Off not at all) adds each
+material's surface to props, weapons and worm gear (see Lighting), and
 **Worm skin** gives the worms human skin and **Worm hair** real moustaches (below). All apply live, no restart. Every effect still has its own toggle
 and parameters in the overlay's *Mirage/Post-FX* panel
 (and in `Melange.ini [MiragePostFX]`) if you want to go off the preset — a manual change there survives until you
@@ -266,6 +268,13 @@ of the landscape (`Landscape.LandscapeFragmentMain`, `Landscape.HeightMapFragmen
   angles, where it would shimmer.
 - **Highlight roll-off**: bright colours roll off toward white, as film does, instead of clipping per channel, so
   sand and stone keep the game's pale character rather than turning orange.
+- **Material detail** (in progress for 2.3; the **Material detail** setting): the lit-model shader draws a material's
+  surface over the art (grain, wear, cavities, sheen) from procedural code per material class
+  (`tools/materials`), sized in world units and faded by each pixel's footprint so it never shimmers. Melange tells the
+  shader which texture is bound (texture tags, `mod/texture_tags.json`: digests and numbers only); with a Melange
+  without texture tags, or a texture not in the table, the class is guessed from the material (metal or matte). The
+  worms' own skin and hair never get it. `sunstoneMatSplit` and `sunstoneMatDebug` in the *Mirage/Shaders* panel
+  compare it and show the classes.
 
 The per-theme materials (reflectance, gloss, relief depth, sky and ground tints, sun and shade tints, and grade
 offsets such as Horror's exposure) are the `THEMES` table in `mod/client/init.lua`. The sliders in the

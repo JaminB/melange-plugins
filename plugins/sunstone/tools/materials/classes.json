@@ -1,0 +1,42 @@
+{
+  "_doc": [
+    "Sunstone material classes: the id the shader switches on (mg_texTag[0].x) and the snippet that draws each class.",
+    "Ids are part of the tag table's format (mod/texture_tags.json): never renumber or reuse one; add new classes at the end.",
+    "Id 0 is 'untagged': the shader then picks a class from the material (materialMatrix), see tools/materials/README.md.",
+    "A class with no tools/materials/<name>.glsl yet is drawn by generic.glsl. Default parameters live in each snippet's",
+    "'// @default' line, so a class worker edits only their own snippet (and their rows in overrides.json)."
+  ],
+  "default_snippet": "generic",
+  "fallback": {
+    "metal": "bare_metal",
+    "matte": "generic"
+  },
+  "classes": [
+    { "id": 1, "name": "painted_metal" },
+    { "id": 2, "name": "fabric_cloth" },
+    { "id": 3, "name": "fur_hair" },
+    { "id": 4, "name": "leaf_foliage" },
+    { "id": 5, "name": "plastic" },
+    { "id": 6, "name": "stone_rock" },
+    { "id": 7, "name": "wood_planks" },
+    { "id": 8, "name": "bare_metal" },
+    { "id": 9, "name": "skin" },
+    { "id": 10, "name": "other" },
+    { "id": 11, "name": "leather" },
+    { "id": 12, "name": "gold_brass" },
+    { "id": 13, "name": "emissive_light" },
+    { "id": 14, "name": "glass_gem" },
+    { "id": 15, "name": "bone_teeth" },
+    { "id": 16, "name": "rusted_metal" },
+    { "id": 17, "name": "cartoon_flat" },
+    { "id": 18, "name": "wood_bark" },
+    { "id": 19, "name": "paper_card" },
+    { "id": 20, "name": "sand_dirt" },
+    { "id": 21, "name": "rope_straw" },
+    { "id": 22, "name": "concrete_plaster" },
+    { "id": 23, "name": "snow_ice" },
+    { "id": 24, "name": "grass_turf" },
+    { "id": 25, "name": "brick" },
+    { "id": 26, "name": "rubber" }
+  ]
+}

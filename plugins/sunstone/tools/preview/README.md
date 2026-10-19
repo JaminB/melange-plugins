@@ -1,5 +1,7 @@
 # Post-FX preview harness (dev tool, not packed)
 
+(The lit-model shader and its material detail have their own preview, `model.mjs`: see "Model preview" at the end.)
+
 Runs real Melange post-FX effect folders from this repo offline, in headless Chromium (WebGL2 on SwiftShader via
 Playwright), on a synthetic WUM-like scene or on a real game frame. Use it to preview and screenshot effects such as
 `bloodsand/skin` and `kindjal/acid` together, in Melange's order, without the game. (Sunstone's Worm skin and hair are
@@ -146,3 +148,55 @@ Gaps:
   theme LUTs, exposure) run on their `effect.ini` defaults unless a scenario's `params` sets them. Single frame: no
   `mg_prev` history across frames, `mg_time`/`mg_frame` from the scenario.
 - **Mode (b)** is approximate (see above).
+
+# Model preview (`model.mjs`)
+
+Renders Sunstone's lit-model shader (`FixedFunction.FFFragmentMainTexLit.glsl`, or `--shader texlitcol`) offline on a
+box, sphere or plane with a texture from the texture inventory, three ways side by side:
+
+| panel | shader | what |
+|---|---|---|
+| `game` | baseline, `sunstoneLight 0` | the game's own lighting |
+| `sunstone` | baseline, `sunstoneMatDetail 0` | Sunstone's lighting without material detail |
+| `candidate` | built now from `tools/materials` | with material detail (the Quality preset's amount, or `--detail`) |
+
+The baseline is the committed shader (or `--baseline file.glsl`). The candidate comes from
+`python tools/build_materials.py --out <tmp>` and the texture's tag from `python tools/make_tag_table.py` into a temp
+folder, so edits to a snippet, its `@default` line or the overrides show at once and nothing in the plugin is
+written. Uniforms are params.ini's defaults with what `applyLighting`/`applySkin` in `mod/client/init.lua` send for
+the Quality preset and theme (`PRESETS`, `THEMES` read from the Lua source); the game's own light colours are
+representative constants (`--diffuse`, `--ambient`, `--specular`).
+
+The inventory (`inventory.json`, `classes.json`, `cache/<id>.png`) is read at run time and never committed: pass
+`--inventory <dir>` or set `SUNSTONE_INVENTORY`. Playwright: `PLAYWRIGHT=<path to the playwright package>` if it is
+not on the module path (as for `run.mjs`). One run takes 5 to 20 s.
+
+```sh
+node tools/preview/model.mjs --id ee3d95 --shape box --theme ENGLAND --out /tmp/crate.png      # crate
+node tools/preview/model.mjs --sheet ee3d95,548ff2,944413 --out /tmp/sheet.png                  # contact sheet
+node tools/preview/model.mjs --sheet class:painted_metal --limit 16 --px 200 --out /tmp/pm.png  # a whole class
+node tools/preview/model.mjs --id 944413 --set-candidate sunstoneMatDebug=1 --panels sunstone,candidate --out /tmp/d.png
+git show HEAD:plugins/sunstone/mod/shaders/FixedFunction.FFFragmentMainTexLit.glsl > /tmp/old.glsl
+node tools/preview/model.mjs --sheet ee3d95,548ff2,944413 --baseline /tmp/old.glsl --check-identical
+```
+
+| Option | Meaning |
+|---|---|
+| `--id x` / `--sheet a,b,…` / `--sheet @file` / `--sheet class:<name>` | one texture, or a contact sheet (a row per texture); ids may be unique prefixes; `class:` takes the class from the tag table; `--limit n` |
+| `--shape box\|sphere\|plane`, `--world 20` | the object and its size in world units (a crate is about 20, a worm's head 12) |
+| `--density t` | texel density: texels per world unit (default: the texture once per box face) |
+| `--dist d`, `--yaw`, `--pitch`, `--fov`, `--px` | camera distance (default 2.6 × size), angles (32°, 22°), field of view (40°), panel size (320) |
+| `--quality off\|low\|subtle\|bold\|ultra`, `--theme ARABIAN\|…` | the preset and theme whose model parameters and sun direction are used (default Bold, no theme) |
+| `--sun x,y,z`, `--diffuse r,g,b`, `--ambient r,g,b`, `--specular r,g,b` | override the sun direction (world, toward the sun) and the game's light colours |
+| `--panels game,sunstone,candidate` | which panels, in order |
+| `--detail k` | the candidate's `sunstoneMatDetail` (default the preset's, 1 on Low/Off) |
+| `--set "name=v;name=r g b"`, `--set-candidate …` | uniform overrides for every panel / the candidate only (e.g. `sunstoneMatDebug=1`) |
+| `--class name`, `--tag c,s,st,r,w,t,a,b`, `--untagged`, `--tags file.json` | force a class (its defaults), a raw tag, no tag (the material fallback), or a `--by-id` table from `make_tag_table.py` |
+| `--candidate f.glsl`, `--baseline f.glsl` | shaders to use instead of the built / committed ones |
+| `--check-identical [--expect-untouched]` | proves detail off changes nothing: baseline vs candidate with detail 0, with detail on behind `sunstoneMatSplit`, and under the game's lighting, compared byte for byte; `--expect-untouched` adds detail on everywhere (for the worm's own material, skin and hair). Exit 1 on any difference |
+| `--time` | SwiftShader ms per draw (CPU: compare panels, not a GPU budget) |
+| `--no-labels`, `--out x.png` | |
+
+Gaps: SwiftShader is not the game's GPU (precision and derivatives agree closely; timing does not), the meshes are
+simple shapes with one texture density, and the light colours are not the theme's own. Measure the 0.5 ms budget in
+the game (see the README's performance section).

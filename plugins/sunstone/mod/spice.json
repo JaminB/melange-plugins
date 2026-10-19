@@ -59,6 +59,12 @@
       "label": "Lens effects (dirt, flare, colour fringes)"
     },
     {
+      "key": "materials",
+      "type": "bool",
+      "default": true,
+      "label": "Material detail (wood grain, metal wear, fabric weave and more on props, weapons and worm gear; needs Sunstone lighting)"
+    },
+    {
       "key": "skin",
       "type": "enum",
       "options": ["game", "fair", "light", "medium", "olive", "tan", "brown", "deep", "mixed"],

@@ -1,3 +1,10 @@
+<!--
+TODO 2.3.0 (in progress; no version bump until the classes and Melange's texture tags land). Draft points:
+- Material detail on every lit model texture (props, weapons, worm gear): wood grain, metal wear, fabric weave and more,
+  per material class, keeping the cartoon art; new Material detail setting (on; Subtle lighter, Bold and Ultra full).
+- Needs Melange <version> texture tags for the exact class per texture; older Melange guesses metal or matte.
+- Budget: within 0.5 ms at Ultra (measure before release).
+-->
 ## 2.2.0
 
 - **Worm skin is rebuilt in the model shader.** The skin and hair used to be found by colour in the finished frame; now

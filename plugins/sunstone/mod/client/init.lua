@@ -1,8 +1,8 @@
 -- Texture clarity is declared in spice.json's "graphics" block and applied by Melange itself.
 --
 -- The post-FX effects live under postfx/ and the lighting, water and the worms' skin and hair under shaders/; this script
--- maps the "quality", "look", "lighting", "water", "dof", "grain", "lens", "skin", "hair" and "wigs" settings onto their
--- enable and param calls (Mixed skin or hair also takes the worms' positions, see "human skin and hair" below). Each
+-- maps the "quality", "look", "lighting", "water", "dof", "grain", "lens", "materials", "skin", "hair" and "wigs" settings
+-- onto their enable and param calls (Mixed skin or hair also takes the worms' positions, see "human skin and hair" below). Each
 -- effect keeps its own ini/overlay toggle, so a manual tweak in the overlay survives until the next quality or theme
 -- change. A value is only sent when it differs from what was sent before: Melange writes every wum.postfx.setParam to
 -- Melange.ini and logs it, and re-sending all of them stalled a settings change for some 300 ms.
@@ -39,7 +39,7 @@ local PRESETS = {
         sharpen = { enabled = true, sharpness = 0.4 },
         shadows = { size = 2048, mode = 1 },
         lighting = { light = 1, relief = 0, rim = 0.2, modelRim = 0.3, shadows = true, sunGain = 1.2, ambientGain = 1.2,
-                     detail = 0, detailBump = 0,
+                     detail = 0, detailBump = 0, matDetail = 0,
                      grassWrap = 0.3, transmit = 0.15, patch = 0.05, greenSpec = 0.7, tint = 1, groundDip = 0.25,
                      meadow = 29, leaves = 22, shadeShift = 1, tuft = 0.14, sheen = 0 },
         water   = { enabled = true, waves = 0.3, glint = 0.5, foam = 0, ssr = 0, caustics = 0, crest = 0.6,
@@ -56,7 +56,7 @@ local PRESETS = {
         lens    = { enabled = true, ca = 0, grain = 0 },
         shadows = { size = 2048, mode = 2 },
         lighting = { light = 1, relief = 1, rim = 0.3, modelRim = 0.45, shadows = true, sunGain = 1.2, ambientGain = 1.2,
-                     detail = 0.04,
+                     detail = 0.04, matDetail = 0.5,
                      detailBump = 0.15, grassWrap = 0.3, transmit = 0.1, patch = 0.04, greenSpec = 0.7, tint = 0.6,
                      groundDip = 0.2, meadow = 29, leaves = 22, shadeShift = 1, tuft = 0.14, sheen = 0.05 },
         water   = { enabled = true, waves = 0.35, glint = 0.6, foam = 0.3, ssr = 1, ssrCap = 0.4, caustics = 0.4,
@@ -75,7 +75,7 @@ local PRESETS = {
         shadows = { size = 4096, mode = 2 },
         lighting = { light = 1, relief = 1.25, rim = 0.5, modelRim = 0.6, shadows = true, sunGain = 1.65,
                      ambientGain = 1.12, shadowAmbient = 0.33, modelSunGain = 1.25, modelAmbientGain = 1.2, greenWarm = 0.5,
-                     hemisphere = 1.25, detail = 0.06, detailBump = 0.25, grassWrap = 0.3, transmit = 0.15,
+                     hemisphere = 1.25, detail = 0.06, detailBump = 0.25, matDetail = 1, grassWrap = 0.3, transmit = 0.15,
                      patch = 0.07, patchHue = 0.9, greenSpec = 0.7, tint = 1, groundDip = 0.25, meadow = 29, leaves = 22,
                      shadeShift = 1, tuft = 0.2, sheen = 0.08 },
         water   = { enabled = true, waves = 0.2, glint = 0.8, foam = 0.35, rich = 0.25, ssr = 1, ssrCap = 0.5,
@@ -288,7 +288,8 @@ local function modelParam(name, ...)
 end
 
 -- Returns whether the lit textured models are drawn by Sunstone's shader (which then also marks the worms' skin).
-local function applyLighting(l, m, on, foliage, people)
+-- materials: the Material detail setting (the preset's matDetail: Subtle light, Bold and Ultra full).
+local function applyLighting(l, m, on, foliage, people, materials)
     if not wum.shaders then return false end
     local lit = on and l.light or 0
     local k = l.hemisphere or 1
@@ -331,6 +332,7 @@ local function applyLighting(l, m, on, foliage, people)
     modelParam("sunstoneTint", (l.tint or 0) * (m.tint or 1))
     modelParam("sunstoneGroundDip", l.groundDip or 0)
     modelParam("sunstoneFoliage", (l.leaves or 0) * green)
+    modelParam("sunstoneMatDetail", materials and (l.matDetail or 0) or 0)
     -- With nothing of Sunstone's left to draw, the game's own programs come back.
     local landscape = l.shadows or lit > 0
     for _, e in ipairs(LANDSCAPE) do pcall(wum.shaders.enableGlsl, "Landscape.cg", e, landscape) end
@@ -733,7 +735,8 @@ local function applyMarks(marks, people, switch)
     checkPartners()
 end
 
-local KEYS = { "quality", "look", "theme", "scene", "lighting", "water", "dof", "grain", "lens", "scale", "skin", "hair", "wigs" }
+local KEYS = { "quality", "look", "theme", "scene", "lighting", "water", "dof", "grain", "lens", "scale", "skin", "hair", "wigs",
+               "materials" }
 local last = {}
 
 local function apply()
@@ -753,6 +756,7 @@ local function apply()
         skin = wum.config.get("skin") or "game",
         hair = wum.config.get("hair") or "game",
         wigs = wum.config.get("wigs") == true,
+        materials = wum.config.get("materials") ~= false,
     }
     local same = true
     for _, k in ipairs(KEYS) do
@@ -789,7 +793,7 @@ local function apply()
     applyShadows(preset.shadows)
     applySupersample(preset.supersample)
     local people = applySkin(state, theme)
-    applyMarks(applyLighting(preset.lighting, theme, state.lighting, preset.foliage or 1, people), people,
+    applyMarks(applyLighting(preset.lighting, theme, state.lighting, preset.foliage or 1, people, state.materials), people,
         state.menu or sceneChanged)
     if wum.shaders then landscapeParam("sunstoneRenderScale", state.scale) end
     applyWater(preset.water, state.water, theme)
