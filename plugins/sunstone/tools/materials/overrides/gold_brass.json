@@ -1,0 +1,12 @@
+{
+  "_doc": [
+    "gold_brass's per-texture overrides (layout as tools/materials/overrides.json).",
+    "rough: the gold of the glasses (gloss 40, specular 0.77) keeps a highlight a few pixels wide after the class's polish",
+    "(gloss x ~2.6): gloss x 2^-2r, specular x 2^-r."
+  ],
+  "overrides": {
+    "769443": { "rough": 0.2 },
+    "2d86cd": { "rough": 0.2 },
+    "494f37": { "rough": 0.2 }
+  }
+}

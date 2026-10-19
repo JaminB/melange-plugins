@@ -1,8 +1,8 @@
 -- Texture clarity is declared in spice.json's "graphics" block and applied by Melange itself.
 --
 -- The post-FX effects live under postfx/ and the lighting, water and the worms' skin and hair under shaders/; this script
--- maps the "quality", "look", "lighting", "water", "dof", "grain", "lens", "skin", "hair" and "wigs" settings onto their
--- enable and param calls (Mixed skin or hair also takes the worms' positions, see "human skin and hair" below). Each
+-- maps the "quality", "look", "lighting", "water", "dof", "grain", "lens", "materials", "skin", "hair" and "wigs" settings
+-- onto their enable and param calls (Mixed skin or hair also takes the worms' positions, see "human skin and hair" below). Each
 -- effect keeps its own ini/overlay toggle, so a manual tweak in the overlay survives until the next quality or theme
 -- change. A value is only sent when it differs from what was sent before: Melange writes every wum.postfx.setParam to
 -- Melange.ini and logs it, and re-sending all of them stalled a settings change for some 300 ms.
@@ -39,7 +39,7 @@ local PRESETS = {
         sharpen = { enabled = true, sharpness = 0.4 },
         shadows = { size = 2048, mode = 1 },
         lighting = { light = 1, relief = 0, rim = 0.2, modelRim = 0.3, shadows = true, sunGain = 1.2, ambientGain = 1.2,
-                     detail = 0, detailBump = 0,
+                     detail = 0, detailBump = 0, matDetail = 0,
                      grassWrap = 0.3, transmit = 0.15, patch = 0.05, greenSpec = 0.7, tint = 1, groundDip = 0.25,
                      meadow = 29, leaves = 22, shadeShift = 1, tuft = 0.14, sheen = 0 },
         water   = { enabled = true, waves = 0.3, glint = 0.5, foam = 0, ssr = 0, caustics = 0, crest = 0.6,
@@ -56,7 +56,7 @@ local PRESETS = {
         lens    = { enabled = true, ca = 0, grain = 0 },
         shadows = { size = 2048, mode = 2 },
         lighting = { light = 1, relief = 1, rim = 0.3, modelRim = 0.45, shadows = true, sunGain = 1.2, ambientGain = 1.2,
-                     detail = 0.04,
+                     detail = 0.04, matDetail = 0.5,
                      detailBump = 0.15, grassWrap = 0.3, transmit = 0.1, patch = 0.04, greenSpec = 0.7, tint = 0.6,
                      groundDip = 0.2, meadow = 29, leaves = 22, shadeShift = 1, tuft = 0.14, sheen = 0.05 },
         water   = { enabled = true, waves = 0.35, glint = 0.6, foam = 0.3, ssr = 1, ssrCap = 0.4, caustics = 0.4,
@@ -75,7 +75,7 @@ local PRESETS = {
         shadows = { size = 4096, mode = 2 },
         lighting = { light = 1, relief = 1.25, rim = 0.5, modelRim = 0.6, shadows = true, sunGain = 1.65,
                      ambientGain = 1.12, shadowAmbient = 0.33, modelSunGain = 1.25, modelAmbientGain = 1.2, greenWarm = 0.5,
-                     hemisphere = 1.25, detail = 0.06, detailBump = 0.25, grassWrap = 0.3, transmit = 0.15,
+                     hemisphere = 1.25, detail = 0.06, detailBump = 0.25, matDetail = 1, grassWrap = 0.3, transmit = 0.15,
                      patch = 0.07, patchHue = 0.9, greenSpec = 0.7, tint = 1, groundDip = 0.25, meadow = 29, leaves = 22,
                      shadeShift = 1, tuft = 0.2, sheen = 0.08 },
         water   = { enabled = true, waves = 0.2, glint = 0.8, foam = 0.35, rich = 0.25, ssr = 1, ssrCap = 0.5,
@@ -134,6 +134,50 @@ end
 -- Sunstone's own lighting: the GLSL replacements in shaders/ and the per-theme table they read.
 local LANDSCAPE = { "LandscapeFragmentMain", "HeightMapFragmentMain" }
 local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLitCol", "FFFragmentMainTexLitCol" }
+
+-- Material detail's shared maps: eight original tileable layers in one texture array (assets/detail/materials.png, made
+-- by tools/make_detail_maps.py), read by the lit textured model shaders' "uniform sampler2DArray sunstoneMat".
+-- SUNSTONE 2.3 NEEDS THE NEW MELANGE (0.10, spice.json's melange.range): wum.draw.texture with options and
+-- wum.shaders.setTexture. On an older Melange that sampler2DArray would share unit 0 with texture0 and every draw of
+-- those programs would fail, so the range keeps such a Melange from loading Sunstone at all and nothing is paused
+-- here. Should the functions still be missing, material detail stays off (logged once). A texture that fails to load
+-- leaves the sampler on Melange's neutral texture (0.502, which the maps treat as "no change"): the procedural detail
+-- still draws.
+local MAT = { supported = false, tex = nil, bound = false, boundLand = false, warned = false }
+local function matWarn(msg)
+    if MAT.warned then return end
+    MAT.warned = true
+    if wum.log and wum.log.warn then wum.log.warn("Sunstone: " .. msg) end
+end
+local function loadMaterialMaps()
+    if not (wum.shaders and wum.shaders.setTexture and wum.draw and wum.draw.texture) then
+        matWarn("material detail needs Melange 0.10 or later (wum.shaders.setTexture); it stays off")
+        return
+    end
+    MAT.supported = true
+    local ok, tex, err = pcall(wum.draw.texture, "assets/detail/materials.png", { wrap = "repeat", layers = 8 })
+    if ok and tex then
+        MAT.tex = tex
+    else
+        matWarn("material maps not loaded (" .. tostring(ok and err or tex) .. "); material detail is procedural only")
+    end
+end
+-- Binds the maps to both lit textured model shaders and the two landscape shaders; retried from apply() while GLSL
+-- replacements are off (false).
+local function bindMaterialMaps()
+    if not MAT.tex then return end
+    for _, t in ipairs({ { "bound", "FixedFunction.cg", "FFFragmentMain*TexLit*" }, { "boundLand", "Landscape.cg", "*FragmentMain" } }) do
+        if not MAT[t[1]] then
+            local ok, r = pcall(wum.shaders.setTexture, t[2], t[3], "sunstoneMat", MAT.tex)
+            if not ok then
+                MAT.tex = nil
+                matWarn("material maps not bound (" .. tostring(r) .. "); material detail is procedural only")
+                return
+            end
+            MAT[t[1]] = r == true
+        end
+    end
+end
 
 -- Per theme: landscape specular reflectance and gloss, relief depth (world units), the ambient tints for surfaces
 -- facing the sky and the ground (the ground tint is the bounce light off that theme's terrain), a scale for how much
@@ -288,7 +332,8 @@ local function modelParam(name, ...)
 end
 
 -- Returns whether the lit textured models are drawn by Sunstone's shader (which then also marks the worms' skin).
-local function applyLighting(l, m, on, foliage, people)
+-- materials: the Material detail setting (the preset's matDetail: Subtle light, Bold and Ultra full).
+local function applyLighting(l, m, on, foliage, people, materials)
     if not wum.shaders then return false end
     local lit = on and l.light or 0
     local k = l.hemisphere or 1
@@ -331,6 +376,10 @@ local function applyLighting(l, m, on, foliage, people)
     modelParam("sunstoneTint", (l.tint or 0) * (m.tint or 1))
     modelParam("sunstoneGroundDip", l.groundDip or 0)
     modelParam("sunstoneFoliage", (l.leaves or 0) * green)
+    modelParam("sunstoneMatDetail", materials and MAT.supported and (l.matDetail or 0) or 0)
+    -- The landscape's material detail (its theme tiles' classes from the same tag table); landMatDetail tunes it apart
+    -- from the models'.
+    landscapeParam("sunstoneMatDetail", materials and MAT.supported and (l.landMatDetail or l.matDetail or 0) or 0)
     -- With nothing of Sunstone's left to draw, the game's own programs come back.
     local landscape = l.shadows or lit > 0
     for _, e in ipairs(LANDSCAPE) do pcall(wum.shaders.enableGlsl, "Landscape.cg", e, landscape) end
@@ -733,10 +782,12 @@ local function applyMarks(marks, people, switch)
     checkPartners()
 end
 
-local KEYS = { "quality", "look", "theme", "scene", "lighting", "water", "dof", "grain", "lens", "scale", "skin", "hair", "wigs" }
+local KEYS = { "quality", "look", "theme", "scene", "lighting", "water", "dof", "grain", "lens", "scale", "skin", "hair", "wigs",
+               "materials" }
 local last = {}
 
 local function apply()
+    bindMaterialMaps()
     local quality = wum.config.get("quality")
     quality = LEGACY[quality] or quality
     local state = {
@@ -753,6 +804,7 @@ local function apply()
         skin = wum.config.get("skin") or "game",
         hair = wum.config.get("hair") or "game",
         wigs = wum.config.get("wigs") == true,
+        materials = wum.config.get("materials") ~= false,
     }
     local same = true
     for _, k in ipairs(KEYS) do
@@ -789,7 +841,7 @@ local function apply()
     applyShadows(preset.shadows)
     applySupersample(preset.supersample)
     local people = applySkin(state, theme)
-    applyMarks(applyLighting(preset.lighting, theme, state.lighting, preset.foliage or 1, people), people,
+    applyMarks(applyLighting(preset.lighting, theme, state.lighting, preset.foliage or 1, people, state.materials), people,
         state.menu or sceneChanged)
     if wum.shaders then landscapeParam("sunstoneRenderScale", state.scale) end
     applyWater(preset.water, state.water, theme)
@@ -800,6 +852,7 @@ for _, name in ipairs({ "fog", "sky", "bloom", "grade", "skin", "skin_u" }) do
     pcall(wum.postfx.enable, "sunstone/" .. name, false)
 end
 
+loadMaterialMaps()
 apply()
 wum.timers.every(0.5, apply)
 -- The skin's event again every EMIT_EVERY seconds (emitLum sends only then or on a change), for a Bloodsand or Kindjal

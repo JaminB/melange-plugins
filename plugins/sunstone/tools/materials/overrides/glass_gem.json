@@ -1,0 +1,61 @@
+{
+ "_doc": "glass_gem: faceted gems get facets (a = facets per texture unit); atlases with gold bezels, corks or labels mask them out by the art (wear 1); the x-ray glasses (a dark plastic frame round a painted lens) are plastic; flat glass panes and bottles (their reflections are painted in the art; a flat pane has no highlight to sharpen, a tighter lobe only shrinks the painted sheen) are left unchanged (strength 0)",
+ "overrides": {
+  "59fe5d": {
+   "a": 5,
+   "b": 0.1
+  },
+  "6592aa": {
+   "a": 5,
+   "b": 0.1
+  },
+  "1b328e": {
+   "a": 5,
+   "b": 0.1
+  },
+  "12dc94": {
+   "a": 5,
+   "b": 0.1
+  },
+  "ba1508": {
+   "a": 5,
+   "b": 0.1
+  },
+  "563dac": {
+   "a": 5,
+   "b": 0.1
+  },
+  "021f2f": {
+   "a": 5,
+   "b": 0.1,
+   "wear": 1
+  },
+  "b135b4": {
+   "wear": 1
+  },
+  "eb6022": {
+   "cls": "plastic"
+  },
+  "c9ed4f": {
+   "cls": "plastic"
+  },
+  "b94a54": {
+   "cls": "plastic"
+  },
+  "728cc5": {
+   "strength": 0
+  },
+  "260086": {
+   "strength": 0
+  },
+  "c9e5e6": {
+   "strength": 0
+  },
+  "f56305": {
+   "strength": 0
+  },
+  "7b4a28": {
+   "strength": 0
+  }
+ }
+}

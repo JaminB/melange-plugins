@@ -1,0 +1,20 @@
+{
+  "_doc": [
+    "Per-texture tag overrides for tools/make_tag_table.py, keyed by an inventory id or a unique prefix of one (6+ chars).",
+    "Each value may set 'cls' (a class name from classes.json) and any of the 7 parameters: scale, strength, rough, wear,",
+    "tint, a, b (their meaning per class: the snippet's '// @param' lines). Unset parameters keep the class defaults.",
+    "A class worker puts their rows in tools/materials/overrides/<class>.json (same layout) instead, so parallel work",
+    "never edits the same file; this file is for cross-class fixes. A texture may appear in only one of them.",
+    "Example: \"ee3d95\": { \"cls\": \"wood_planks\", \"scale\": 1.5, \"wear\": 0.6 }",
+    "decision_fixes maps a mistyped id in the inventory's class decisions to the texture it meant (checked by hand",
+    "against the decision's description and the texture's name)."
+  ],
+  "decision_fixes": {
+    "0fb6e5": "0fb5e5",
+    "d8cb79": "d6cb79",
+    "44484c": "44844c",
+    "43da29": "43ad29"
+  },
+  "overrides": {
+  }
+}

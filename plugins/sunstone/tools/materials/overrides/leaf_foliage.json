@@ -1,0 +1,19 @@
+{
+  "_doc": [
+    "leaf_foliage per-texture tags (layout as ../overrides.json). b = translucency bias: thick or opaque organic parts",
+    "(mushroom caps, fruit rind, nut husk, bulb, cactus) let less light through than a leaf blade; thin petals a little more."
+  ],
+  "overrides": {
+    "ade965": { "b": -0.7 },
+    "1dceb1": { "b": -0.7 },
+    "6a22dd": { "b": -0.6 },
+    "f4bf42": { "b": -0.6 },
+    "f3a815": { "b": -0.5 },
+    "a1d7cc": { "b": -0.5 },
+    "b128d7": { "b": -0.6 },
+    "f06dcf": { "b": -0.4 },
+    "d77e5b": { "b": 0.3 },
+    "1bf666": { "b": 0.3 },
+    "3febec": { "b": 0.3 }
+  }
+}

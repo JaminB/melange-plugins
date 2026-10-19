@@ -1,0 +1,10 @@
+{
+  "overrides": {
+    "f82a82": { "wear": 0.0, "a": 1.0 },
+    "f7568c": { "wear": 0.0, "a": 1.0 },
+    "fd7ca5": { "wear": 0.0, "a": 1.0 },
+    "cfcaa1": { "b": 1.5, "strength": 0.0 },
+    "2dcba2": { "b": 1.5, "strength": 0.0 },
+    "a4d4e4": { "b": 2.0, "strength": 0.0 }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "_doc": [
+    "Leather class rows (layout as tools/materials/overrides.json).",
+    "33a16c: the parachute helmet is glossy; a full pebble grain scatters its tight highlight, so less grain, more polish."
+  ],
+  "overrides": {
+    "33a16c": { "a": 0.45, "b": 0.6 }
+  }
+}

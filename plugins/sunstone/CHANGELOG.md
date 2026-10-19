@@ -1,3 +1,15 @@
+## 2.3.0
+
+- **Material detail on every lit texture.** Props, weapons, worm gear, crates, trees and the level's own ground and
+  buildings now carry a real surface over the cartoon art: wood grain, brushed and chipped metal, stone pitting, fabric
+  weave, leather, fur, sand grain and more, from 26 material classes. Detail is sized in world units and fades with each
+  pixel's footprint, so it never shimmers.
+- **Knows each texture exactly.** Melange 0.10 tags every texture the game draws (digests and numbers only, no game
+  art), so a barrel is painted metal and a log is wood. Eight original tileable maps are shared by all classes.
+- **New Material detail setting** (on by default; Subtle lighter, Bold and Ultra full). Worm skin and hair are untouched.
+- **Fixes:** no dark star in bazooka bores, and helmet dents no longer split the highlight.
+- Measured at Ultra, paused frame: about +0.1 to +0.6 ms. **Needs Melange 0.10 or later**; older versions keep it off.
+
 ## 2.2.0
 
 - **Worm skin is rebuilt in the model shader.** The skin and hair used to be found by colour in the finished frame; now

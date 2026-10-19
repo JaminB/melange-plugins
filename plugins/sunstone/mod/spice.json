@@ -1,18 +1,18 @@
 {
   "spiceVersion": 1,
   "id": "sunstone",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "name": "Sunstone",
   "authors": ["Melange"],
   "description": "A dramatic, client-only graphics overhaul: sharper textures, anti-aliasing and sharpening, grading, atmosphere (SSAO, aerial perspective, bloom), soft shadows, per-pixel lighting and water. No effect on the simulation.",
   "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/sunstone",
   "kind": "client-only",
-  "melange": { "range": ">=0.3.0" },
+  "melange": { "range": ">=0.10.0" },
   "permissions": { "unsafe": false, "filesystem": "none" },
   "dependencies": [],
   "conflicts": [],
   "entry": { "client": "client/init.lua" },
-  "graphics": { "anisotropy": 16, "trilinearFilter": true, "shadowMapSize": 2048 },
+  "graphics": { "anisotropy": 16, "trilinearFilter": true, "shadowMapSize": 2048, "textureTags": "texture_tags.json" },
   "settings": [
     {
       "key": "quality",
@@ -57,6 +57,12 @@
       "type": "bool",
       "default": true,
       "label": "Lens effects (dirt, flare, colour fringes)"
+    },
+    {
+      "key": "materials",
+      "type": "bool",
+      "default": true,
+      "label": "Material detail (wood grain, metal wear, fabric weave and more on props, weapons and worm gear; needs Sunstone lighting)"
     },
     {
       "key": "skin",
