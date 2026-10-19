@@ -1,15 +1,15 @@
-<!--
-TODO 2.3.0 (in progress; no version bump until the classes and Melange's texture tags land). Draft points:
-- Material detail on every lit model texture (props, weapons, worm gear): wood grain, metal wear, fabric weave and more,
-  per material class, keeping the cartoon art; new Material detail setting (on; Subtle lighter, Bold and Ultra full).
-- Needs Melange <version> texture tags for the exact class per texture; older Melange guesses metal or matte.
-- Budget: within 0.5 ms at Ultra (measure before release).
-- Shared material maps: eight original tileable layers (assets/detail/materials.png, tools/make_detail_maps.py) bound
-  with wum.shaders.setTexture; the lit textured model shaders are #version 130 with a sampler2DArray.
-- Needs Melange 0.10 or later: spice.json's melange.range is ">=0.10.0" as a placeholder.
-  TODO: set it to the real Melange version that ships wum.shaders.setTexture once it is known (also in README and
-  init.lua's material maps comment).
--->
+## 2.3.0
+
+- **Material detail on every lit texture.** Props, weapons, worm gear, crates, trees and the level's own ground and
+  buildings now carry a real surface over the cartoon art: wood grain, brushed and chipped metal, stone pitting, fabric
+  weave, leather, fur, sand grain and more, from 26 material classes. Detail is sized in world units and fades with each
+  pixel's footprint, so it never shimmers.
+- **Knows each texture exactly.** Melange 0.10 tags every texture the game draws (digests and numbers only, no game
+  art), so a barrel is painted metal and a log is wood. Eight original tileable maps are shared by all classes.
+- **New Material detail setting** (on by default; Subtle lighter, Bold and Ultra full). Worm skin and hair are untouched.
+- **Fixes:** no dark star in bazooka bores, and helmet dents no longer split the highlight.
+- Measured at Ultra, paused frame: about +0.1 to +0.6 ms. **Needs Melange 0.10 or later**; older versions keep it off.
+
 ## 2.2.0
 
 - **Worm skin is rebuilt in the model shader.** The skin and hair used to be found by colour in the finished frame; now

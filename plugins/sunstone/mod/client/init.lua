@@ -137,8 +137,7 @@ local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLit
 
 -- Material detail's shared maps: eight original tileable layers in one texture array (assets/detail/materials.png, made
 -- by tools/make_detail_maps.py), read by the lit textured model shaders' "uniform sampler2DArray sunstoneMat".
--- SUNSTONE 2.3 NEEDS THE NEW MELANGE (0.10, spice.json's melange.range; TODO: 0.10 is a placeholder until Melange's
--- version with shader textures is known, fix it here, in spice.json and the README): wum.draw.texture with options and
+-- SUNSTONE 2.3 NEEDS THE NEW MELANGE (0.10, spice.json's melange.range): wum.draw.texture with options and
 -- wum.shaders.setTexture. On an older Melange that sampler2DArray would share unit 0 with texture0 and every draw of
 -- those programs would fail, so the range keeps such a Melange from loading Sunstone at all and nothing is paused
 -- here. Should the functions still be missing, material detail stays off (logged once). A texture that fails to load

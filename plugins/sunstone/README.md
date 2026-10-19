@@ -268,7 +268,7 @@ of the landscape (`Landscape.LandscapeFragmentMain`, `Landscape.HeightMapFragmen
   angles, where it would shimmer.
 - **Highlight roll-off**: bright colours roll off toward white, as film does, instead of clipping per channel, so
   sand and stone keep the game's pale character rather than turning orange.
-- **Material detail** (in progress for 2.3; the **Material detail** setting): the lit-model shader draws a material's
+- **Material detail** (2.3; the **Material detail** setting): the lit-model shader draws a material's
   surface over the art (grain, wear, cavities, sheen) from procedural code per material class
   (`tools/materials`), sized in world units and faded by each pixel's footprint so it never shimmers. Melange tells the
   shader which texture is bound (texture tags, `mod/texture_tags.json`: digests and numbers only); with a Melange
@@ -276,13 +276,11 @@ of the landscape (`Landscape.LandscapeFragmentMain`, `Landscape.HeightMapFragmen
   worms' own skin and hair never get it. `sunstoneMatSplit` and `sunstoneMatDebug` in the *Mirage/Shaders* panel
   compare it and show the classes. Besides the procedural detail, all classes share eight original tileable material
   maps (`mod/assets/detail/materials.png`: grain, wood, brushed metal, stone, weave, leather bumps, wear, bark), one
-  texture array bound to the shader by Melange's shader textures, so Sunstone 2.3 needs Melange 0.10 or later
-  <!-- TODO: placeholder version; set the real one (also spice.json, init.lua) once Melange's is known -->.
+  texture array bound to the shader by Melange's shader textures, so Sunstone 2.3 needs Melange 0.10 or later.
   The landscape (buildings, bridges, walls, signs and the ground, drawn from the theme's tiles) gets a lighter form of
   it, one shared-map sample per tile for its classes (stone, brick, concrete, wood, painted and rusted metal, sand,
   grass, snow, leaves), in place of its World detail noise; other tiles keep the World detail. It needs a Melange whose
   texture tags follow the Cg runtime's texture binds (the landscape's tile is bound to unit 1 that way).
-  <!-- TODO: Melange's textags must hook glBindMultiTextureEXT before release (see tools/materials/README.md). -->
 
 The per-theme materials (reflectance, gloss, relief depth, sky and ground tints, sun and shade tints, and grade
 offsets such as Horror's exposure) are the `THEMES` table in `mod/client/init.lua`. The sliders in the
