@@ -1,5 +1,5 @@
 {
-  "format": 1,
+  "version": 1,
   "digest": "gl-level0-sha256-64",
   "fields": ["class", "scale", "strength", "rough", "wear", "tint", "a", "b"],
   "classes": ["generic", "painted_metal", "fabric_cloth", "fur_hair", "leaf_foliage", "plastic", "stone_rock", "wood_planks", "bare_metal", "skin", "other", "leather", "gold_brass", "emissive_light", "glass_gem", "bone_teeth", "rusted_metal", "cartoon_flat", "wood_bark", "paper_card", "sand_dirt", "rope_straw", "concrete_plaster", "snow_ice", "grass_turf", "brick", "rubber"],

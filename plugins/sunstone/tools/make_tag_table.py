@@ -213,7 +213,7 @@ def dump(tags, rows):
     def num(v):
         return str(int(v)) if float(v).is_integer() else f"{v:g}"
     head = {
-        "format": FORMAT,
+        "version": FORMAT,
         "digest": tag_digest.SCHEME,
         "fields": ["class"] + build_materials.PARAMS,
         "classes": [r["name"] for r in rows],
