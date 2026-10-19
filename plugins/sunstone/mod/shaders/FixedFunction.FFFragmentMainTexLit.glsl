@@ -522,6 +522,24 @@ vec3 MatVary(vec3 c, float amount, float r) {
     return c * (1.0 + amount * r * vec3(1.02, 1.0, 0.97));
 }
 
+// ---- degenerate mapping guard. Where a texture's footprint on the surface collapses (UVs that converge to a point, as
+// in a gun's bore or a cone's tip; a texture stretched along one direction; a texture spread over hundreds of world
+// units or squeezed into a fraction of one) the world-space detail that follows the UVs pinches into stars and streaks,
+// and the divisions by uvPerWorld and the surface gradients blow up. This is 1 for every ordinary mapping and falls to 0
+// as the mapping degenerates; MatSetup folds it into m.fade, which the dispatcher applies to everything.
+//   - stretch (aniso): 1 up to 3 (a plane at a steep angle is about 3), 0 from 8
+//   - the texel density changing fast across the screen (uvPerWorld halving every few pixels: a converging mapping):
+//     1 below 0.06 octaves a pixel, 0 from 0.2 (1/r of the pinch: it clears about 20 pixels from the point)
+//   - an extreme density: a tile over 1000 world units, or under one-twentieth of a unit
+float MatDegenerate(MatIn m) {
+    float lg = log2(m.uvPerWorld);
+    float rate = abs(dFdx(lg)) + abs(dFdy(lg));
+    float g = 1.0 - smoothstep(3.0, 8.0, m.aniso);
+    g *= 1.0 - smoothstep(0.06, 0.2, rate);
+    g *= smoothstep(1e-3, 4e-3, m.uvPerWorld) * (1.0 - smoothstep(20.0, 60.0, m.uvPerWorld));
+    return g;
+}
+
 // The inputs for this fragment. Call only in uniform control flow (MatEnabled() is uniform): it takes derivatives.
 MatIn MatSetup(vec4 tex, vec2 uv) {
     MatIn m;
@@ -561,7 +579,7 @@ MatIn MatSetup(vec4 tex, vec2 uv) {
     float sa = sqrt(max(tr * tr - 4.0 * dg, 0.0));
     m.aniso = sqrt(max((tr + sa) / max(tr - sa, 1e-30), 1.0));
     float d = length(m.pos);
-    m.fade = (1.0 - smoothstep(MAT_FADE_FAR / 3.0, MAT_FADE_FAR, d)) * smoothstep(0.03, 0.2, m.ndv);
+    m.fade = (1.0 - smoothstep(MAT_FADE_FAR / 3.0, MAT_FADE_FAR, d)) * smoothstep(0.03, 0.2, m.ndv) * MatDegenerate(m);
     m.scale = 1.0;
     m.strength = 1.0;
     m.p = vec4(0.0);
@@ -658,9 +676,9 @@ MatOut mat_bare_metal(MatIn m) {
     vec2 sn = s.xy * 2.0 - 1.0;
     vec3 dnB = sn.x * T + sn.y * B;   // (the swapped sample's x runs along the brushing either way)
 
-    // Height 0.35 world units over a 5-unit cell: tilts of up to ~10 degrees, enough to bend and break a tight
-    // highlight at the game's distance (sheet metal is never quite flat).
-    o.dn = metal * (MatBumpUv(m, g.yz * (0.35 * m.scale * gk)) + 0.35 * dnB);
+    // Height 0.14 world units over a 5-unit cell: tilts of a few degrees, a subtle ripple that bends a tight highlight
+    // without splitting it into several hot spots (0.35 did, on a helmet).
+    o.dn = metal * (MatBumpUv(m, g.yz * (0.14 * m.scale * gk)) + 0.35 * dnB);
     // Polish: smudges (the noise) and, with wear, scratches (brushed A) rougher; dents a little darker in the hollows.
     float rough = clamp(0.8 * g.x * gk + (0.6 + 0.8 * m.p.x) * max(MatMapVar(s), 0.0), -0.5, 0.6);
     o.gloss = mix(1.4, 2.8 * (1.0 - 0.9 * rough), metal);
@@ -1666,10 +1684,12 @@ MatOut mat_painted_metal(MatIn m) {
     // and only half the sheen. Saturated darks (deep red, navy paint) stay paint.
     float mx = max(m.albedo.r, max(m.albedo.g, m.albedo.b));
     float sat = (mx - min(m.albedo.r, min(m.albedo.g, m.albedo.b))) / max(mx, 1e-3);
-    float paint = max(smoothstep(0.07, 0.2, lum), smoothstep(0.3, 0.55, sat) * step(0.02, lum));
+    // (A saturated dark, a deep blue-green bore or a navy hole, is paint only above about a tenth of value: chipped steel
+    // would show as bright specks in it.)
+    float paint = max(smoothstep(0.07, 0.2, lum), smoothstep(0.3, 0.55, sat) * smoothstep(0.08, 0.16, lum));
     float wear = clamp(m.p.x, 0.0, 1.0) * paint;
 
-    // The sheet: shallow dents about 5 world units apart (two octaves blended so the size never jumps), 0.14 deep.
+    // The sheet: a subtle ripple of shallow dents about 5 world units apart (two octaves blended so the size never jumps), 0.05 deep: any more splits a highlight on a helmet into two hot spots.
     // Their value also says where wear and grime gather.
     float F0, fb;
     MatOctave(m, 5.0 * m.scale, F0, fb);
@@ -1716,7 +1736,7 @@ MatOut mat_painted_metal(MatIn m) {
 
     // Paint: satin to gloss, the sheen broken in soft blotches (rougher where grimy), dulled where scuffed;
     // scratches catch the light in thin broad glints.
-    float gloss = mix(1.0, 2.0, m.p.z) * exp2(-1.8 * d.x * kd - 0.3 * mot - 1.1 * grime - 1.0 * scuff - 1.2 * scr);
+    float gloss = mix(1.0, 2.0, m.p.z) * exp2(-0.8 * d.x * kd - 0.3 * mot - 1.1 * grime - 1.0 * scuff - 1.2 * scr);
     o.spec = mix(1.05, 1.3, m.p.z) * (1.0 - 0.3 * grime) * (1.0 + 0.8 * scr);
     gloss = mix(1.0, gloss, 0.5 + 0.5 * paint);
 
@@ -1733,7 +1753,7 @@ MatOut mat_painted_metal(MatIn m) {
 
     // Light: the dents, the chips' and scratches' relief, the steel's brushing in the chips, and the art's seams
     // pressed in (dark lower, light higher) a third of a texel deep. Cavity only at the chips' walls.
-    o.dn = MatBumpUv(m, d.yz * (0.14 * m.scale * kd))
+    o.dn = MatBumpUv(m, d.yz * (0.05 * m.scale * kd))
          + MatMapBump(m, w, 1.0) * reach
          + MatMapBump(m, s, 0.8 * chip + 0.3 * scr)
          + MatBumpUv(m, art * (0.35 / m.uvPerWorld));
@@ -2478,6 +2498,8 @@ MatOut MatEvaluate(MatIn m) {
     m.p = t1;
     m.seed = MatHash12(vec2(t0.y * 13.1 + t1.x * 7.7 + t1.z * 3.3 + float(c), t0.z * 5.3 + t1.y * 11.9 + t1.w * 2.9));
     MatOut o = MatDispatch(c, m);
+    // A tilt of more than about 35 degrees is never wanted (a snippet's division by a degenerate density or gradient).
+    o.dn *= min(1.0, 0.7 / max(length(o.dn), 1e-6));
     float k = clamp(sunstoneMatDetail * m.strength * m.fade, 0.0, 2.0);
     o.gloss *= exp2(-2.0 * t0.w);
     o.spec *= exp2(-t0.w);

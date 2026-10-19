@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Offline preview of Sunstone's lit-model shader (dev tool, not packed): renders a game texture from the texture
-// inventory on a box, sphere or plane in headless Chromium (WebGL2 on SwiftShader via Playwright), lit with a theme's
+// inventory on a box, sphere, plane or cone in headless Chromium (WebGL2 on SwiftShader via Playwright), lit with a theme's
 // light and a Quality preset's parameters (read from mod/shaders/params.ini and mod/client/init.lua), side by side:
 //   game       the game's lighting (sunstoneLight 0)
 //   sunstone   Sunstone's lighting without material detail (the baseline shader, sunstoneMatDetail 0)
@@ -243,6 +243,20 @@ void main() {
   gl_Position = proj * e;
 }`;
 
+// --mesh f.gltf (one primitive, f.bin beside it, as xomtool writes): its positions, normals, UVs and indices.
+function loadMesh(file) {
+  const gj = JSON.parse(fs.readFileSync(file, 'utf8')), bin = fs.readFileSync(file.replace(/\.gltf$/, '.bin'));
+  const pr = gj.meshes[0].primitives[0];
+  const rd = (i) => {
+    const a = gj.accessors[i], bv = gj.bufferViews[a.bufferView], n = { SCALAR: 1, VEC2: 2, VEC3: 3 }[a.type];
+    const off = bin.byteOffset + (bv.byteOffset || 0) + (a.byteOffset || 0);
+    return a.componentType === 5126 ? Array.from(new Float32Array(bin.buffer.slice(off, off + a.count * n * 4)))
+      : a.componentType === 5125 ? Array.from(new Uint32Array(bin.buffer.slice(off, off + a.count * 4)))
+      : Array.from(new Uint16Array(bin.buffer.slice(off, off + a.count * 2)));
+  };
+  return { pp: rd(pr.attributes.POSITION), nn: rd(pr.attributes.NORMAL), uu: rd(pr.attributes.TEXCOORD_0), ii: rd(pr.indices) };
+}
+
 // ---------------------------------------------------------------- rows and panels
 let ids;
 if (opt.sheet) {
@@ -297,6 +311,9 @@ const rows = ids.map((id) => {
 
 const scene = {
   shape: opt.shape || 'box',
+  mesh: opt.mesh ? loadMesh(opt.mesh) : null,
+  uvdisc: opt.uvdisc ? opt.uvdisc.split(',').map(Number) : null,
+  uvrect: opt.uvrect ? opt.uvrect.split(',').map(Number) : null,
   world: num(opt.world, 20),               // object size, world units (a crate is about 20; a worm's head 12)
   density: opt.density ? +opt.density : null, // texels per world unit (default: the texture once per face)
   dist: opt.dist ? +opt.dist : null,       // camera distance, world units (default 2.6 x size)
@@ -356,7 +373,34 @@ const res = await page.evaluate(async ({ VS, shaders, rows, panels, base, common
   const geometry = (tw) => {
     const P = [], N = [], U = [], I = [], W = scene.world, h = W / 2;
     const rep = scene.density ? W * scene.density / tw : 1;
-    if (scene.shape === 'sphere') {
+    if (scene.mesh) {
+      // --mesh f.gltf: a real game mesh (xomtool convert <mesh> --from <bundle> --out f.gltf; one primitive, f.bin beside
+      // it), centred and scaled so its longest side is --world long. Its own UVs: the pinched-mapping test of real art.
+      const { pp, nn, uu, ii } = scene.mesh;
+      const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
+      for (let i = 0; i < pp.length; i++) { lo[i % 3] = Math.min(lo[i % 3], pp[i]); hi[i % 3] = Math.max(hi[i % 3], pp[i]); }
+      const ext = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]), k = W / ext;
+      for (let i = 0; i < pp.length; i++) P.push((pp[i] - (lo[i % 3] + hi[i % 3]) / 2) * k);
+      N.push(...nn); U.push(...uu); I.push(...ii);
+    } else if (scene.shape === 'cone') {
+      // A bore: a cone seen down its axis (camera --yaw 0 --pitch 0 or a little off), apex at -z with a polar texture
+      // mapping (u around, v along), so the texture coordinates converge at the apex: the degenerate footprint of a
+      // gun muzzle or any pinched UV. Normals face the axis (we look inside).
+      const SL = 64, R = 24, r0 = 0.03, ru = Math.max(1, Math.round(rep * 4));
+      for (let i = 0; i <= R; i++) for (let j = 0; j <= SL; j++) {
+        const t = i / R, rad = (r0 + (1 - r0) * t) * h, ph = 2 * Math.PI * j / SL, z = (-1 + 2 * t) * h;
+        const nl = Math.hypot(1, 1);
+        P.push(Math.cos(ph) * rad, Math.sin(ph) * rad, z);
+        N.push(-Math.cos(ph) / nl, -Math.sin(ph) / nl, 1 / nl);
+        if (scene.uvdisc || scene.uvrect) {
+          // --uvdisc: the texture's circle (the bore as a decal: planar, one texel patch over the whole opening);
+          // --uvrect u0,v0,u1,v1: polar (u around, v along) squeezed into that rectangle of the texture.
+          if (scene.uvrect) { const [a, b, c, d] = scene.uvrect; U.push(a + (c - a) * j / SL, b + (d - b) * t); }
+          else { const [cu, cv, rr] = scene.uvdisc; U.push(cu + Math.cos(ph) * rr * t, cv + Math.sin(ph) * rr * t); }
+        } else U.push(j / SL * ru, t * Math.max(1, rep) * 2);
+      }
+      for (let i = 0; i < R; i++) for (let j = 0; j < SL; j++) { const a = i * (SL + 1) + j, b = a + SL + 1; I.push(a, b, a + 1, b, b + 1, a + 1); }
+    } else if (scene.shape === 'sphere') {
       const SL = 64, R = 32, ru = Math.max(1, Math.round(rep * Math.PI)), rv = rep * Math.PI / 2;
       for (let i = 0; i <= R; i++) for (let j = 0; j <= SL; j++) {
         const th = Math.PI * i / R, ph = 2 * Math.PI * j / SL;

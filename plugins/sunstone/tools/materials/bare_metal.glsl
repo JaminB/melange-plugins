@@ -56,9 +56,9 @@ MatOut mat_bare_metal(MatIn m) {
     vec2 sn = s.xy * 2.0 - 1.0;
     vec3 dnB = sn.x * T + sn.y * B;   // (the swapped sample's x runs along the brushing either way)
 
-    // Height 0.35 world units over a 5-unit cell: tilts of up to ~10 degrees, enough to bend and break a tight
-    // highlight at the game's distance (sheet metal is never quite flat).
-    o.dn = metal * (MatBumpUv(m, g.yz * (0.35 * m.scale * gk)) + 0.35 * dnB);
+    // Height 0.14 world units over a 5-unit cell: tilts of a few degrees, a subtle ripple that bends a tight highlight
+    // without splitting it into several hot spots (0.35 did, on a helmet).
+    o.dn = metal * (MatBumpUv(m, g.yz * (0.14 * m.scale * gk)) + 0.35 * dnB);
     // Polish: smudges (the noise) and, with wear, scratches (brushed A) rougher; dents a little darker in the hollows.
     float rough = clamp(0.8 * g.x * gk + (0.6 + 0.8 * m.p.x) * max(MatMapVar(s), 0.0), -0.5, 0.6);
     o.gloss = mix(1.4, 2.8 * (1.0 - 0.9 * rough), metal);

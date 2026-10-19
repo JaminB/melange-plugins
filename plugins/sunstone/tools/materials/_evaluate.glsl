@@ -37,6 +37,8 @@ MatOut MatEvaluate(MatIn m) {
     m.p = t1;
     m.seed = MatHash12(vec2(t0.y * 13.1 + t1.x * 7.7 + t1.z * 3.3 + float(c), t0.z * 5.3 + t1.y * 11.9 + t1.w * 2.9));
     MatOut o = MatDispatch(c, m);
+    // A tilt of more than about 35 degrees is never wanted (a snippet's division by a degenerate density or gradient).
+    o.dn *= min(1.0, 0.7 / max(length(o.dn), 1e-6));
     float k = clamp(sunstoneMatDetail * m.strength * m.fade, 0.0, 2.0);
     o.gloss *= exp2(-2.0 * t0.w);
     o.spec *= exp2(-t0.w);

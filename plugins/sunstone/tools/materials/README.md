@@ -64,7 +64,7 @@ Inputs (`MatIn m`, all in eye space unless noted; a worm's head is about 12 worl
 | `v`, `l`, `up`, `ndl`, `ndv`, `sky` | light terms: to the eye, to the sun, world up, n·l, n·v, 0 ground..1 sky |
 | `lumD` | screen derivatives of the texel's luminance (the art's own edges) |
 | `scale`, `strength`, `p`, `seed`, `tagged` | the tag (above), 0..1 per-texture seed, 1 when Melange tagged it |
-| `fade` | 0..1 distance and grazing fade (applied by the dispatcher; use it to skip work) |
+| `fade` | 0..1 distance, grazing and degenerate-mapping fade (applied by the dispatcher; use it to skip work). The last (`MatDegenerate`) is 0 where the UVs converge to a point, the texture is stretched over 8x or the density is extreme; and the dispatcher caps the normal tilt at 0.7 |
 
 Outputs (`MatOut`): `albedo`; `spec` (specular scale) and `gloss` (exponent scale); `dn` (normal perturbation, added to
 `n` before normalising); `ao` (cavity: all of the ambient, a third of the sun).

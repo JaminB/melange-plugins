@@ -36,10 +36,12 @@ MatOut mat_painted_metal(MatIn m) {
     // and only half the sheen. Saturated darks (deep red, navy paint) stay paint.
     float mx = max(m.albedo.r, max(m.albedo.g, m.albedo.b));
     float sat = (mx - min(m.albedo.r, min(m.albedo.g, m.albedo.b))) / max(mx, 1e-3);
-    float paint = max(smoothstep(0.07, 0.2, lum), smoothstep(0.3, 0.55, sat) * step(0.02, lum));
+    // (A saturated dark, a deep blue-green bore or a navy hole, is paint only above about a tenth of value: chipped steel
+    // would show as bright specks in it.)
+    float paint = max(smoothstep(0.07, 0.2, lum), smoothstep(0.3, 0.55, sat) * smoothstep(0.08, 0.16, lum));
     float wear = clamp(m.p.x, 0.0, 1.0) * paint;
 
-    // The sheet: shallow dents about 5 world units apart (two octaves blended so the size never jumps), 0.14 deep.
+    // The sheet: a subtle ripple of shallow dents about 5 world units apart (two octaves blended so the size never jumps), 0.05 deep: any more splits a highlight on a helmet into two hot spots.
     // Their value also says where wear and grime gather.
     float F0, fb;
     MatOctave(m, 5.0 * m.scale, F0, fb);
@@ -86,7 +88,7 @@ MatOut mat_painted_metal(MatIn m) {
 
     // Paint: satin to gloss, the sheen broken in soft blotches (rougher where grimy), dulled where scuffed;
     // scratches catch the light in thin broad glints.
-    float gloss = mix(1.0, 2.0, m.p.z) * exp2(-1.8 * d.x * kd - 0.3 * mot - 1.1 * grime - 1.0 * scuff - 1.2 * scr);
+    float gloss = mix(1.0, 2.0, m.p.z) * exp2(-0.8 * d.x * kd - 0.3 * mot - 1.1 * grime - 1.0 * scuff - 1.2 * scr);
     o.spec = mix(1.05, 1.3, m.p.z) * (1.0 - 0.3 * grime) * (1.0 + 0.8 * scr);
     gloss = mix(1.0, gloss, 0.5 + 0.5 * paint);
 
@@ -103,7 +105,7 @@ MatOut mat_painted_metal(MatIn m) {
 
     // Light: the dents, the chips' and scratches' relief, the steel's brushing in the chips, and the art's seams
     // pressed in (dark lower, light higher) a third of a texel deep. Cavity only at the chips' walls.
-    o.dn = MatBumpUv(m, d.yz * (0.14 * m.scale * kd))
+    o.dn = MatBumpUv(m, d.yz * (0.05 * m.scale * kd))
          + MatMapBump(m, w, 1.0) * reach
          + MatMapBump(m, s, 0.8 * chip + 0.3 * scr)
          + MatBumpUv(m, art * (0.35 / m.uvPerWorld));

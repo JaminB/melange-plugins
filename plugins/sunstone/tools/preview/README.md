@@ -183,7 +183,8 @@ node tools/preview/model.mjs --sheet ee3d95,548ff2,944413 --baseline /tmp/old.gl
 | Option | Meaning |
 |---|---|
 | `--id x` / `--sheet a,b,…` / `--sheet @file` / `--sheet class:<name>` | one texture, or a contact sheet (a row per texture); ids may be unique prefixes; `class:` takes the class from the tag table; `--limit n` |
-| `--shape box\|sphere\|plane`, `--world 20` | the object and its size in world units (a crate is about 20, a worm's head 12) |
+| `--shape box\|sphere\|plane\|cone`, `--world 20` | the object and its size in world units (a crate is about 20, a worm's head 12) |
+| `--mesh f.gltf` | a real game mesh instead of a shape (`xomtool convert <mesh> --from <bundle> --out f.gltf`), centred, `--world` long, its own UVs; `cone` is a bore with polar UVs converging at the apex (`--uvdisc u,v,r` or `--uvrect u0,v0,u1,v1` to place them on a texture patch) |
 | `--density t` | texel density: texels per world unit (default: the texture once per box face) |
 | `--dist d`, `--yaw`, `--pitch`, `--fov`, `--px` | camera distance (default 2.6 × size), angles (32°, 22°), field of view (40°), panel size (320) |
 | `--quality off\|low\|subtle\|bold\|ultra`, `--theme ARABIAN\|…` | the preset and theme whose model parameters and sun direction are used (default Bold, no theme) |

@@ -217,6 +217,24 @@ vec3 MatVary(vec3 c, float amount, float r) {
     return c * (1.0 + amount * r * vec3(1.02, 1.0, 0.97));
 }
 
+// ---- degenerate mapping guard. Where a texture's footprint on the surface collapses (UVs that converge to a point, as
+// in a gun's bore or a cone's tip; a texture stretched along one direction; a texture spread over hundreds of world
+// units or squeezed into a fraction of one) the world-space detail that follows the UVs pinches into stars and streaks,
+// and the divisions by uvPerWorld and the surface gradients blow up. This is 1 for every ordinary mapping and falls to 0
+// as the mapping degenerates; MatSetup folds it into m.fade, which the dispatcher applies to everything.
+//   - stretch (aniso): 1 up to 3 (a plane at a steep angle is about 3), 0 from 8
+//   - the texel density changing fast across the screen (uvPerWorld halving every few pixels: a converging mapping):
+//     1 below 0.06 octaves a pixel, 0 from 0.2 (1/r of the pinch: it clears about 20 pixels from the point)
+//   - an extreme density: a tile over 1000 world units, or under one-twentieth of a unit
+float MatDegenerate(MatIn m) {
+    float lg = log2(m.uvPerWorld);
+    float rate = abs(dFdx(lg)) + abs(dFdy(lg));
+    float g = 1.0 - smoothstep(3.0, 8.0, m.aniso);
+    g *= 1.0 - smoothstep(0.06, 0.2, rate);
+    g *= smoothstep(1e-3, 4e-3, m.uvPerWorld) * (1.0 - smoothstep(20.0, 60.0, m.uvPerWorld));
+    return g;
+}
+
 // The inputs for this fragment. Call only in uniform control flow (MatEnabled() is uniform): it takes derivatives.
 MatIn MatSetup(vec4 tex, vec2 uv) {
     MatIn m;
@@ -256,7 +274,7 @@ MatIn MatSetup(vec4 tex, vec2 uv) {
     float sa = sqrt(max(tr * tr - 4.0 * dg, 0.0));
     m.aniso = sqrt(max((tr + sa) / max(tr - sa, 1e-30), 1.0));
     float d = length(m.pos);
-    m.fade = (1.0 - smoothstep(MAT_FADE_FAR / 3.0, MAT_FADE_FAR, d)) * smoothstep(0.03, 0.2, m.ndv);
+    m.fade = (1.0 - smoothstep(MAT_FADE_FAR / 3.0, MAT_FADE_FAR, d)) * smoothstep(0.03, 0.2, m.ndv) * MatDegenerate(m);
     m.scale = 1.0;
     m.strength = 1.0;
     m.p = vec4(0.0);
