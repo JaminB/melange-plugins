@@ -274,7 +274,10 @@ of the landscape (`Landscape.LandscapeFragmentMain`, `Landscape.HeightMapFragmen
   shader which texture is bound (texture tags, `mod/texture_tags.json`: digests and numbers only); with a Melange
   without texture tags, or a texture not in the table, the class is guessed from the material (metal or matte). The
   worms' own skin and hair never get it. `sunstoneMatSplit` and `sunstoneMatDebug` in the *Mirage/Shaders* panel
-  compare it and show the classes.
+  compare it and show the classes. Besides the procedural detail, all classes share eight original tileable material
+  maps (`mod/assets/detail/materials.png`: grain, wood, brushed metal, stone, weave, leather bumps, wear, bark), one
+  texture array bound to the shader by Melange's shader textures, so Sunstone 2.3 needs Melange 0.10 or later
+  <!-- TODO: placeholder version; set the real one (also spice.json, init.lua) once Melange's is known -->.
 
 The per-theme materials (reflectance, gloss, relief depth, sky and ground tints, sun and shade tints, and grade
 offsets such as Horror's exposure) are the `THEMES` table in `mod/client/init.lua`. The sliders in the

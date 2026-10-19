@@ -135,6 +135,46 @@ end
 local LANDSCAPE = { "LandscapeFragmentMain", "HeightMapFragmentMain" }
 local MODELS = { "FFFragmentMainLit", "FFFragmentMainTexLit", "FFFragmentMainLitCol", "FFFragmentMainTexLitCol" }
 
+-- Material detail's shared maps: eight original tileable layers in one texture array (assets/detail/materials.png, made
+-- by tools/make_detail_maps.py), read by the lit textured model shaders' "uniform sampler2DArray sunstoneMat".
+-- SUNSTONE 2.3 NEEDS THE NEW MELANGE (0.10, spice.json's melange.range; TODO: 0.10 is a placeholder until Melange's
+-- version with shader textures is known, fix it here, in spice.json and the README): wum.draw.texture with options and
+-- wum.shaders.setTexture. On an older Melange that sampler2DArray would share unit 0 with texture0 and every draw of
+-- those programs would fail, so the range keeps such a Melange from loading Sunstone at all and nothing is paused
+-- here. Should the functions still be missing, material detail stays off (logged once). A texture that fails to load
+-- leaves the sampler on Melange's neutral texture (0.502, which the maps treat as "no change"): the procedural detail
+-- still draws.
+local MAT = { supported = false, tex = nil, bound = false, warned = false }
+local function matWarn(msg)
+    if MAT.warned then return end
+    MAT.warned = true
+    if wum.log and wum.log.warn then wum.log.warn("Sunstone: " .. msg) end
+end
+local function loadMaterialMaps()
+    if not (wum.shaders and wum.shaders.setTexture and wum.draw and wum.draw.texture) then
+        matWarn("material detail needs Melange 0.10 or later (wum.shaders.setTexture); it stays off")
+        return
+    end
+    MAT.supported = true
+    local ok, tex, err = pcall(wum.draw.texture, "assets/detail/materials.png", { wrap = "repeat", layers = 8 })
+    if ok and tex then
+        MAT.tex = tex
+    else
+        matWarn("material maps not loaded (" .. tostring(ok and err or tex) .. "); material detail is procedural only")
+    end
+end
+-- Binds the maps to both lit textured model shaders; retried from apply() while GLSL replacements are off (false).
+local function bindMaterialMaps()
+    if MAT.bound or not MAT.tex then return end
+    local ok, r = pcall(wum.shaders.setTexture, "FixedFunction.cg", "FFFragmentMain*TexLit*", "sunstoneMat", MAT.tex)
+    if not ok then
+        MAT.tex = nil
+        matWarn("material maps not bound (" .. tostring(r) .. "); material detail is procedural only")
+        return
+    end
+    MAT.bound = r == true
+end
+
 -- Per theme: landscape specular reflectance and gloss, relief depth (world units), the ambient tints for surfaces
 -- facing the sky and the ground (the ground tint is the bounce light off that theme's terrain), a scale for how much
 -- darker shade is (shade-heavy maps keep more fill light), and post offsets:
@@ -332,7 +372,7 @@ local function applyLighting(l, m, on, foliage, people, materials)
     modelParam("sunstoneTint", (l.tint or 0) * (m.tint or 1))
     modelParam("sunstoneGroundDip", l.groundDip or 0)
     modelParam("sunstoneFoliage", (l.leaves or 0) * green)
-    modelParam("sunstoneMatDetail", materials and (l.matDetail or 0) or 0)
+    modelParam("sunstoneMatDetail", materials and MAT.supported and (l.matDetail or 0) or 0)
     -- With nothing of Sunstone's left to draw, the game's own programs come back.
     local landscape = l.shadows or lit > 0
     for _, e in ipairs(LANDSCAPE) do pcall(wum.shaders.enableGlsl, "Landscape.cg", e, landscape) end
@@ -740,6 +780,7 @@ local KEYS = { "quality", "look", "theme", "scene", "lighting", "water", "dof", 
 local last = {}
 
 local function apply()
+    bindMaterialMaps()
     local quality = wum.config.get("quality")
     quality = LEGACY[quality] or quality
     local state = {
@@ -804,6 +845,7 @@ for _, name in ipairs({ "fog", "sky", "bloom", "grade", "skin", "skin_u" }) do
     pcall(wum.postfx.enable, "sunstone/" .. name, false)
 end
 
+loadMaterialMaps()
 apply()
 wum.timers.every(0.5, apply)
 -- The skin's event again every EMIT_EVERY seconds (emitLum sends only then or on a change), for a Bloodsand or Kindjal

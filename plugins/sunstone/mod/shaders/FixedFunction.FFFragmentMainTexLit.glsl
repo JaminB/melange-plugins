@@ -1,4 +1,4 @@
-#version 120
+#version 130
 // Sunstone lighting for lit textured models: hemispheric sky/ground ambient, wrapped diffuse, energy-conserving
 // Blinn-Phong on the material's own specular, and a sun-side rim light. sunstoneLight 0 keeps the game's terms.
 //
@@ -315,15 +315,23 @@ uniform float sunstoneMatDetail;   // material detail amount: 0 off, 1 full (Sub
 uniform float sunstoneMatSplit;    // pixels left of this x are drawn without material detail (A/B comparisons)
 uniform float sunstoneMatDebug;    // 1 class colours; 2 fade; 3 normal detail; 4 cavity
 
-// FUTURE (disabled): shared material maps. Needs Melange shader textures (a plugin-bound sampler2DArray of original
-// tileable layers) and #version 130 in the host shader (texture2D -> texture); then define SUNSTONE_MAT_MAPS.
-// Layers: R,G normal xy, B height/cavity, A roughness/albedo variation. Until then everything is procedural.
-#ifdef SUNSTONE_MAT_MAPS
+// Shared material maps (mod/assets/detail/materials.png, made by tools/make_detail_maps.py): eight original tileable
+// 256x256 layers in one texture array, bound by init.lua with wum.shaders.setTexture (Melange 0.10; the host shader is
+// #version 130 for sampler2DArray). Every channel 0.5 = neutral, which is also what Melange's sampler reads before a
+// texture is bound: R,G tangent normal xy (x along +u, y along +v), B height (0.5 the surface, below cavities), A a
+// variation about 0.5 (roughness + rougher, or albedo + lighter; the wear order on MAT_MAP_WEAR). Mips are plain
+// averages: the normal flattens with distance. The helpers (MatMap...) follow MatFbm; layers and scales:
+// tools/materials/README.md.
 uniform sampler2DArray sunstoneMat;
-vec4 MatMap(float layer, vec2 uv) {
-    return texture(sunstoneMat, vec3(uv, layer));
-}
-#endif
+const float MAT_MAP_GRAIN = 0.0;    // fine grain and pores (plastic, paint, skin-like matte); A roughness
+const float MAT_MAP_WOOD = 1.0;     // wood grain along u with pores; A albedo
+const float MAT_MAP_BRUSHED = 2.0;  // brushed metal along u, scratches at all angles; A roughness
+const float MAT_MAP_STONE = 3.0;    // stone / concrete: pits, veins, mottle; A albedo
+const float MAT_MAP_WEAVE = 4.0;    // plain weave, 16 threads a tile, fibres; A albedo
+const float MAT_MAP_BUMPS = 5.0;    // leather / rubber / organic pebbling with creases; A roughness
+const float MAT_MAP_WEAR = 6.0;     // chips, scratches, scuffs; A the wear order (worn where A > 1 - wear)
+const float MAT_MAP_BARK = 7.0;     // bark fissures along v and a crack network; A albedo
+const float MAT_MAP_TEXELS = 256.0; // a layer's size
 
 const vec3 MAT_LUMW = vec3(0.299, 0.587, 0.114);
 // Beyond this distance from the camera (world units) detail is gone (and starts going at a third of it).
@@ -463,6 +471,50 @@ vec3 MatBumpScreen(MatIn m, vec2 dxy) {
     vec3 r1 = cross(dpy, m.n), r2 = cross(m.n, dpx);
     float det = dot(dpx, r1);
     return -(dxy.x * r1 + dxy.y * r2) / (abs(det) > 1e-20 ? det : 1e-20);
+}
+
+// ---- shared material maps (sunstoneMat, above). The sample is a vec4; 0.5 in every channel is neutral.
+// The raw sample of layer at uvScaled (the map's own coordinates: one tile per unit, e.g. m.uv * 8.0), the mip and
+// anisotropy from the sampler. Implicit derivatives: only in uniform control flow, i.e. not after a per-fragment
+// branch in a snippet (such as 'if (m.fade <= 0.0) return o;'); MatMapAt is safe anywhere.
+vec4 MatMap(float layer, vec2 uvScaled) {
+    return texture(sunstoneMat, vec3(uvScaled, layer));
+}
+// The map tiled freq times per texture unit (a whole number keeps the texture's own wrap seamless) at
+// m.uv * freq + offset, with explicit derivatives (the same mip and anisotropy as MatMap, safe in any branch).
+vec4 MatMapAt(MatIn m, float layer, float freq, vec2 offset) {
+    return textureGrad(sunstoneMat, vec3(m.uv * freq + offset, layer), m.uvDx * freq, m.uvDy * freq);
+}
+// Footprint fade for a map tiled freq times per texture unit whose features are about texels map texels across:
+// 1 while a feature covers four pixels or more, 0 at two (where its lighting would sparkle). The mips flatten the
+// normal by themselves; this takes what a snippet derives from the sample (gloss, cavity) to neutral before it aliases.
+float MatMapFade(MatIn m, float freq, float texels) {
+    return MatFadeUv(m, freq * MAT_MAP_TEXELS / max(texels, 1e-3));
+}
+// A sample pulled toward neutral (vec4(0.5)): k 1 the sample, 0 neutral (e.g. k = MatMapFade(...)).
+vec4 MatMapNeutral(vec4 s, float k) {
+    return mix(vec4(0.5), s, k);
+}
+// A layer sized in world units: a tile about tileWorld world units across (multiply by m.scale yourself), the two
+// power-of-two octaves around it blended (MatOctave) so the size never jumps between triangles, faded to neutral by
+// the footprint of features texels across. Two samples.
+vec4 MatMapWorld(MatIn m, float layer, float tileWorld, float texels) {
+    float F0, fb;
+    MatOctave(m, tileWorld, F0, fb);
+    vec4 s = mix(MatMapAt(m, layer, F0, vec2(0.0)), MatMapAt(m, layer, 2.0 * F0, vec2(0.37, 0.61)), fb);
+    return MatMapNeutral(s, MatMapFade(m, F0 * (1.0 + fb), texels));
+}
+// The eye-space normal perturbation (for MatOut.dn) of a sample's R,G; amount 1 = the map's own slopes.
+vec3 MatMapBump(MatIn m, vec4 s, float amount) {
+    vec2 t = (s.xy * 2.0 - 1.0) * amount;
+    return t.x * m.tu + t.y * m.tv;
+}
+// A sample's height about the surface (-0.5..0.5, < 0 cavities) and its variation (-0.5..0.5).
+float MatMapHeight(vec4 s) {
+    return s.z - 0.5;
+}
+float MatMapVar(vec4 s) {
+    return s.w - 0.5;
 }
 
 // ---- colour: a variation of up to amount in brightness with a touch of warmth, keeping the art's hue (r: -1..1).

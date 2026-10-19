@@ -12,6 +12,8 @@
 //   node tools/preview/model.mjs --sheet ee3d95,548ff2,944413 --out /tmp/sheet.png
 //   node tools/preview/model.mjs --sheet class:wood_planks --limit 12 --out /tmp/wood.png
 //   node tools/preview/model.mjs --id ee3d95 --baseline /tmp/old.glsl --check-identical
+// The shared material maps (mod/assets/detail/materials.png, or --maps f.png; --no-maps leaves the sampler neutral, as
+// an unbound Melange sampler) are bound as a TEXTURE_2D_ARRAY on unit 8 to every sampler2DArray, as Melange does.
 import { createRequire } from 'module';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
@@ -29,7 +31,7 @@ const SHADERS = {
 
 // ---------------------------------------------------------------- arguments
 const argv = process.argv.slice(2);
-const FLAGS = new Set(['check-identical', 'expect-untouched', 'untagged', 'time', 'help', 'no-labels']);
+const FLAGS = new Set(['check-identical', 'expect-untouched', 'untagged', 'time', 'help', 'no-labels', 'no-maps']);
 const opt = {};
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -40,7 +42,7 @@ for (let i = 0; i < argv.length; i++) {
   else opt[k] = argv[++i];
 }
 if (opt.help || (!opt.id && !opt.sheet)) {
-  console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').filter((l) => l.startsWith('//')).slice(0, 15).join('\n')
+  console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').filter((l) => l.startsWith('//')).slice(0, 17).join('\n')
     .replace(/^\/\/ ?/gm, '') + '\n\nOptions: see tools/preview/README.md ("Model preview").');
   process.exit(opt.help ? 0 : 2);
 }
@@ -184,6 +186,20 @@ if (!candidatePath) {
   py([path.join('tools', 'build_materials.py'), '--out', path.join(tmp, 'unused.glsl'), '--table', tablePath]);
 }
 const classTable = JSON.parse(fs.readFileSync(tablePath, 'utf8'));
+// The shared material maps: a vertical strip of square layers (layer 0 at the top) as raw RGBA, decoded by Pillow so
+// no browser colour handling or alpha premultiplication touches the data. Melange uploads the PNG's top row at v = 0.
+const MAP_UNIT = 8;
+let maps = null;
+if (!opt['no-maps']) {
+  const mapsPng = path.resolve(opt.maps || path.join(PLUGIN, 'mod', 'assets', 'detail', 'materials.png'));
+  if (fs.existsSync(mapsPng)) {
+    const raw = path.join(tmp, 'maps.rgba');
+    const dims = py(['-c', 'import sys; from PIL import Image; im = Image.open(sys.argv[1]).convert("RGBA"); '
+      + 'open(sys.argv[2], "wb").write(im.tobytes()); print(im.width, im.height)', mapsPng, raw]).trim().split(/\s+/).map(Number);
+    const layers = Math.round(dims[1] / dims[0]);
+    maps = { w: dims[0], h: dims[1] / layers, layers, b64: fs.readFileSync(raw).toString('base64') };
+  } else console.error(`no material maps at ${mapsPng}: the sampler stays neutral`);
+}
 const classByName = new Map(classTable.classes.map((c) => [c.name, c]));
 const baselinePath = opt.baseline || SHADERS[shaderKind];
 let tagsById = {};
@@ -214,7 +230,7 @@ function toEs(src) {
     .replace(/\bgl_FragColor\b/g, 'mg_FragColor')
     .replace(/\bgl_TexCoord\b/g, 'v_tc')
     .replace(/\bgl_Color\b/g, 'v_col');
-  return '#version 300 es\nprecision highp float;\nprecision highp int;\nin vec4 v_tc[4];\nin vec4 v_col;\nout vec4 mg_FragColor;\n#line 1\n' + body;
+  return '#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2DArray;\nin vec4 v_tc[4];\nin vec4 v_col;\nout vec4 mg_FragColor;\n#line 1\n' + body;
 }
 const VS = `#version 300 es
 in vec3 aPos; in vec3 aNrm; in vec2 aUv;
@@ -309,7 +325,7 @@ try { browser = await playwright.chromium.launch({ args: launchArgs }); } catch 
 const page = await browser.newPage();
 await page.setContent('<canvas id=g></canvas><canvas id=s></canvas>');
 const shaders = { baseline: toEs(fs.readFileSync(baselinePath, 'utf8')), candidate: toEs(fs.readFileSync(candidatePath, 'utf8')) };
-const res = await page.evaluate(async ({ VS, shaders, rows, panels, base, common, scene }) => {
+const res = await page.evaluate(async ({ VS, shaders, rows, panels, base, common, scene, maps, MAP_UNIT }) => {
   const S = scene.px;
   const gc = document.getElementById('g');
   gc.width = S; gc.height = S;
@@ -388,10 +404,50 @@ const res = await page.evaluate(async ({ VS, shaders, rows, panels, base, common
   const sw = norm(scene.sun);
   const toSunEye = [s, u, f.map((x) => -x)].map((r) => dot(r, sw));
 
+  // The material maps on unit MAP_UNIT: a TEXTURE_2D_ARRAY with Melange's mips (plain 2x2 averages of the bytes,
+  // rounded), trilinear, repeat, anisotropy 16; without maps a neutral 1x1 (0.502), as Melange's unbound sampler.
+  {
+    const mt = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0 + MAP_UNIT);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, mt);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    if (maps) {
+      const bin = atob(maps.b64);
+      let lv = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) lv[i] = bin.charCodeAt(i);
+      let w = maps.w, h = maps.h, level = 0;
+      for (;;) {
+        gl.texImage3D(gl.TEXTURE_2D_ARRAY, level, gl.RGBA8, w, h, maps.layers, 0, gl.RGBA, gl.UNSIGNED_BYTE, lv);
+        if (w === 1 && h === 1) break;
+        const nw = Math.max(1, w >> 1), nh = Math.max(1, h >> 1), nx = new Uint8Array(nw * nh * maps.layers * 4);
+        const at = (l, xx, yy, c) => lv[((l * h + yy) * w + xx) * 4 + c];
+        for (let l = 0; l < maps.layers; l++) for (let y = 0; y < nh; y++) for (let x = 0; x < nw; x++) {
+          const x0 = Math.min(2 * x, w - 1), x1 = Math.min(2 * x + 1, w - 1), y0 = Math.min(2 * y, h - 1), y1 = Math.min(2 * y + 1, h - 1);
+          for (let c = 0; c < 4; c++) {
+            nx[((l * nh + y) * nw + x) * 4 + c] = Math.floor((at(l, x0, y0, c) + at(l, x1, y0, c) + at(l, x0, y1, c) + at(l, x1, y1, c)) / 4 + 0.5);
+          }
+        }
+        lv = nx; w = nw; h = nh; level++;
+      }
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      if (aniso) gl.texParameterf(gl.TEXTURE_2D_ARRAY, aniso.TEXTURE_MAX_ANISOTROPY_EXT, 16);
+    } else {
+      gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, 1, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 128]));
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    }
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    gl.activeTexture(gl.TEXTURE0);
+  }
+
   const setUniforms = (prog, values) => {
     for (const un of prog.uniforms) {
       let v = values[un.name];
       if (un.type === gl.SAMPLER_2D) { gl.uniform1i(un.loc, 0); continue; }
+      if (un.type === gl.SAMPLER_2D_ARRAY) { gl.uniform1i(un.loc, MAP_UNIT); continue; }
       if (v === undefined) continue; // as in Melange: an unknown uniform stays 0
       if (!Array.isArray(v)) v = [v];
       switch (un.type) {
@@ -471,7 +527,7 @@ const res = await page.evaluate(async ({ VS, shaders, rows, panels, base, common
     }
   }
   return { png: sheet.toDataURL('image/png'), stats };
-}, { VS, shaders, rows, panels, base, common, scene }).catch((e) => ({ error: String(e) }));
+}, { VS, shaders, rows, panels, base, common, scene, maps, MAP_UNIT }).catch((e) => ({ error: String(e) }));
 await browser.close();
 fs.rmSync(tmp, { recursive: true, force: true });
 if (res.error) {

@@ -193,6 +193,7 @@ node tools/preview/model.mjs --sheet ee3d95,548ff2,944413 --baseline /tmp/old.gl
 | `--set "name=v;name=r g b"`, `--set-candidate …` | uniform overrides for every panel / the candidate only (e.g. `sunstoneMatDebug=1`) |
 | `--class name`, `--tag c,s,st,r,w,t,a,b`, `--untagged`, `--tags file.json` | force a class (its defaults), a raw tag, no tag (the material fallback), or a `--by-id` table from `make_tag_table.py` |
 | `--candidate f.glsl`, `--baseline f.glsl` | shaders to use instead of the built / committed ones |
+| `--maps f.png`, `--no-maps` | the shared material maps bound to every `sampler2DArray` (unit 8, a `TEXTURE_2D_ARRAY` with Melange's plain-average mips, repeat, anisotropy 16; default `mod/assets/detail/materials.png`, one square layer per tile of the strip), or none: a neutral 1x1 (0.502), as Melange's sampler reads before a texture is bound |
 | `--check-identical [--expect-untouched]` | proves detail off changes nothing: baseline vs candidate with detail 0, with detail on behind `sunstoneMatSplit`, and under the game's lighting, compared byte for byte; `--expect-untouched` adds detail on everywhere (for the worm's own material, skin and hair). Exit 1 on any difference |
 | `--time` | SwiftShader ms per draw (CPU: compare panels, not a GPU budget) |
 | `--no-labels`, `--out x.png` | |

@@ -4,6 +4,11 @@ TODO 2.3.0 (in progress; no version bump until the classes and Melange's texture
   per material class, keeping the cartoon art; new Material detail setting (on; Subtle lighter, Bold and Ultra full).
 - Needs Melange <version> texture tags for the exact class per texture; older Melange guesses metal or matte.
 - Budget: within 0.5 ms at Ultra (measure before release).
+- Shared material maps: eight original tileable layers (assets/detail/materials.png, tools/make_detail_maps.py) bound
+  with wum.shaders.setTexture; the lit textured model shaders are #version 130 with a sampler2DArray.
+- Needs Melange 0.10 or later: spice.json's melange.range is ">=0.10.0" as a placeholder.
+  TODO: set it to the real Melange version that ships wum.shaders.setTexture once it is known (also in README and
+  init.lua's material maps comment).
 -->
 ## 2.2.0
 
