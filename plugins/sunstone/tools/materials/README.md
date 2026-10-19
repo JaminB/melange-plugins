@@ -23,6 +23,27 @@ it, and the shaders keep `gl_TexCoord[]`, `gl_FragColor` and `texture2D`, which 
 `tools/make_tag_table.py` writes `mod/texture_tags.json` from the inventory's class decisions, each snippet's
 `@default` line and the overrides.
 
+## Coverage: which textures have a row in the tag table
+
+The table (`mod/texture_tags.json`) has a row for every texture that Melange can bind on the lit-model path:
+
+- the **lit-model textures** (712): every `XShape`/`XSkinShape` of the bundles and the Kindjal meshes whose `XSimpleShader`
+  has an `XMaterial` and `XLightingEnable`; decisions in the inventory's `classes.json` plus the overrides;
+- the **landscape tiles** (949 more, `tools/materials/classes_extra.json` + `overrides/extra.json`): the game's
+  `ThemeXxx\*.tga` and `Custom\BANK*` textures are not on any shape. Each is an `XBitmapDescriptor` (`ResourceId` `W01`)
+  whose `SpriteScene` is an `XTexFont` (unlit, no material) holding the `XImage`; a level picks them by name
+  (`Heightmap.BaseTexture`, `Heightmap.SecondTexture`, `Heightmap.Base.Texture`, e.g. `W01` in HighNoonHijinx, `A04` in
+  GibbonTake) and the terrain/landscape draw binds them, so a scan of shapes never sees them (the original inventory
+  missed ThemeWildwest W01 and W05 and ThemeArabian A04 for that reason). The 47 sky light ramps (256x1), the 123 UI
+  sprites and the 283 textures of unlit, material-less shapes are deliberately left out.
+
+The inventory pipeline (kept outside the repo, with `inventory.json` and `cache/`): `extract.py` (shapes) and
+`extract_extra.py` (bitmap resources, unlit shapes, UI) write `raw.json` / `raw_extra.json`; `finalize.py` and
+`finalize_extra.py` write `inventory.json` (the 712 first, the extras appended, ids stable) and `inventory_extra.json`.
+`make_tag_table.py` reads both and the decisions of `classes.json` + `classes_extra.json`; a texture that is in the
+inventory but decided nowhere is reported as "without a decision". New textures keep getting a class by hand: view
+the `sheets_extra` contact sheets, add `{"id": <full id>, "cls": <class>}` rows to `classes_extra.json`.
+
 ## The tag
 
 `uniform vec4 mg_texTag[2]`, sent by Melange per draw for the texture on unit 0:

@@ -7,8 +7,12 @@ implementation). The digests are computed straight from the game's bundles and t
 The table holds only digests and numbers: nothing of a game texture ships.
 
 Inputs (the inventory is never committed; pass its folder or set SUNSTONE_INVENTORY):
-  <inventory>/inventory.json     the 712 textures (id = legacy sha1 key of the base level, size, format, ...)
+  <inventory>/inventory.json     the lit-model textures (id = legacy sha1 key of the base level, size, format, ...)
+  <inventory>/inventory_extra.json  optional: the landscape-tile textures that no shape references (an XBitmapDescriptor
+                                 texture resource the level picks by name, e.g. ThemeWildwest/W01.tga; see
+                                 tools/materials/README.md "Coverage"). Merged by id when inventory.json lacks them
   <inventory>/classes.json       the class decision per texture: [{"id": <6 or 16 hex>, "cls": <class>, ...}]
+  tools/materials/classes_extra.json   the same layout, the decisions for inventory_extra.json (committed; full ids)
   tools/materials/classes.json   class names and ids
   tools/materials/<class>.glsl   each class's default parameters ('// @default' line; generic.glsl for the rest)
   tools/materials/overrides.json and tools/materials/overrides/*.json   per-texture overrides (optional)
@@ -42,6 +46,7 @@ PLUGIN = HERE.parent
 OUT = PLUGIN / "mod" / "texture_tags.json"
 OVERRIDES = [HERE / "materials" / "overrides.json"]
 OVERRIDE_DIR = HERE / "materials" / "overrides"
+EXTRA_DECISIONS = HERE / "materials" / "classes_extra.json"
 REPO = PLUGIN.parent.parent
 FORMAT = 1
 DEFAULT_BUNDLES = "C:/Program Files (x86)/Steam/steamapps/common/WormsXHD/Data/Bundles"
@@ -133,7 +138,14 @@ def scan_digests(bundles, xom_dir, extra_globs):
 
 def build(inventory_dir, overrides_paths, found):
     inv = json.loads((inventory_dir / "inventory.json").read_text(encoding="utf-8"))
+    extra_inv = inventory_dir / "inventory_extra.json"
+    if extra_inv.exists():
+        have = {e["id"] for e in inv}
+        inv += [e for e in json.loads(extra_inv.read_text(encoding="utf-8")) if e["id"] not in have]
     decisions = json.loads((inventory_dir / "classes.json").read_text(encoding="utf-8"))
+    if EXTRA_DECISIONS.exists():
+        decided = {d.get("id") for d in decisions}
+        decisions += [d for d in json.loads(EXTRA_DECISIONS.read_text(encoding="utf-8")) if d.get("id") not in decided]
     rows, _, _ = build_materials.class_table()
     by_name = {r["name"]: r for r in rows if r["id"] > 0}
     ids = [e["id"] for e in inv]
