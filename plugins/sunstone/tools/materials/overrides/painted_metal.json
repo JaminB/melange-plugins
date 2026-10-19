@@ -1,0 +1,281 @@
+{
+  "_doc": [
+    "Sunstone 2.3 painted_metal: per-texture overrides (layout as tools/materials/overrides.json).",
+    "b = log2 of the texture's size (the snippet's art relief), a = paint gloss, wear = chipping and rust;",
+    "'cls' moves a texture that is not painted metal (sandstone and plaster walls, a glazed pot, a banana,",
+    "a foam lifebuoy).",
+    "wear 0.1 on atlases with glass, lenses or wooden stocks (c4d0422a, 59eae4ea, 916e2188, 9b716803, 170af25a, c5729c42): the wear would chip them too."
+  ],
+  "overrides": {
+    "8f76040a": {
+      "cls": "concrete_plaster"
+    },
+    "94441328": {
+      "b": 6,
+      "wear": 0.45
+    },
+    "939892f3": {
+      "b": 6,
+      "wear": 0.45
+    },
+    "b5d5f6d6": {
+      "wear": 0.45
+    },
+    "f83f1b25": {
+      "b": 5,
+      "wear": 0.5
+    },
+    "8b19df18": {
+      "b": 5,
+      "wear": 0.6
+    },
+    "63cfbe1e": {
+      "b": 9
+    },
+    "28156cdd": {
+      "b": 6
+    },
+    "66cd1b98": {
+      "b": 6
+    },
+    "2bf1ab8b": {
+      "b": 6,
+      "wear": 0.25
+    },
+    "13807771": {
+      "b": 8
+    },
+    "a8bb7fe2": {
+      "b": 5
+    },
+    "8af51a12": {
+      "b": 8
+    },
+    "1a640539": {
+      "wear": 0.55
+    },
+    "3e9439d0": {
+      "b": 8
+    },
+    "5a0cd4c3": {
+      "wear": 0.5
+    },
+    "9aa4e576": {
+      "a": 0.8,
+      "wear": 0.25
+    },
+    "e7176542": {
+      "b": 8
+    },
+    "ef1418a7": {
+      "b": 8
+    },
+    "1d623794": {
+      "b": 8,
+      "wear": 0.45
+    },
+    "59eae4ea": {
+      "b": 8,
+      "a": 0.8,
+      "wear": 0.1
+    },
+    "29b72bfc": {
+      "b": 8,
+      "a": 0.75,
+      "wear": 0.2
+    },
+    "cc171f92": {
+      "b": 9
+    },
+    "5e8a340e": {
+      "b": 6
+    },
+    "595fe5d4": {
+      "b": 6,
+      "wear": 0.45
+    },
+    "200f8ba9": {
+      "b": 6
+    },
+    "71a0877a": {
+      "b": 6
+    },
+    "2910e623": {
+      "b": 9
+    },
+    "e27ebf7d": {
+      "b": 9
+    },
+    "3e7895a0": {
+      "b": 8
+    },
+    "c5729c42": {
+      "b": 8,
+      "wear": 0.1
+    },
+    "69bf63e3": {
+      "cls": "plastic"
+    },
+    "7a350291": {
+      "a": 0.25,
+      "wear": 0.2
+    },
+    "623b281b": {
+      "b": 6,
+      "a": 0.75
+    },
+    "b9b79e5a": {
+      "b": 6,
+      "a": 0.75
+    },
+    "c52079a6": {
+      "b": 6,
+      "a": 0.7
+    },
+    "fcd74fd8": {
+      "b": 6
+    },
+    "5fa436be": {
+      "cls": "plastic"
+    },
+    "90a03f8d": {
+      "a": 0.85,
+      "wear": 0.25
+    },
+    "1f7a8b9b": {
+      "a": 0.85,
+      "wear": 0.25
+    },
+    "6291398c": {
+      "b": 5
+    },
+    "5d3afe32": {
+      "cls": "concrete_plaster"
+    },
+    "f76687e2": {
+      "b": 6
+    },
+    "44844c5a": {
+      "b": 5
+    },
+    "197e7b1d": {
+      "b": 6
+    },
+    "2e9aefcb": {
+      "b": 6
+    },
+    "5b3d5320": {
+      "b": 6
+    },
+    "73851ae5": {
+      "b": 5
+    },
+    "a0c313cf": {
+      "wear": 0.55
+    },
+    "cd4aef3b": {
+      "b": 5,
+      "wear": 0.45
+    },
+    "51c17f98": {
+      "b": 6
+    },
+    "f341900f": {
+      "b": 5
+    },
+    "f918dd8f": {
+      "cls": "other"
+    },
+    "606baeeb": {
+      "b": 6
+    },
+    "37f852d6": {
+      "b": 5,
+      "wear": 0.5
+    },
+    "1e166996": {
+      "b": 5
+    },
+    "95fa6b5c": {
+      "b": 6,
+      "wear": 0.45
+    },
+    "d7509f34": {
+      "a": 0.7
+    },
+    "a9e74b50": {
+      "b": 8
+    },
+    "0adb86bd": {
+      "b": 6
+    },
+    "8b46afa8": {
+      "b": 6
+    },
+    "fec11582": {
+      "b": 6
+    },
+    "49fd1059": {
+      "wear": 0.45
+    },
+    "2ceeaec6": {
+      "b": 6,
+      "a": 0.9
+    },
+    "af59feac": {
+      "b": 5
+    },
+    "c572ce2c": {
+      "b": 8
+    },
+    "8abb516d": {
+      "b": 8
+    },
+    "2491cfda": {
+      "b": 8
+    },
+    "56a28cab": {
+      "b": 8
+    },
+    "3b1cf843": {
+      "b": 8
+    },
+    "26aaab06": {
+      "b": 8
+    },
+    "97276460": {
+      "b": 8
+    },
+    "1be06433": {
+      "b": 8
+    },
+    "2ff17d14": {
+      "a": 0.85,
+      "wear": 0.2
+    },
+    "51a7ef19": {
+      "b": 8,
+      "wear": 0.2
+    },
+    "03dcdda1": {
+      "b": 8,
+      "a": 0.85,
+      "wear": 0.15
+    },
+    "7c224cfc": {
+      "b": 6
+    },
+    "c4d0422a": {
+      "wear": 0.1
+    },
+    "916e2188": {
+      "wear": 0.1
+    },
+    "9b716803": {
+      "wear": 0.1
+    },
+    "170af25a": {
+      "wear": 0.1
+    }
+  }
+}

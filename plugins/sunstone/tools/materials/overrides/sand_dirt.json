@@ -1,0 +1,10 @@
+{
+  "_doc": [
+    "sand_dirt worker's per-texture overrides (layout as tools/materials/overrides.json).",
+    "a1bd57 (D01_01 Hourglass): its material is emissive 100, so it draws self-lit at full brightness and no lit",
+    "detail can show on it; it is a light source in effect, so it goes to emissive_light."
+  ],
+  "overrides": {
+    "a1bd57": { "cls": "emissive_light" }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "_doc": [
+    "bare_metal's per-texture overrides (layout as tools/materials/overrides.json).",
+    "rough: textures on an already glossy material (gloss 30 to 80) keep a highlight a few pixels wide after the class's",
+    "polish (gloss x ~2.8): 0.2 to 0.25 for gloss 30-40, 0.45 for gloss 80 (gloss x 2^-2r, specular x 2^-r)."
+  ],
+  "overrides": {
+    "3e518a": { "rough": 0.45 },
+    "17a281": { "rough": 0.2 },
+    "d06f92": { "rough": 0.25 },
+    "aa077f": { "rough": 0.2 }
+  }
+}

@@ -1,0 +1,23 @@
+{
+ "_doc": "emissive_light: LED grid and scanline displays; flat glowing balls keep their flat colour (tint 0)",
+ "overrides": {
+  "120a84": {
+   "a": 8
+  },
+  "de59b8": {
+   "b": 8
+  },
+  "9b7ae8": {
+   "tint": 0
+  },
+  "c45146": {
+   "tint": 0
+  },
+  "ca999f": {
+   "tint": 0
+  },
+  "4e7b0e": {
+   "tint": 0
+  }
+ }
+}

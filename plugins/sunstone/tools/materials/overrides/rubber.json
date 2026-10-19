@@ -1,0 +1,13 @@
+{
+  "_doc": [
+    "Rubber class rows (layout as tools/materials/overrides.json). b = finish: glossy latex and oilskin gloves high,",
+    "the matte slate glove 0, from the inventory's descriptions."
+  ],
+  "overrides": {
+    "a5e2af": { "b": 0.9 },
+    "0b0cae": { "b": 0.85 },
+    "dbe720": { "b": 0.9 },
+    "0a779f": { "b": 0.6 },
+    "3d7f5f": { "b": 0.0, "wear": 0.4 }
+  }
+}

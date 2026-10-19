@@ -1,0 +1,28 @@
+{
+  "_doc": [
+    "The plastic worker's per-texture overrides (layout as tools/materials/overrides.json).",
+    "Lens and film atlases: a=0 (no moulding grain) and wear=0 (no scuffs), so tinted or clear lenses stay smooth;",
+    "the frames keep the clear-coat sheen. Non-plastic members: the frontend dial marker is UI art (strength 0),",
+    "the banana bomb is a smooth waxy peel, the blaster base a satin moulding."
+  ],
+  "overrides": {
+    "0bbd6b": { "a": 0, "wear": 0 },
+    "702e20": { "a": 0, "wear": 0 },
+    "c3475c": { "a": 0, "wear": 0 },
+    "7b1c1c": { "a": 0, "wear": 0 },
+    "9db734": { "a": 0, "wear": 0 },
+    "c55d0e": { "a": 0, "wear": 0 },
+    "daa623": { "a": 0, "wear": 0 },
+    "bf9484": { "a": 0, "wear": 0 },
+    "34dcf5": { "a": 0, "wear": 0 },
+    "564a87": { "a": 0, "wear": 0 },
+    "b7e9a4": { "a": 0, "wear": 0 },
+    "fc6db7": { "a": 0, "wear": 0 },
+    "fdf7d5": { "a": 0, "wear": 0, "b": 0.5 },
+    "0d1485": { "wear": 0.05 },
+    "66425b": { "a": 0.5, "wear": 0, "b": 0.5 },
+    "a22df8": { "wear": 0.1 },
+    "a661f0": { "strength": 0 },
+    "a2c09e": { "a": 0.4, "wear": 0, "b": 0.7 }
+  }
+}

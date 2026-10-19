@@ -1,0 +1,41 @@
+{
+  "_doc": [
+    "Overrides of the wood_planks and wood_bark worker (layout as tools/materials/overrides.json).",
+    "wood_planks b: grain 0 along u, 1 along v (the default), +2 pale weathered grey wood (low saturation is wood; only dark greys are metal).",
+    "wood_bark b: fissures 0 along v (the default), 1 along u, +2 pale bark (bright greys are bark, not snow).",
+    "a: relief from the art's luminance; lowered on 32x32 textures, whose texels are big on screen."
+  ],
+  "overrides": {
+    "0a449e": { "b": 0 },
+    "21d877": { "b": 0 },
+    "330c5a": { "b": 0 },
+    "4b0ed4": { "b": 0 },
+    "4dd02f": { "b": 0, "_note": "painted totem: grain kept weak by the paint key" },
+    "7d94f2": { "b": 0 },
+    "8ce877": { "b": 0, "rough": -0.3 },
+    "23f9fe": { "rough": -0.3 },
+    "6cfbce": { "rough": -0.5, "_note": "varnished violin" },
+    "b891e9": { "rough": -0.4, "_note": "polished veneer" },
+    "8f12b7": { "b": 0 },
+    "b3d993": { "b": 0 },
+    "c56e7a": { "b": 0 },
+    "d76cbc": { "b": 2, "_note": "white clapboards: pale, so only the dark hinges are metal" },
+    "e90fdb": { "b": 0 },
+    "f1da7d": { "b": 0 },
+    "97dd3f": { "b": 3 },
+    "39f22c": { "b": 3 },
+    "658764": { "b": 3 },
+    "c07764": { "b": 3 },
+    "fa05ff": { "b": 3 },
+    "2457e8": { "a": 0.15 },
+    "9dc64a": { "a": 0.15 },
+    "c45182": { "a": 0.15 },
+    "6e54c2": { "a": 0.15 },
+    "2910d5": { "b": 2 },
+    "0d55c0": { "rough": -0.4, "strength": 0.6, "_note": "bamboo: smooth and glossy, the fissures faint" },
+    "4cf7dc": { "a": 0.2 },
+    "6e1cf4": { "a": 0.2 },
+    "7c8f30": { "a": 0.2 },
+    "986445": { "a": 0.2 }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "_doc": [
+    "fabric_cloth worker's per-texture overrides (layout as ../overrides.json). a = thread spacing (world units),",
+    "b = finish (-1 felt/velvet nap, 0 woven cotton, 1 satin/silk), wear = faded and pilled patches.",
+    "84187d and 4353f4 are star sunglasses with a printed (leopard, zebra) frame: plastic, not cloth.",
+    "Glossy game materials (gloss 20 to 40: eyepatches, bishop, police, Tommy) need no rough bias: the snippet itself",
+    "broadens their lobe and calms the relief there (materialMatrix gloss)."
+  ],
+  "overrides": {
+    "84187d": { "cls": "plastic" },
+    "4353f4": { "cls": "plastic" },
+
+    "a7e7e1": { "b": -1 },
+    "214f86": { "b": -1 },
+    "c4d98c": { "b": -1 },
+    "a17f8d": { "b": -1 },
+    "078cde": { "b": -1 },
+    "1d4315": { "b": -1 },
+    "31c884": { "b": -1, "wear": 0.2 },
+    "fe6984": { "b": -1 },
+    "3ef0ca": { "b": -1 },
+    "104d02": { "b": -0.7 },
+    "f0aef3": { "b": -0.7 },
+    "b3d811": { "b": -0.7 },
+    "2d9396": { "b": -0.7 },
+    "8769e4": { "b": -0.6 },
+
+    "253761": { "a": 0.2, "b": -0.3 },
+    "8a3af9": { "a": 0.18, "b": -0.3, "rough": -0.15 },
+    "7f0d89": { "a": 0.3, "b": -0.3 },
+    "6d46ea": { "a": 0.3, "b": -0.2 },
+    "32eb8c": { "a": 0.25, "b": -0.3 },
+
+    "4d7bd9": { "a": 0.12, "b": 1 },
+    "921a86": { "a": 0.12, "b": 1 },
+    "b1cf41": { "a": 0.12, "b": 1 },
+    "92608c": { "a": 0.12, "b": 1 },
+    "763246": { "a": 0.15, "b": 0.8 },
+    "4e23e3": { "a": 0.18, "b": 0.4 },
+    "c86c32": { "a": 0.18, "b": 0.4 },
+    "72d9f9": { "a": 0.18, "b": 0.4 },
+    "161ed8": { "a": 0.15, "b": 0.5 },
+    "4890b7": { "a": 0.2, "b": 0.2 },
+    "32db32": { "a": 0.12, "b": 0.5 },
+    "f3bbe5": { "a": 0.12, "b": 0.5 },
+    "b86aa5": { "a": 0.1, "b": 0.4 },
+
+    "77ce7d": { "a": 0.45, "wear": 0.35 },
+    "e5841a": { "a": 0.6, "b": -0.2, "wear": 0.3 },
+    "c67e55": { "a": 0.4, "wear": 0.3 },
+    "f4deed": { "a": 0.35 },
+    "d898b9": { "a": 0.35, "wear": 0.3 },
+    "9a6ee3": { "a": 0.35 },
+    "f99eb3": { "a": 0.3 },
+
+    "0236fb": { "a": 0.15 },
+    "9d584e": { "a": 0.15 },
+    "963daa": { "a": 0.18 },
+
+    "4e0118": { "wear": 0.2 },
+    "822ad2": { "wear": 0.2 },
+    "70cb8e": { "wear": 0.25 },
+    "497f2f": { "wear": 0.2 }
+  }
+}

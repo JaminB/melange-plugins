@@ -1,0 +1,37 @@
+{
+  "_doc": [
+    "Overrides of the stone_rock, concrete_plaster and brick worker (layout as ../overrides.json).",
+    "b3f387 roof tiles, 67faf4 red brick (dark joints), d8313a carved brick, 141db2 snowy brick (dark outlined joints; its",
+    "snow then sits on top): the art's darker parts are the low side (b +1). 67faf4 and b3f387: their joints are barely",
+    "darker than the clay, so a stronger relief (a) to read as recessed; 3dcc78 (high-contrast mortar): a gentler one.",
+    "829dd2 obsidian (8x8, black): polished (a -1: no art relief, pits or grain, a glassy sheen), broad (scale 2).",
+    "06c252, 6e6c42, 88bcdd carved or engraved plaster: more of the art's relief. bd3674 and 54bb9c marble: smoother and",
+    "glossier, finer, no grime. 8dd2e5 lava crust: no cracks or grime (the art has its own glowing cracks). The b rows of",
+    "stone: hairline cracks where the art shows cut or weathered rock."
+  ],
+  "overrides": {
+    "b3f387": { "b": 1, "a": 2 },
+    "67faf4": { "b": 1, "a": 4 },
+    "d8313a": { "b": 1 },
+    "3dcc78": { "a": 1 },
+    "829dd2": { "wear": 0, "tint": 0, "a": -1, "b": 0, "scale": 2 },
+    "141db2": { "b": 1 },
+    "06c252": { "a": 0.6 },
+    "6e6c42": { "a": 0.6 },
+    "88bcdd": { "a": 0.6 },
+    "bd3674": { "rough": -0.4, "wear": 0.1, "scale": 0.7, "strength": 0.7 },
+    "54bb9c": { "rough": -0.4, "wear": 0, "b": 0.15 },
+    "8dd2e5": { "b": 0, "wear": 0 },
+    "011fa0": { "b": 0.5 },
+    "1e8414": { "b": 0.4 },
+    "462dc1": { "b": 0.4 },
+    "1d6d08": { "b": 0.4 },
+    "d013f1": { "b": 0.3 },
+    "df93ad": { "b": 0.3 },
+    "bc3a69": { "b": 0.3 },
+    "95f698": { "b": 0.3 },
+    "c2c252": { "b": 0.3 },
+    "bbf87d": { "b": 0.4 },
+    "075a04": { "b": 0.4 }
+  }
+}
