@@ -2,7 +2,10 @@
 --
 -- The Sandworms rules, as the simulation sees them:
 --   1. The sand line. Once the land bounds can be read (wum.sim.land()), the line is fixed for the whole match at
---      minY + LINE_FRACTION * (maxY - minY). It never moves, even when the land is blown away.
+--      base + LINE_FRACTION * (maxY - base), where base is the lowest land that can be stood on: the water level
+--      when the land box reaches under the water (Land.MinBounds.y is often far under it: -349 with the water at 0
+--      on one quick-match map, which would put a minY-based line under the sea), else minY. It never moves, even
+--      when the land is blown away.
 --   2. The hourglass. The strike is armed once STRIKE_MS of the round clock have elapsed (RoundTime minus
 --      RoundTimeRemaining, the clock the game itself counts down to sudden death).
 --   3. The curse. At the first GameLogic.Turn.Ended after the strike is armed, every alive worm whose feet are below
@@ -46,6 +49,7 @@ S.phase = 0        -- 0 running, 1 armed, 2 struck
 S.line = nil       -- the sand line (world Y), nil until the land bounds are known
 S.minY = nil
 S.maxY = nil
+S.base = nil       -- the line's base: the water level at the time the line is fixed, or minY
 S.roundMs = nil    -- RoundTime, read at the first poll
 S.strikeMs = STRIKE_MS
 S.cursed = {}      -- cursed slots, in tour order
@@ -100,10 +104,15 @@ local function computeLine()
     local ok, minX, minY, minZ, maxX, maxY, maxZ = pcall(wum.sim.land)
     if not ok or type(minY) ~= "number" or type(maxY) ~= "number" then return false end
     if maxY < minY then minY, maxY = maxY, minY end
+    local base = minY
+    local water = readNumber("Water.Level")
+    if water and water > minY and water < maxY then base = water end
     S.minY = minY
     S.maxY = maxY
-    S.line = minY + LINE_FRACTION * (maxY - minY)
-    info(string.format("sandtide: sand line at Y %.2f (land Y %.2f to %.2f)", S.line, minY, maxY))
+    S.base = base
+    S.line = base + LINE_FRACTION * (maxY - base)
+    info(string.format("sandtide: sand line at Y %.2f (land Y %.2f to %.2f, water %s, base %.2f)", S.line, minY, maxY,
+        tostring(water), base))
     return true
 end
 

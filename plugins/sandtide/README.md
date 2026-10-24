@@ -27,8 +27,10 @@ Pick **Sandworms** under *Game Style*. It is Standard with:
 | Sudden death | the water rises, medium speed |
 | Weapons | the Kindjal set; mobility (rope, jetpack, parachute, girders, select worm) is generous so you can climb before 3:00 |
 
-- **The sand line.** At match start the line is fixed at the lowest land plus a quarter of the land's height range. It
-  never moves, even when the land under it is blown away.
+- **The sand line.** At match start the line is fixed a quarter of the way up from the lowest land you can stand on (the
+  water line, when the land reaches under the water) to the highest land. It never moves, even when the land under it
+  is blown away. It shows as a glowing band of drifting sand where it meets the land, with a faint sand haze over the
+  ground just below it.
 - **3:00, the hourglass empties.** The curse waits for the turn in progress to end.
 - **The curse.** At that turn end every alive worm whose feet are below the line is cursed: its tail turns to sand and
   it is anchored where it stands, on every team. The camera tours each cursed worm (about 3.5 s each) before the next
@@ -36,7 +38,8 @@ Pick **Sandworms** under *Game Style*. It is Standard with:
 - **A cursed worm** still takes its turns. It can turn on the spot, aim, change weapon and fire. It cannot walk, jump,
   backflip, rope, jetpack, teleport or parachute, and explosions damage it without moving it. It has no armour: it
   takes normal damage, and it drowns when the water reaches it (the sand dissolves as it goes under).
-- **5:00, the water rises.** The hourglass becomes the countdown to the water.
+- **5:00, the water rises.** After the curse the hourglass shatters and becomes a water drop that fills until the water
+  rises.
 
 Ammo for the Acid Spitter, Acid Flask and Crucible follows their base weapons (Bazooka, Grenade and Holy Hand Grenade),
 as for every Kindjal clone.
@@ -69,6 +72,10 @@ the content hash: a player who edits them has a different Sandtide from everyone
 
 ## Limits
 
+- The hourglass sits above the game's team health bars, so it can cover part of the picture; make it smaller with the
+  *Hourglass size* setting.
+- When land stands between two stops of the camera tour, the camera cuts through a short sand wipe instead of flying
+  through it.
 - A worm cursed in mid-air (rare: the turn ends once things settle) is held where it is.
 - The camera tour is render-only: the game's own camera does not move, so the land the game fades for its own camera can
   show world effects faintly through it.

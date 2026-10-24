@@ -17,7 +17,7 @@
     "filesystem": "none"
   },
   "dependencies": [
-    "kindjal >= 1.3.1"
+    "kindjal >=1.3.1"
   ],
   "conflicts": [],
   "entry": {
