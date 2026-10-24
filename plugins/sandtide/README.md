@@ -14,7 +14,8 @@ Sandtide changes the simulation, so **every player in an online match needs the 
 Kindjal). Melange handles that: a host with Sandtide refuses to start against a player who lacks it or has another
 version, and a match recorded with Sandtide replays only with Sandtide. Which worms are cursed, and when, is decided by
 the sim script from simulation state only, so every machine curses the same worms at the same tick. The hourglass, the
-camera tour and every effect are local and never feed back into the game.
+camera tour and every effect are local and never feed back into the game. The rules apply to the Sandworms style only:
+with Sandtide installed, every other game style plays as before.
 
 ## The rules
 
@@ -39,8 +40,10 @@ Pick **Sandworms** under *Game Style*. It is Standard with:
 - **A cursed worm** still takes its turns. It can turn on the spot, aim, change weapon and fire. It cannot walk, jump,
   backflip, rope, jetpack, teleport or parachute, and explosions damage it without moving it. Like a worm hit by No More
   Nails, its weapon panel greys out what a nailed worm cannot use: the rope, jetpack, parachute and teleport, and also
-  armour, the bridge kit, Red Bull, the melee weapons, the sheep, the Old Woman, Starburst and Scouser. It has no armour: it
-  takes normal damage, and it drowns when the water reaches it (the sand dissolves as it goes under).
+  armour, the bridge kit, Red Bull, the melee weapons, the sheep, the Old Woman, Starburst and Scouser. As with No More
+  Nails, picking a greyed cell does nothing and the panel stays open, so the next click takes whatever cell is under the
+  pointer; pick a usable weapon instead. It has no armour: it takes normal damage, and it drowns when the water reaches
+  it (the sand dissolves as it goes under).
 - **5:00, the water rises.** After the curse the hourglass shatters and becomes a water drop that fills until the water
   rises.
 

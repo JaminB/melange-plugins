@@ -511,13 +511,17 @@ function HG.reset()
     HG.strikeElapsed, HG.flooded, HG.pourOn, HG.windOn, HG.alpha, HG.tour = nil, false, false, false, 0, 0
     HG.lastLeft, HG.running, HG.runAt = nil, false, -10
     HG.ts, HG.tsAt, HG.intro, HG.overlay, HG.groupsAt = nil, -100, false, false, -1
+    HG.turnRan, HG.tl = true, nil
 end
 
 -- What the game itself shows over the bottom centre, so the hourglass steps aside for it:
 --   overlay: the weapon panel or the pause menu (the game's input groups are then "Menu" alone: measured in game, the
 --            panel and the pause menu both leave only Menu; a human turn has Menu+InGame+..., the tour Spectator);
---   intro:   the turn intro ("Ready?" and its countdown), from a new turn start until the turn clock starts running
---            (the game reports TurnTimeRemaining 0 until then).
+--   intro:   the turn intro ("Ready?" and its countdown), from a new turn start (turnsStarted changes) until the turn
+--            clock first counts down. The clock's value during the intro is not a signal: before sudden death the
+--            game reports TurnTimeRemaining 0 then, but in sudden death it keeps reporting the previous turn's
+--            leftover (39340 for a whole intro, measured in game), so the hourglass sat on the "Ready?" text of every
+--            sudden-death turn. A decrease of the value after the turn start is what ends the intro.
 function HG.gate(m)
     if G.now - HG.groupsAt >= 0.1 then
         HG.groupsAt = G.now
@@ -536,10 +540,13 @@ function HG.gate(m)
     end
     local ts = tonumber(m.turnsStarted)
     if ts and ts ~= HG.ts then
-        if HG.ts ~= nil then HG.tsAt = G.now end
+        if HG.ts ~= nil then HG.tsAt, HG.turnRan = G.now, false end
         HG.ts = ts
     end
-    HG.intro = (tonumber(m.turnMsLeft) or 1) <= 0 and G.now - HG.tsAt < 15
+    local tl = tonumber(m.turnMsLeft) or 0
+    if not HG.turnRan and HG.tl and tl > 0 and tl < HG.tl then HG.turnRan = true end
+    HG.tl = tl
+    HG.intro = not HG.turnRan and G.now - HG.tsAt < 15
 end
 
 -- Called when the curse message arrives. A late copy goes straight to the water countdown.
@@ -942,7 +949,8 @@ function LN.update()
         local ok, err = coroutine.resume(LN.job, LN.jobArg)
         if not ok then U.warn("sandtide: line build: " .. tostring(err)); LN.job = nil; LN.off = true
         elseif coroutine.status(LN.job) == "dead" then LN.job = nil end
-    elseif LN.probe then LN.stepProbe()
+    elseif LN.probe then
+        if not DIR.active then LN.stepProbe() end   -- the tour needs the frame's rays for its shots
     elseif G.now >= LN.nextProbe and not DIR.active then LN.startProbe() end
     -- Intensity: calm at first, rising as the hourglass runs low, a heartbeat in the last 30 s, flares at the curse.
     local k = 0.45
@@ -1443,27 +1451,172 @@ function DIR.finish()
     U.log("sandtide: tour done")
 end
 
--- The camera pose for one worm: a low three-quarter view, the side picked by a clear line of sight.
+-- The camera pose for one worm: a low three-quarter view, picked by what the eye would actually see.
+--
+-- The land ray only answers for one line, and a shot is a frustum: a roof slab just above the line to the worm's
+-- chest filled most of one shot in the first in-game runs, and the land ray does not see worms at all, so another
+-- worm's head sat in the foreground of others. So every candidate eye is scored by
+--   * sight: the share of land rays that reach the worm's feet, waist, head, hat, shoulders and the mound's rim;
+--   * worms: the other worms that stand in or next to that line (angular overlap, the nearer the worse, and a worm
+--     the eye would sit inside);
+--   * a taste for the low three-quarter front view.
+-- A coarse pass (one ray per eye) ranks the candidates, a fine pass re-scores the best few, and when nothing at the
+-- normal distance sees the worm well (a cave, an overhang), closer rings are tried. About 100 rays of the frame's
+-- 256 at most, once per worm.
+DIR.RING = { { d = 88, hs = { 16, 30, 46 }, offs = { 35, -35, 70, -70, 0, 110, -110, 145, -145, 180 } },
+             { d = 52, hs = { 12, 26 }, offs = { 35, -35, 70, -70, 0, 110, -110, 145, -145, 180 } },
+             { d = 32, hs = { 9, 18 }, offs = { 35, -35, 70, -70, 0, 110, -110, 180 } } }
+DIR.rays = 0
+
+-- One land ray; true when clear, false when it hits, nil when the frame's budget is spent (unknown).
+function DIR.ray(x0, y0, z0, x1, y1, z1)
+    DIR.rays = DIR.rays + 1
+    local ok, t, why = pcall(wum.game.landRay, x0, y0, z0, x1, y1, z1)
+    if not ok then return nil end
+    if t == nil then
+        if why == nil then return true end
+        return nil
+    end
+    return false
+end
+
+-- The share of the worm an eye sees through the land: 1 ray to the waist, or 8 to the whole figure and the mound.
+function DIR.sight(ex, ey, ez, rec, full)
+    if not wum.game.landRay then return 1 end
+    local x, y, z = rec.x, rec.y, rec.z
+    local dx, dz = x - ex, z - ez
+    local l = sqrt(dx * dx + dz * dz)
+    if l < 1e-3 then l = 1 end
+    local ax, az = -dz / l, dx / l       -- across the view, in the ground plane
+    local pts = DIR.ptsOne
+    if full then
+        pts = DIR.ptsFull
+        pts[5][1], pts[5][3], pts[6][1], pts[6][3] = ax * 7, az * 7, -ax * 7, -az * 7
+        pts[7][1], pts[7][3], pts[8][1], pts[8][3] = ax * 11, az * 11, -ax * 11, -az * 11
+    end
+    local clear, n = 0, 0
+    for i = 1, #pts do
+        local p = pts[i]
+        local r = DIR.ray(ex, ey, ez, x + p[1], y + p[2], z + p[3])
+        n = n + 1
+        if r == true then clear = clear + 1 elseif r == nil then clear = clear + 0.5 end
+    end
+    return clear / n
+end
+-- The waist; the shins (a ray to the feet themselves grazes the ground and answers either way), chest, hat, both
+-- shoulders, and the mound's rim on both sides.
+DIR.ptsOne = { { 0, 8, 0 } }
+DIR.ptsFull = { { 0, 8, 0 }, { 0, 5, 0 }, { 0, 15, 0 }, { 0, 21, 0 }, { 0, 10, 0 }, { 0, 10, 0 }, { 0, 6, 0 }, { 0, 6, 0 } }
+
+-- How close the ground runs under the line of sight: a plateau edge a few units under it hides the worm's legs and
+-- the mound behind its own horizon, and the eye then sees mostly that plateau (measured in game: a ledge 10 units
+-- under a stop filled the lower half of the frame). Vertical probes at four points along the line; each one with
+-- less than 10 units of air under the line costs up to 0.35.
+DIR.CLEAR_F = { 0.2, 0.4, 0.6, 0.8 }
+function DIR.clearance(ex, ey, ez, rec)
+    if not wum.game.landRay then return 0 end
+    local tx, ty, tz = rec.x, rec.y + 9, rec.z
+    local pen = 0
+    for _, f in ipairs(DIR.CLEAR_F) do
+        local px, py, pz = ex + (tx - ex) * f, ey + (ty - ey) * f, ez + (tz - ez) * f
+        DIR.rays = DIR.rays + 1
+        local ok, t = pcall(wum.game.landRay, px, py + 30, pz, px, py - 30, pz)
+        if ok and type(t) == "number" then
+            local air = 30 - t * 60     -- the line's height over the land there (negative: the ray hit anyway)
+            if air < 10 then pen = pen + 0.35 * U.sat((10 - air) / 10) end
+        end
+    end
+    return pen
+end
+
+-- Other worms in the way of an eye looking at the worm: 0 when none, about 1 for one worm squarely in front of it,
+-- more for one the eye would sit inside. Worms behind the target do not count.
+function DIR.wormBlock(ex, ey, ez, rec)
+    local tx, ty, tz = rec.x, rec.y + 9, rec.z
+    local vx, vy, vz = tx - ex, ty - ey, tz - ez
+    local L = sqrt(vx * vx + vy * vy + vz * vz)
+    if L < 1 then return 0 end
+    vx, vy, vz = vx / L, vy / L, vz / L
+    local pen = 0
+    for slot, w in pairs(G.byslot) do
+        if slot ~= rec.slot and w.alive == true then
+            local wx, wy, wz = U.vx(w.pos)
+            if wx then
+                local px, py, pz = wx - ex, wy + 9 - ey, wz - ez
+                local dist = sqrt(px * px + py * py + pz * pz)
+                local along = px * vx + py * vy + pz * vz
+                if dist < 24 then
+                    pen = pen + 1.5
+                elseif along > 0 and along < L - 3 then
+                    local ox, oy, oz = px - along * vx, py - along * vy, pz - along * vz
+                    local off = sqrt(ox * ox + oy * oy + oz * oz)
+                    -- Angular overlap: that worm's silhouette (radius 12 with the hat) against the target's (10).
+                    local tanOff = off / along
+                    local r = 12 / along + 10 / L
+                    if tanOff < r then pen = pen + (1 - tanOff / r) * U.sat((L - along) / 30) end
+                end
+            end
+        end
+    end
+    return pen
+end
+
 function DIR.shot(rec)
     if not rec.x then return nil end
     local tx, ty, tz = rec.x, rec.y + 11, rec.z
     local yaw = rec.yaw or 0
-    local best
-    local tries = { { 35, 16 }, { -35, 16 }, { 70, 18 }, { -70, 18 }, { 110, 22 }, { -110, 22 }, { 0, 26 }, { 35, 46 },
-                    { -35, 46 }, { 180, 40 }, { 0, 80 } }
-    for _, tr in ipairs(tries) do
-        local a = yaw + tr[1] * pi / 180
-        local d = 88
-        local px, py, pz = tx + sin(a) * d, ty + tr[2], tz + cos(a) * d
-        local clear = true
-        if wum.game.landRay then
-            local ok, t = pcall(wum.game.landRay, tx, ty + 2, tz, tx + sin(a) * d * 1.25, ty + tr[2] * 1.25, tz + cos(a) * d * 1.25)
-            clear = ok and t == nil
-        end
-        if clear then best = { a = a, h = tr[2], d = d, side = tr[1] >= 0 and 1 or -1 }; break end
+    DIR.rays = 0
+    local best, bestScore
+    local cands = {}
+    local function score(c, vis)
+        -- Sight weighs most; a foreground worm costs about as much as losing the whole figure.
+        return vis * 2 - c.pen * 1.6 + 0.35 * (1 - abs(c.off) / 180 * 0.6 - U.sat((c.h - 9) / 40) * 0.3)
     end
-    best = best or { a = yaw + 0.6, h = 90, d = 70, side = 1 }
+    for ri, ring in ipairs(DIR.RING) do
+        -- Coarse: every eye of the ring, by its waist ray and the worms in the way.
+        for i = 1, #cands do cands[i] = nil end
+        for _, off in ipairs(ring.offs) do
+            for _, h in ipairs(ring.hs) do
+                local a = yaw + off * pi / 180
+                local ex, ey, ez = tx + sin(a) * ring.d, ty + h, tz + cos(a) * ring.d
+                local c = { a = a, h = h, d = ring.d, off = off, ex = ex, ey = ey, ez = ez }
+                c.pen = DIR.wormBlock(ex, ey, ez, rec)
+                c.vis = DIR.sight(ex, ey, ez, rec, false)
+                c.s = score(c, c.vis)
+                cands[#cands + 1] = c
+            end
+        end
+        table.sort(cands, function(p, q) return p.s > q.s end)
+        -- Fine: the whole figure and the ground under the line of sight for the best few.
+        for i = 1, min(6, #cands) do
+            local c = cands[i]
+            if c.vis > 0 then
+                c.vis = DIR.sight(c.ex, c.ey, c.ez, rec, true)
+                c.pen = c.pen + DIR.clearance(c.ex, c.ey, c.ez, rec)
+                c.s = score(c, c.vis)
+            end
+            if not best or c.s > bestScore then best, bestScore = c, c.s end
+        end
+        -- Good enough at this distance: a mostly visible worm with nothing in front of it.
+        if best and best.vis >= 0.75 and best.pen < 0.3 then break end
+        if ri == #DIR.RING or DIR.rays > 170 then break end
+    end
+    if not best then best = { a = yaw + 0.6, h = 30, d = 70, off = 35, vis = 0, pen = 0 } end
+    best.side = best.off >= 0 and 1 or -1
+    if best.off == 0 then best.side = 1 end
     best.tx, best.ty, best.tz = tx, ty, tz
+    -- The stop itself: the dolly starts 10 % further out and swings 12 degrees round the worm. Each end gets a waist
+    -- ray; a blocked swing turns the other way or stays put, a blocked start begins at the stop.
+    local function endClear(a, d, h)
+        return DIR.ray(tx + sin(a) * d, ty + h, tz + cos(a) * d, tx, ty - 3, tz) ~= false
+    end
+    best.d0 = endClear(best.a, best.d * 1.1, best.h) and 1.1 or 1.0
+    local sw = 12 * pi / 180
+    if not endClear(best.a + best.side * sw, best.d * 0.94, best.h * 0.9) then
+        if endClear(best.a - best.side * sw, best.d * 0.94, best.h * 0.9) then best.side = -best.side else best.side = 0 end
+    end
+    U.log(string.format("sandtide: shot for %s: off %d, h %d, d %d, sight %.2f, worms %.2f, swing %d, %d rays",
+        tostring(rec.name), best.off, best.h, best.d, best.vis, best.pen, best.side, DIR.rays))
     return best
 end
 
@@ -1488,8 +1641,17 @@ function DIR.wide()
         end
     end
     local d = 170 + spread * 1.25
-    return { px = sx - fx * d, py = sy + 120 + spread * 0.55, pz = sz - fz * d, tx = sx, ty = sy + 6, tz = sz, fov = 50 }
+    local px, py, pz = sx - fx * d, sy + 120 + spread * 0.55, sz - fz * d
+    -- Land between the worms and the eye (a hill behind them): raise the eye, in two steps, while a ray from the
+    -- middle of the group gets through.
+    if wum.game.landRay then
+        for _, lift in ipairs(DIR.WIDE_LIFTS) do
+            if DIR.ray(sx, sy + 12, sz, px, py + lift, pz) ~= false then py = py + lift; break end
+        end
+    end
+    return { px = px, py = py, pz = pz, tx = sx, ty = sy + 6, tz = sz, fov = 50 }
 end
+DIR.WIDE_LIFTS = { 0, 70, 150 }
 
 function DIR.gamePose()
     local c = G.gcam
@@ -1627,7 +1789,7 @@ function DIR.update()
             if DIR.cur and DIR.from then
                 local s0 = DIR.cur
                 local a = s0.a
-                local to = { px = s0.tx + sin(a) * s0.d * 1.1, py = s0.ty + s0.h, pz = s0.tz + cos(a) * s0.d * 1.1,
+                local to = { px = s0.tx + sin(a) * s0.d * s0.d0, py = s0.ty + s0.h, pz = s0.tz + cos(a) * s0.d * s0.d0,
                              tx = s0.tx, ty = s0.ty, tz = s0.tz }
                 DIR.segCut = not DIR.pathClear(DIR.from, to, 1)
             end
@@ -1638,7 +1800,7 @@ function DIR.update()
         if s then
             local tt = U.sat(u / 3.5)
             local a = s.a + s.side * (12 * pi / 180) * U.smooth(tt)
-            local d = s.d * (1.1 - 0.16 * U.smooth(tt))
+            local d = s.d * (s.d0 - (s.d0 - 0.94) * U.smooth(tt))
             target = { px = s.tx + sin(a) * d, py = s.ty + s.h * (1 - 0.1 * tt), pz = s.tz + cos(a) * d,
                        tx = s.tx, ty = s.ty - 2, tz = s.tz, fov = 44 }
         else
@@ -1873,6 +2035,35 @@ end
 function SANDTIDE_PETRIFY(slot, level, dissolve)
     Petrify.resend()
     return Petrify.setWorm(slot, level, slot, dissolve)
+end
+-- SANDTIDE_SHOT(slot) picks and logs the tour's camera stop for any worm (no camera move). SANDTIDE_TOUR("1,2,3")
+-- plays the whole curse show on those worms without a sim curse (the camera tour, the casts, the mounds), timed by
+-- the wall clock; SANDTIDE_TOUR("") clears it. Both are look checks: nothing reaches the simulation.
+function SANDTIDE_SHOT(slot)
+    local w = G.byslot[math.tointeger(tonumber(slot) or -1) or -1]
+    if not w then return "no worm" end
+    local x, y, z = U.vx(w.pos)
+    local s = DIR.shot({ slot = w.slot, x = x, y = y, z = z, yaw = tonumber(w.yaw) or 0, name = w.name })
+    if not s then return "no shot" end
+    return string.format("off %d h %d d %d sight %.2f worms %.2f swing %d d0 %.1f rays %d", s.off, s.h, s.d, s.vis, s.pen,
+        s.side, s.d0, DIR.rays)
+end
+function SANDTIDE_TOUR(csv)
+    local slots = {}
+    for _, s in ipairs(U.split(tostring(csv or ""), ",")) do
+        local n = math.tointeger(tonumber(s))
+        if n and n >= 0 and n < 16 then slots[#slots + 1] = n end
+    end
+    if #slots == 0 then
+        DIR.reset(); CU.reset(); C = nil
+        return "cleared"
+    end
+    local c = { slots = slots, holdTicks = 60 + #slots * 175 + 50, tick = G.tick, intro = 60, per = 175, outro = 50,
+                status = "ok", at = G.now, test = true }
+    C = c
+    CU.begin(c, true)
+    DIR.start(c, nil, "tour")
+    return string.format("tour of %d worms, %d ticks", #slots, c.holdTicks)
 end
 
 U.log("sandtide " .. tostring(wum.mod and wum.mod.version) .. " client loaded")

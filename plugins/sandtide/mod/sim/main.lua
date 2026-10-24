@@ -58,6 +58,8 @@ S.per = PER
 S.curseTick = -1
 S.status = ""
 S.clockFallback = false
+S.style = nil      -- true once the game style is known to be Sandworms, false once it is known to be another
+S.styleWarned = false
 
 local function info(...) wum.log.info(unpack(arg)) end
 local function warn(...) wum.log.warn(unpack(arg)) end
@@ -96,6 +98,30 @@ local function readRoundTime()
         S.strikeMs = math.floor(S.roundMs * 0.6)
         warn("sandtide: RoundTime", S.roundMs, "is short; the hourglass empties at", S.strikeMs, "ms")
     end
+end
+
+-- The rules belong to the Sandworms game style alone. A content mod's sim script runs in every match, so each hook
+-- first reads the style (wum.sim.scheme(): the scheme's Name, "FETXT.Scheme.Sandworms" for this mod's scheme). Any
+-- other style, or one that cannot be read, keeps the sands quiet. The host's style loads on every machine, so the
+-- answer is the same everywhere.
+local function sandworms()
+    if S.style ~= nil then return S.style end
+    local name, why = nil, "no wum.sim.scheme"
+    if wum.sim.scheme then name, why = wum.sim.scheme() end
+    if type(name) ~= "string" then
+        if not S.styleWarned and wum.sim.tick() >= 250 then
+            S.styleWarned = true
+            warn("sandtide: the game style cannot be read (", why, "); the sands stay quiet")
+        end
+        return false
+    end
+    S.style = string.find(name, "Sandworms", 1, true) ~= nil
+    if S.style then
+        info("sandtide: game style", name, "- the Sandworms rules are on")
+    else
+        info("sandtide: game style", name, "- not Sandworms, the sands stay quiet")
+    end
+    return S.style
 end
 
 -- Fixes the line once, from the land bounds. Returns true when the line is known.
@@ -207,6 +233,7 @@ end
 
 -- ---------------------------------------------------------------- hooks
 wum.sim.every(POLL, function()
+    if not sandworms() then return end
     readRoundTime()
     if not S.line then
         if computeLine() then sendLine() end
@@ -219,7 +246,7 @@ wum.sim.every(POLL, function()
 end)
 
 wum.events.on("GameLogic.Turn.Ended", function()
-    if S.phase == 2 then return end
+    if not sandworms() or S.phase == 2 then return end
     readRoundTime()
     if not computeLine() then return end
     if S.phase == 0 and elapsedMs() >= S.strikeMs then S.phase = 1 end
@@ -228,6 +255,7 @@ end)
 
 -- Late or reloaded clients pick the state up at the next turn start.
 wum.events.on("sim.turnStarted", function()
+    if not sandworms() then return end
     sendLine()
     if S.phase == 2 then sendCurse() end
 end)
@@ -236,4 +264,5 @@ wum.events.on("sim.turnHoldEnd", function(name, held)
     info("sandtide: the tour hold ended after", held, "ticks")
 end)
 
+sandworms()
 info("sandtide", tostring(wum.mod.version), "sim loaded")
