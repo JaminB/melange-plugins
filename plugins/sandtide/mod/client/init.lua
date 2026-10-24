@@ -98,6 +98,9 @@ local Petrify = (function()
 
     function M.setStrength(v) F.strength = q(clamp01(v)) end
 
+    -- Sends every value again on the next frame (after the effect was reloaded, which resets its parameters).
+    function M.resend() F.cache = {}; F.enabled = nil end
+
     function M.hearSkin(p)
         local t, mode = {}, 0
         if type(p) == "table" then
@@ -507,6 +510,36 @@ function HG.reset()
     HG.crack, HG.lastSec, HG.shAt, HG.jolt, HG.flash = 0, nil, nil, 0, 0
     HG.strikeElapsed, HG.flooded, HG.pourOn, HG.windOn, HG.alpha, HG.tour = nil, false, false, false, 0, 0
     HG.lastLeft, HG.running, HG.runAt = nil, false, -10
+    HG.ts, HG.tsAt, HG.intro, HG.overlay, HG.groupsAt = nil, -100, false, false, -1
+end
+
+-- What the game itself shows over the bottom centre, so the hourglass steps aside for it:
+--   overlay: the weapon panel or the pause menu (the game's input groups are then "Menu" alone: measured in game, the
+--            panel and the pause menu both leave only Menu; a human turn has Menu+InGame+..., the tour Spectator);
+--   intro:   the turn intro ("Ready?" and its countdown), from a new turn start until the turn clock starts running
+--            (the game reports TurnTimeRemaining 0 until then).
+function HG.gate(m)
+    if G.now - HG.groupsAt >= 0.1 then
+        HG.groupsAt = G.now
+        local over = false
+        if wum.input and wum.input.groups then
+            local ok, g = pcall(wum.input.groups)
+            if ok and type(g) == "table" and #g > 0 then
+                local menu, play = false, false
+                for _, n in ipairs(g) do
+                    if n == "Menu" then menu = true else play = true end
+                end
+                over = menu and not play
+            end
+        end
+        HG.overlay = over
+    end
+    local ts = tonumber(m.turnsStarted)
+    if ts and ts ~= HG.ts then
+        if HG.ts ~= nil then HG.tsAt = G.now end
+        HG.ts = ts
+    end
+    HG.intro = (tonumber(m.turnMsLeft) or 1) <= 0 and G.now - HG.tsAt < 15
 end
 
 -- Called when the curse message arrives. A late copy goes straight to the water countdown.
@@ -519,6 +552,16 @@ function HG.strike(live)
     else
         HG.state = "water"
     end
+end
+
+-- The sand left in the top bulb for `remain` ms of `strike`. The levels are by volume, and the bulb narrows to the
+-- neck, so a clock linear in time looks almost empty for the whole last half minute. The last 15 s keep a quarter of
+-- the sand instead, so it visibly pours away while the cracks and the ticking build up; the rest drains evenly.
+function HG.sandFrac(remain, strike)
+    local last, keep = 15000, 0.25
+    strike = max(strike, last + 1000)
+    if remain <= last then return U.sat(keep * remain / last) end
+    return U.sat(keep + (1 - keep) * (remain - last) / (strike - last))
 end
 
 function HG.img(name, rect, x0, y0, s, a, rgb)
@@ -562,8 +605,10 @@ function HG.update()
     local strikeMs = L.strikeMs or 180000
     HG.remain = max(0, strikeMs - elapsed)
     -- The hourglass steps aside while the tour's letterbox is up (the shatter itself always shows).
+    HG.gate(m)
     local want = (DIR.letter > 0.3 and HG.state ~= "shatter") and 0 or 1
-    if HG.alpha < want then HG.alpha = min(want, HG.alpha + G.dt * 2) else HG.alpha = max(want, HG.alpha - G.dt * 3) end
+    if HG.overlay then want = 0 elseif HG.intro and HG.state ~= "shatter" then want = 0.12 end
+    if HG.alpha < want then HG.alpha = min(want, HG.alpha + G.dt * 2) else HG.alpha = max(want, HG.alpha - G.dt * (HG.overlay and 12 or 3)) end
 
     if HG.state == "hidden" then HG.state = (L.phase or 0) >= 2 and "water" or "run" end
     if HG.state == "run" or HG.state == "empty" then
@@ -637,7 +682,7 @@ function HG.draw()
     HG.img("hud/hg_shadow", R.full, x0, y0, s, a * 0.9)
 
     if st == "run" or st == "empty" then
-        local frac = U.sat(HG.remain / max(1, L.strikeMs or 180000))
+        local frac = HG.sandFrac(HG.remain, L.strikeMs or 180000)
         local lowT = HG.remain <= 15000 and (1 - HG.remain / 15000) or 0
         if st == "empty" then lowT = 1 end
         -- The pulse follows the tick: a beat at each second, decaying.
@@ -920,12 +965,15 @@ function LN.drawWorld()
     local sand = TX.get("sand_albedo", { wrap = "repeat" })
     local band = TX.get("sand_band", { wrap = "repeat" })
     if LN.sheet then
-        pcall(wum.draw.mesh, LN.sheet, sand, nil, { 0.98, 0.78, 0.48, U.clamp(0.08 + 0.10 * LN.k, 0, 0.35) },
+        pcall(wum.draw.mesh, LN.sheet, sand, nil, { 1.0, 0.82, 0.52, U.clamp(0.16 + 0.16 * LN.k, 0, 0.45) },
             { lit = false, blend = "alpha", depthWrite = false, cull = false })
     end
     if LN.ribbon then
-        pcall(wum.draw.mesh, LN.ribbon, band, nil, { 1.0, 0.74, 0.36, U.clamp(0.8 * LN.k, 0, 1) },
+        pcall(wum.draw.mesh, LN.ribbon, band, nil, { 1.0, 0.74, 0.36, U.clamp(0.45 + 0.8 * LN.k, 0, 1) },
             { lit = false, blend = "additive", depthWrite = false, cull = false })
+        -- A second, softer pass seen through the land, so the line still reads where a ridge hides it.
+        pcall(wum.draw.mesh, LN.ribbon, band, nil, { 1.0, 0.70, 0.32, U.clamp(0.06 + 0.10 * LN.k, 0, 0.2) },
+            { lit = false, blend = "additive", depthWrite = false, cull = false, xray = true })
     end
 end
 
@@ -1259,7 +1307,9 @@ function CU.drawWorld()
             fadeA = fadeA * (1 - rec.dz * 0.85)
             if fadeA > 0.01 then
                 local gy = (rec.gy or rec.y) - 0.6 - rec.dz * 3
-                local m = CU.matrix(rec.mat, rec.x, gy, rec.z, rec.up, rec.yaw, 13 * g, 5.2 * sy, 13 * g)
+                -- A low, wide mound (3.4 high): the cast above it, from the mound up to the waist (the petrify
+                -- effect's waist, 11.5), is what reads as the worm turning to sand, so the mound must not hide it.
+                local m = CU.matrix(rec.mat, rec.x, gy, rec.z, rec.up, rec.yaw, 14.5 * g, 3.4 * sy, 14.5 * g)
                 local opaque = fadeA > 0.98
                 pcall(wum.draw.mesh, rec.mesh, sand, m, { 1, 1, 1, fadeA },
                     { lit = true, ambient = 0.55, cull = false, depthWrite = opaque, blend = "alpha" })
@@ -1668,7 +1718,7 @@ function BAN.draw()
             local y = H * 0.33 - (1 - U.outCubic(t / 0.8)) * 14 * s
             local size = 46 * s
             local tw = #b.title * size * 0.52
-            pcall(wum.draw.hudRect, W / 2 - tw * 0.62, y - 30 * s, W / 2 + tw * 0.62, y + 48 * s, U.col(0x120904, 0.45 * a), true)
+            pcall(wum.draw.hudRect, W / 2 - tw * 0.62, y - 30 * s, W / 2 + tw * 0.62, y + 48 * s, U.col(0x120904, 0.72 * a), true)
             pcall(wum.draw.hudLine, W / 2 - tw * 0.55, y + 30 * s, W / 2 + tw * 0.55, y + 30 * s, U.col(b.rgb, 0.7 * a), 2 * s)
             HG.text(W / 2, y, b.title, size, b.rgb, a, COLS.ember)
             if b.sub then HG.text(W / 2, y + 42 * s, b.sub, 20 * s, COLS.bone, a * 0.9) end
@@ -1805,6 +1855,24 @@ function SANDTIDE_STATE()
         C and (C.status .. "@" .. C.tick) or "-", HOLD and (HOLD.ticks .. "@" .. HOLD.tick) or "-",
         tostring(DIR.active), tostring(DIR.mode), DIR.T or 0, tostring(DIR.cam), n, PT.n, LN.ns or 0,
         tostring(LN.sheet), tostring(LN.ribbon), tostring(G.tick))
+end
+
+-- SANDTIDE_GROUPS() lists the game's active input groups; SANDTIDE_PETRIFY(slot, level[, dissolve]) casts any worm (a
+-- look check without waiting for the curse; 0 clears it).
+function SANDTIDE_GROUPS()
+    if not (wum.input and wum.input.groups) then return "no wum.input.groups" end
+    local ok, g = pcall(wum.input.groups)
+    if not ok or type(g) ~= "table" then return "groups: " .. tostring(g) end
+    return table.concat(g, ",")
+end
+function SANDTIDE_LINEPOINT(i)
+    i = math.floor(tonumber(i) or 0)
+    if not (LN.ns and i >= 0 and i < LN.ns) then return nil end
+    return LN.segs[i * 4 + 1], L.line, LN.segs[i * 4 + 2]
+end
+function SANDTIDE_PETRIFY(slot, level, dissolve)
+    Petrify.resend()
+    return Petrify.setWorm(slot, level, slot, dissolve)
 end
 
 U.log("sandtide " .. tostring(wum.mod and wum.mod.version) .. " client loaded")

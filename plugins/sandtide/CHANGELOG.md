@@ -8,7 +8,8 @@ First release. Needs Melange 0.11.0 or later and Kindjal 1.3.1 or later.
   as a glowing band of drifting sand.
 - At 3:00 the hourglass empties. At the next turn end every worm whose feet are below the line has its tail turned to
   sand: it keeps its turns and can turn, aim and fire, but can never walk, jump, rope, jetpack, teleport or parachute
-  again, and explosions no longer move it. It takes normal damage and drowns when the water reaches it.
+  again, and explosions no longer move it. It takes normal damage and drowns when the water reaches it. Its weapon panel
+  greys out what a nailed worm cannot use (the game's own No More Nails rule).
 - The camera tours every cursed worm, on every team, before the next turn starts.
 - An hourglass at the bottom of the screen counts down to the curse (cracks, glow and ticks in the last 15 s), shatters
   when the curse strikes, then fills a water drop until the water rises.

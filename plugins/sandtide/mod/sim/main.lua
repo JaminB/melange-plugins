@@ -132,7 +132,8 @@ local function sendCurse()
         S.curseTick, INTRO, S.per, OUTRO) .. S.status)
 end
 
--- The worms below the line, alive, ordered by team, position in team, slot. Returns the list, or nil and a reason.
+-- The worms below the line, alive and standing (not flying, sliding or on a rope), ordered by team, position in team,
+-- slot. Returns the list, or nil and a reason.
 local function victims()
     local list = {}
     local slots, n = wum.sim.worms()
@@ -143,7 +144,12 @@ local function victims()
         if not w and why == "unavailable" then return nil, "unavailable" end
         if w and w:alive() then
             local x, y, z = w:pos()
-            if type(y) == "number" and y < S.line then
+            local st = w:state()
+            if type(y) == "number" and y < S.line and (st == 2 or st == 3 or st == 5) then
+                -- Flying, sliding or on a rope/jetpack at the turn end: an anchor would pin it in mid-air for the
+                -- rest of the match, so the sands spare it (the state is sim data, the same on every machine).
+                info("sandtide: worm", slot, "is in motion (state", st, ") below the line; the sands spare it")
+            elseif type(y) == "number" and y < S.line then
                 local team, pos = w:team()
                 table.insert(list, { slot = slot, team = team or 0, pos = pos or 0, w = w })
             end

@@ -111,6 +111,17 @@ float SkinTone(vec3 c, float compat) {
          * smoothstep(0.03 - 0.02 * compat, 0.09 - 0.05 * compat, mx) * smoothstep(0.03, 0.11, (c.g - c.b) / max(mx, 1e-3)) * hue * sat;
 }
 
+// On the body shell (which the shape tests already pin to the worm) the strict tone above misses skins that are not the
+// game's peach: a pinker grade (Sunstone 2.0, a level's light) has blue near green, past SkinLimit. There a loose test is
+// enough: red the strongest channel, some colour, not dark. Eyes and teeth (grey), the sky and grass (blue, green) and
+// metal fail it; a brown hat brim passes, but it sits above the front.
+float LooseSkin(vec3 c) {
+    float mx = max(c.r, max(c.g, c.b));
+    float mn = min(c.r, min(c.g, c.b));
+    float sat = (mx - mn) / max(mx, 1e-3);
+    return smoothstep(0.08, 0.14, mx) * smoothstep(0.10, 0.18, sat) * smoothstep(0.0, 0.04, c.r - c.g) * smoothstep(0.0, 0.04, c.r - c.b);
+}
+
 // Bloodsand's blood and wounds (red: green and blue both well under red) and Kindjal's acid (yellow-green with almost no blue).
 float Gore(vec3 c) {
     float rr = max(c.r, 1e-3);
@@ -193,7 +204,7 @@ float CellEdge(vec3 q) {
 
 // Turns one worm's tail to sand in col. P is the pixel's view-space position, n its surface normal, lv the level, sd the seed,
 // dz the dissolve, worm how much the pixel's colour is the worm (skin, mark, blood or acid).
-void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sd, float dz, float worm, inout vec3 col) {
+void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sd, float dz, float worm, float bodyWorm, inout vec3 col) {
     vec3 d = P - (mg_view * vec4(centre, 1.0)).xyz;
     vec3 L = d * mat3(mg_view);
     float hy = L.y + CENTRE_Y;
@@ -214,12 +225,10 @@ void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sd, float dz, float worm,
         float shell = smoothstep(2.4, 3.6, rl) * (1.0 - smoothstep(6.9, 8.1, rl));
         float upright = 1.0 - smoothstep(0.55, 0.85, abs(nWorld.y)) * (1.0 - smoothstep(0.0, 2.0, abs(rv.y)));
         body = (1.0 - smoothstep(0.85, 1.0, e)) * shell * upright * smoothstep(0.1, 0.5, dot(nWorld, rv / rl));
-        if (body > 0.0 && behind < 0.5) {
-            float sxo = clamp(7.6 * ppx, 4.0, 160.0) * mg_resolution.z;
-            float gapL = P.z - ViewPos(mg_uv - vec2(sxo, 0.0)).z;
-            float gapR = P.z - ViewPos(mg_uv + vec2(sxo, 0.0)).z;
-            body *= max(max(smoothstep(0.3, 1.6, gapL), smoothstep(0.3, 1.6, gapR)), 1.0 - smoothstep(1.0, 3.0, hy));
-        }
+        // Not what stands behind the worm: a wall or slope there lies past the body's far side. (Kindjal's test, the
+        // depth 7.6 units to either side, failed on a cursed worm: the mound, a fat torso or a barrel beside it kept
+        // the step from showing, and the cast never reached the body.)
+        if (behind < 0.5) body *= 1.0 - smoothstep(8.0, 11.0, -d.z);
     }
     // The tail: the game's worm rests on a fat tail that curls out to one side of the body, well past the capsule (measured up
     // to about 18 units from the reported position in some idle poses, about 7 high). Low down round the feet, the colour alone says what is the worm; the ground there
@@ -228,8 +237,8 @@ void Worm(vec3 P, vec3 n, vec3 centre, float lv, float sd, float dz, float worm,
     // colour test).
     float rh = length(L.xz);
     float tail = (1.0 - smoothstep(19.0, 22.0, rh)) * (1.0 - smoothstep(7.0, 9.0, hy)) * smoothstep(-0.2, 0.3, hy - 2.2 * smoothstep(0.35, 0.8, nWorld.y))
-               * (p_sunskin > 0.5 ? tailWorm : worm);
-    float mask = max(body * worm, tail);
+               * (p_sunskin > 0.5 ? tailWorm : bodyWorm);
+    float mask = max(body * bodyWorm, tail);
     if (mask <= 0.0) return;
 
     vec3 so = vec3(Hash(vec2(sd, 3.1)), Hash(vec2(sd, 7.7)), Hash(vec2(sd, 11.3))) * 61.0;
@@ -402,7 +411,8 @@ void main() {
     float gore = max(Gore(scene.rgb), AcidCol(scene.rgb));
     tailWorm = max(sunSkin, gore);
     float worm = max(SkinTone(scene.rgb, clamp(p_compat, 0.0, 1.0)), tailWorm);
-    if (worm < 0.01) {
+    float bodyWorm = max(worm, LooseSkin(scene.rgb));
+    if (bodyWorm < 0.01) {
         gl_FragColor = scene;
         return;
     }
@@ -420,6 +430,6 @@ void main() {
     vec3 col = scene.rgb;
     Worm(P, n, wc, clamp(SlotVal(p_level0, p_level1, p_level2, p_level3, wslot), 0.0, 1.0),
          SlotVal(p_seed0, p_seed1, p_seed2, p_seed3, wslot) + wslot * 37.0,
-         clamp(SlotVal(p_dissolve0, p_dissolve1, p_dissolve2, p_dissolve3, wslot), 0.0, 1.0), worm, col);
+         clamp(SlotVal(p_dissolve0, p_dissolve1, p_dissolve2, p_dissolve3, wslot), 0.0, 1.0), worm, bodyWorm, col);
     gl_FragColor = vec4(mix(scene.rgb, col, p_strength * cover), scene.a);
 }
