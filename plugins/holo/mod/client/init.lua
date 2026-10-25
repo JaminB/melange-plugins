@@ -2358,26 +2358,1902 @@ do
 end
 
 -- ==== src/60_skin.lua ====
--- skin: panels, icons, fonts (P3). Stub: the owner replaces this fragment.
+-- skin (P3): the themed atlases and fonts of P1 (SKIN.atlas, SKIN.fonts from 55_atlas.lua), loaded once without
+-- mips, and the drawing helpers every UI fragment uses: nine-slices that put a shape's visible edge on the given rect
+-- (the baked shadow margin goes outside it), atlas icons in four states, and text in the four baked fonts with a
+-- cached measure (I4: no layout of the same string twice). Every helper falls back to plain rects and the default
+-- font when an atlas or a font is missing, so a broken file shows an ugly player, never no player.
 do
+  -- Palette of design 2.8 (r-style.md 2), 0xRRGGBB.
+  SKIN.C = {
+    panel = 0x1D5060, panelTop = 0x1F5E70, dark = 0x153443, dark2 = 0x194356, light = 0x31636B, light2 = 0x477776,
+    btn = 0x005372, btnHover = 0x0E6C8E, btnPress = 0x00435C, off = 0x605284, offText = 0x94A1B8,
+    cream = 0xFEE195, title = 0xFFF59B, gold = 0xEFDE84, paper = 0xFFEFD6, ink = 0x1A1004, black = 0x000000,
+    white = 0xFFFFFF, seek = 0xFFD24A, buffered = 0x477776, error = 0xE8221A, ok = 0x5BD15B, warn = 0xFFB020,
+  }
+  local C = SKIN.C
+  local STATE = {normal = 1, hover = 2, press = 3, off = 4}
+
+  local tex = {}             -- panels, icons, cursor -> texture id (false once a load failed)
+  local fonts = {}           -- display, display_s, body, body_s -> font id (false once a load failed)
+  local loaded = false
+  local uv = {}              -- "panels:name" / "icons:name:state" -> {u0, v0, u1, v1}
+
+  SKIN.alpha = 1             -- multiplies every colour drawn; a caller sets it around a faded surface
+  SKIN.s = 1                 -- the layout scale (LAYOUT.scale()), set once per frame by MAIN
+
+  local function loadTex(key)
+    local a = SKIN.atlas and SKIN.atlas[key]
+    if not a then return false end
+    local ok, id, why = pcall(wum.draw.texture, a.file, {mips = false})
+    if ok and id then return id end
+    U.log("warn", "could not load", a.file, ok and why or id)
+    return false
+  end
+
+  -- Loads the textures and fonts the first time a frame draws (the draw callback is where the game has a context).
+  function SKIN.ensure()
+    if loaded then return end
+    loaded = true
+    for _, k in ipairs{"panels", "icons", "cursor"} do tex[k] = loadTex(k) end
+    for _, k in ipairs{"display", "display_s", "body", "body_s"} do
+      local f = SKIN.fonts and SKIN.fonts[k]
+      local ok, id, why = false, nil, nil
+      if f and wum.draw.font then ok, id, why = pcall(wum.draw.font, f.png, f.json) end
+      fonts[k] = ok and id or false
+      if f and not fonts[k] then U.log("warn", "could not load font", f.png, ok and why or id) end
+    end
+  end
+
+  function SKIN.texture(key) return tex[key] or nil end
+  function SKIN.font(key) return fonts[key] or nil end
+
+  -- 0xRRGGBBAA from 0xRRGGBB and an alpha 0..1, times SKIN.alpha.
+  function SKIN.col(rgb, a)
+    local al = math.floor(U.clamp((a or 1) * SKIN.alpha, 0, 1) * 255 + 0.5)
+    return ((rgb or 0xFFFFFF) << 8) | al
+  end
+  local col = SKIN.col
+
+  local function rectUV(atlas, r)
+    return {r.x / atlas.w, r.y / atlas.h, (r.x + r.w) / atlas.w, (r.y + r.h) / atlas.h}
+  end
+
+  local function panelRect(name)
+    local p = SKIN.atlas and SKIN.atlas.panels
+    return p and p.rects[name], p
+  end
+
+  local function cachedUV(key, atlas, r)
+    local u = uv[key]
+    if not u then
+      u = rectUV(atlas, r)
+      uv[key] = u
+    end
+    return u
+  end
+
+  local FALLBACK = {panel = C.panel, panel_dark = C.dark, tooltip = C.dark2, btn = C.btn, btn_hover = C.btnHover,
+    btn_press = C.btnPress, btn_off = C.off, pill = C.panel, tag = C.paper, well = C.dark, bar_track = C.dark,
+    bar_fill = C.seek, frame_video = C.black, frame_corner = C.black}
+
+  -- A nine-slice whose visible shape covers x0..x1, y0..y1. The scale is the 2x atlas at the layout scale, shrunk when
+  -- the rect is smaller than the corners. o: {tint = 0xRRGGBB, a = alpha, s = scale}.
+  function SKIN.nine(name, x0, y0, x1, y1, o)
+    local r, atlas = panelRect(name)
+    local w, h = x1 - x0, y1 - y0
+    if w <= 0 or h <= 0 then return end
+    local tint, a = o and o.tint or 0xFFFFFF, o and o.a or 1
+    if not r or not tex.panels then
+      local fill = tint ~= 0xFFFFFF and tint or FALLBACK[name] or C.panel
+      wum.draw.hudRect(x0, y0, x1, y1, col(fill, a), true)
+      wum.draw.hudRect(x0, y0, x1, y1, col(C.black, a), false, 2)
+      return
+    end
+    local ns = 0.5 * (o and o.s or SKIN.s)
+    local pad = r.pad
+    local vlr, vtb = (r.l - pad.l) + (r.r - pad.r), (r.t - pad.t) + (r.b - pad.b)
+    if vlr > 0 and w < vlr * ns then ns = w / vlr end
+    if vtb > 0 and h < vtb * ns then ns = h / vtb end
+    local u = cachedUV("panels:" .. name, atlas, r)
+    wum.draw.hudNine(x0 - pad.l * ns, y0 - pad.t * ns, x1 + pad.r * ns, y1 + pad.b * ns, tex.panels,
+      r.l, r.t, r.r, r.b, {scale = ns, uv = u, tint = col(tint, a)})
+  end
+
+  -- A video frame drawn around a picture rect, so that its hole is exactly the picture (design 2.8: the frame hugs
+  -- the rect wum.draw.media returned; its inner corners cover the picture's corners).
+  function SKIN.frameAround(name, x0, y0, x1, y1, o)
+    local r = panelRect(name)
+    local s = o and o.s or SKIN.s
+    if not r or not r.inner or not tex.panels then
+      local b = 6 * s
+      SKIN.rect(x0 - b, y0 - b, x1 + b, y1 + b, C.black, o and o.a)
+      return
+    end
+    local ns = 0.5 * s
+    local p, i = r.pad, r.inner
+    SKIN.nine(name, x0 - (i.l - p.l) * ns, y0 - (i.t - p.t) * ns, x1 + (i.r - p.r) * ns, y1 + (i.b - p.b) * ns,
+      {tint = o and o.tint, a = o and o.a, s = s})
+  end
+
+  -- A plain (not sliced) part of the panels atlas stretched over the rect, its shadow margin outside: scrim,
+  -- divider, swash, knob, tail.
+  function SKIN.part(name, x0, y0, x1, y1, o)
+    local r, atlas = panelRect(name)
+    local a = o and o.a or 1
+    if not r or not tex.panels then
+      if name ~= "scrim" then wum.draw.hudRect(x0, y0, x1, y1, col(o and o.tint or C.black, a * 0.5), true) end
+      return
+    end
+    local pad = r.pad
+    local vw, vh = r.w - pad.l - pad.r, r.h - pad.t - pad.b
+    local kx, ky = (x1 - x0) / math.max(vw, 1), (y1 - y0) / math.max(vh, 1)
+    local u = cachedUV("panels:" .. name, atlas, r)
+    wum.draw.hudImageUV(x0 - pad.l * kx, y0 - pad.t * ky, x1 + pad.r * kx, y1 + pad.b * ky, tex.panels,
+      u[1], u[2], u[3], u[4], col(o and o.tint or 0xFFFFFF, a))
+  end
+
+  -- An icon `size` pixels square at x, y. state: "normal", "hover", "press" or "off".
+  function SKIN.icon(name, x, y, size, state, o)
+    local icons = SKIN.atlas and SKIN.atlas.icons
+    local rs = icons and icons.rects[name]
+    local si = STATE[state or "normal"] or 1
+    local a = o and o.a or 1
+    if not rs or not tex.icons then
+      local c = si == 4 and C.offText or (si == 2 and C.white or C.cream)
+      local inset = size * 0.25
+      wum.draw.hudRect(x + inset, y + inset, x + size - inset, y + size - inset, col(c, a), true)
+      return
+    end
+    local u = cachedUV("icons:" .. name .. ":" .. si, icons, rs[si] or rs[1])
+    wum.draw.hudImageUV(x, y, x + size, y + size, tex.icons, u[1], u[2], u[3], u[4], col(o and o.tint or 0xFFFFFF, a))
+  end
+
+  ---------------------------------------------------------------- text
+
+  -- The baked font for a style ("display" or "body") at a pixel size: the nearer of its two bakes.
+  local function fontFor(kind, size)
+    if kind == "display" then
+      if size >= 24 then return fonts.display or fonts.display_s or nil end
+      return fonts.display_s or fonts.display or nil
+    end
+    if size >= 18 then return fonts.body or fonts.body_s or nil end
+    return fonts.body_s or fonts.body or nil
+  end
+  SKIN.fontFor = fontFor
+
+  -- Measures are cached per (style, size, text): the queue and the peers list draw the same strings every frame.
+  local MEASURE_CAP = 600
+  local measures, nMeasures = {}, 0
+
+  function SKIN.measure(text, size, kind)
+    text = tostring(text)
+    size = math.floor(size * 2 + 0.5) / 2
+    kind = kind or "body"
+    local key = kind .. "\0" .. size .. "\0" .. text
+    local m = measures[key]
+    if m then return m[1], m[2] end
+    local f = fontFor(kind, size)
+    local ok, w, h
+    if f then ok, w, h = pcall(wum.draw.textSize, text, size, {font = f})
+    else ok, w, h = pcall(wum.draw.textSize, text, size) end
+    if not ok or type(w) ~= "number" then w, h = #text * size * 0.5, size end
+    if type(h) ~= "number" then h = size end
+    if nMeasures >= MEASURE_CAP then measures, nMeasures = {}, 0 end
+    measures[key] = {w, h}
+    nMeasures = nMeasures + 1
+    return w, h
+  end
+
+  -- Text whose top-left (or top-centre / top-right with o.align) is x, y. o: {kind = "display"|"body", align,
+  -- maxWidth (cut with an ellipsis), a, vcenter = a box height to centre the line in}.
+  function SKIN.text(x, y, text, size, rgb, o)
+    text = tostring(text)
+    if text == "" then return end
+    local kind = o and o.kind or "body"
+    local f = fontFor(kind, size)
+    if o and o.vcenter then
+      local _, h = SKIN.measure(text, size, kind)
+      y = y + (o.vcenter - h) / 2
+    end
+    local opts = {align = o and o.align or "left"}
+    if f then opts.font = f else opts.shadow = col(C.black, o and o.a or 1) end
+    if o and o.maxWidth then
+      opts.maxWidth = math.max(1, o.maxWidth)
+      opts.ellipsis = true
+    end
+    wum.draw.hudText(x, y, text, col(rgb or C.cream, o and o.a or 1), size, opts)
+  end
+
+  -- Word wrap to a width, cached like the measures: an array of lines (at most maxLines, the last one marked "...").
+  local wraps, nWraps = {}, 0
+  function SKIN.wrap(text, size, kind, width, maxLines)
+    text = tostring(text)
+    local key = (kind or "body") .. "\0" .. size .. "\0" .. math.floor(width) .. "\0" .. (maxLines or 0) .. "\0" .. text
+    local hit = wraps[key]
+    if hit then return hit end
+    local lines, line = {}, ""
+    for word in text:gmatch("%S+") do
+      local try = line == "" and word or (line .. " " .. word)
+      if line ~= "" and SKIN.measure(try, size, kind) > width then
+        lines[#lines + 1] = line
+        line = word
+      else
+        line = try
+      end
+    end
+    if line ~= "" then lines[#lines + 1] = line end
+    if maxLines and #lines > maxLines then
+      for i = #lines, maxLines + 1, -1 do lines[i] = nil end
+      lines[maxLines] = lines[maxLines] .. " ..."
+    end
+    if nWraps >= 64 then wraps, nWraps = {}, 0 end
+    wraps[key] = lines
+    nWraps = nWraps + 1
+    return lines
+  end
+
+  -- A plain filled rect in the palette (fills the atlas has no piece for: progress, markers, the empty video well).
+  function SKIN.rect(x0, y0, x1, y1, rgb, a)
+    if x1 <= x0 or y1 <= y0 then return end
+    wum.draw.hudRect(x0, y0, x1, y1, col(rgb, a), true)
+  end
+
+  -- The spinner frame for now (12 frames a second).
+  function SKIN.spinner()
+    return "spinner" .. (math.floor(U.now() / 83) % 8 + 1)
+  end
+
+  -- Clips nest at most 4 deep in the core; callers use at most two.
+  function SKIN.clip(x0, y0, x1, y1)
+    if wum.draw.hudClip then wum.draw.hudClip(x0, y0, x1, y1) end
+  end
+  function SKIN.clipEnd()
+    if wum.draw.hudClipEnd then wum.draw.hudClipEnd() end
+  end
 end
 
 -- ==== src/70_widgets.lua ====
--- widgets (P3). Stub: the owner replaces this fragment.
+-- widgets (P3): immediate-mode controls drawn with SKIN. Every control claims its rect with wum.input.region in the
+-- frame it is drawn (so its clicks never reach the game) and reads the melange.input.* events Melange delivers to
+-- Holo only: a click is a press and a release in the same region, consumed by the control drawn with that id in a
+-- later frame. Text boxes take keyboard focus (wum.input.focus) on a click and edit with a caret and a selection.
+-- W.active = false draws controls without regions, hover or clicks (a surface that is faded, or under a modal).
 do
+  local C = SKIN.C
+  local CLICK_TTL = 500            -- ms an unconsumed click waits for its control
+  local MAX_TEXT = 4096            -- bytes in a text box (a link: classify refuses more)
+
+  W.active = true
+  W.mx, W.my, W.src = nil, nil, nil
+  W.lastMove = -1e9                -- U.now() of the last cursor motion
+
+  local pressed = {}               -- region id -> U.now() of the press we took, until its release
+  local clicks = {}                -- region id -> {at, x, y}
+  local wheel = {}                 -- region id -> notches
+  local claimed = {}               -- region ids claimed this frame
+  local focusBox = nil             -- the text box state that has the keyboard
+  local keyq = {}                  -- key, char and paste events for it
+  local popover = nil              -- {id, x0, y0, x1, y1, items, pick, seen}
+  local lastX, lastY = nil, nil
+
+  local function now() return U.now() end
+
+  function W.blur()
+    if not focusBox then return end
+    focusBox.focused = false
+    focusBox = nil
+    keyq = {}
+    pcall(wum.input.focus, false)
+  end
+
+  function W.closePopover() popover = nil end
+
+  wum.events.on("melange.input.mouse", U.guard("w.mouse", function(p)
+    local r = type(p.region) == "string" and p.region or nil
+    if not r or (p.button ~= nil and p.button ~= "left") then return end
+    if p.down then
+      pressed[r] = now()
+      if focusBox and focusBox.id ~= r then W.blur() end
+      if popover and r:sub(1, #popover.id) ~= popover.id and r ~= popover.opener then popover = nil end
+    else
+      if pressed[r] then clicks[r] = {at = now(), x = U.num(p.x), y = U.num(p.y)} end
+      pressed = {}
+    end
+  end))
+
+  wum.events.on("melange.input.wheel", U.guard("w.wheel", function(p)
+    local r, d = type(p.region) == "string" and p.region, U.num(p.delta)
+    if r and d then wheel[r] = (wheel[r] or 0) + d end
+  end))
+
+  for _, name in ipairs{"key", "char", "paste"} do
+    wum.events.on("melange.input." .. name, U.guard("w." .. name, function(p)
+      if focusBox and #keyq < 64 then
+        p.kind = name
+        keyq[#keyq + 1] = p
+      end
+    end))
+  end
+
+  ---------------------------------------------------------------- frame
+
+  function W.beginFrame()
+    local ok, x, y, src = pcall(wum.input.cursor)
+    if ok and type(x) == "number" and type(y) == "number" then
+      W.mx, W.my, W.src = x, y, src
+      if x ~= lastX or y ~= lastY then
+        lastX, lastY = x, y
+        W.lastMove = now()
+      end
+    else
+      W.mx, W.my, W.src = nil, nil, nil
+      lastX, lastY = nil, nil
+    end
+    claimed = {}
+    W.active = true
+    local n = now()
+    for id, c in pairs(clicks) do
+      if n - c.at > CLICK_TTL then clicks[id] = nil end
+    end
+    if popover then popover.seen = false end
+  end
+
+  function W.endFrame()
+    -- a held press whose control is gone (the panel closed under the mouse) is dropped
+    for id in pairs(pressed) do
+      if not claimed[id] then pressed[id] = nil end
+    end
+    wheel = {}
+    if focusBox and not focusBox.drawn then W.blur() end
+    if focusBox then focusBox.drawn = false end
+  end
+
+  function W.inside(x0, y0, x1, y1)
+    local x, y = W.mx, W.my
+    return x ~= nil and x >= x0 and x < x1 and y >= y0 and y < y1
+  end
+
+  -- Claims a rect for this frame (it must be renewed every frame while it shows). false while inactive, and while
+  -- there is no cursor: in a match without pointer mode the game keeps the mouse at the centre of the window, so a
+  -- region there (the setup panel) would take the fire button.
+  function W.region(id, x0, y0, x1, y1, cursor)
+    if not W.active or W.mx == nil or x1 <= x0 or y1 <= y0 then return false end
+    claimed[id] = true
+    local ok, got = pcall(wum.input.region, id, x0, y0, x1, y1, {cursor = cursor or "hand"})
+    return ok and got == true
+  end
+
+  -- Consumes a click on a region: the click table {x, y} or nil.
+  function W.clicked(id)
+    local c = clicks[id]
+    if not c then return nil end
+    clicks[id] = nil
+    if not W.active then return nil end
+    return c
+  end
+
+  function W.held(id) return W.active and pressed[id] ~= nil end
+
+  function W.wheel(id)
+    local d = wheel[id]
+    wheel[id] = nil
+    return d or 0
+  end
+
+  -- "off", "press", "hover" or "normal" for a control at a rect.
+  function W.state(id, x0, y0, x1, y1, enabled)
+    if enabled == false then return "off" end
+    if not W.active then return "normal" end
+    if pressed[id] then return "press" end
+    if W.inside(x0, y0, x1, y1) then return "hover" end
+    return "normal"
+  end
+
+  ---------------------------------------------------------------- buttons
+
+  local NINE = {normal = "btn", hover = "btn_hover", press = "btn_press", off = "btn_off"}
+
+  -- A pill button with a label and an optional icon. o: {icon, enabled, size (text px), kind = "display"|"body",
+  -- on (drawn pressed, a toggled chip)}. Returns true when clicked (and enabled).
+  function W.button(id, x0, y0, x1, y1, label, o)
+    local enabled = not (o and o.enabled == false)
+    W.region(id, x0, y0, x1, y1)
+    local st = W.state(id, x0, y0, x1, y1, enabled)
+    if o and o.on and st == "normal" then st = "press" end
+    SKIN.nine(NINE[st], x0, y0, x1, y1)
+    local h = y1 - y0
+    local size = o and o.size or math.floor(h * 0.42 + 0.5)
+    local tx, maxW = (x0 + x1) / 2, (x1 - x0) - h * 0.5
+    local icon = o and o.icon
+    if icon then
+      local is = h * 0.62
+      if label and label ~= "" then
+        local tw = math.min(SKIN.measure(label, size, o.kind or "display"), maxW - is)
+        local left = (x0 + x1) / 2 - (is + tw + h * 0.08) / 2
+        SKIN.icon(icon, left, y0 + (h - is) / 2 - h * 0.04, is, enabled and "normal" or "off")
+        tx, maxW = left + is + h * 0.08 + tw / 2, tw + 1
+      else
+        SKIN.icon(icon, (x0 + x1 - is) / 2, y0 + (h - is) / 2 - h * 0.04, is, enabled and "normal" or "off")
+      end
+    end
+    if label and label ~= "" then
+      SKIN.text(tx, y0 - h * 0.05, label, size, enabled and C.cream or C.offText,
+        {kind = o and o.kind or "display", align = "center", maxWidth = maxW, vcenter = h})
+    end
+    local c = W.clicked(id)
+    return enabled and c ~= nil
+  end
+
+  -- A bare atlas icon as a button, `size` square at x, y. Returns true when clicked (and enabled).
+  function W.iconButton(id, icon, x, y, size, enabled, on)
+    enabled = enabled ~= false
+    W.region(id, x, y, x + size, y + size)
+    local st = W.state(id, x, y, x + size, y + size, enabled)
+    if on and st == "normal" then st = "press" end
+    SKIN.icon(icon, x, y, size, st)
+    local c = W.clicked(id)
+    return enabled and c ~= nil
+  end
+
+  ---------------------------------------------------------------- sliders
+
+  -- A horizontal bar (the volume): returns value (0..1), changed, released. Drag while held; a click sets it.
+  -- o: {enabled, readonly (drawn as enabled, takes no input), buffered (0..1, drawn under the fill), marker (0..1, a
+  -- thin host marker), grab (extra px around)}.
+  function W.slider(id, x0, y0, x1, y1, value, o)
+    local enabled = not (o and o.enabled == false)
+    local input = enabled and not (o and o.readonly)
+    local grab = o and o.grab or 0
+    if input then W.region(id, x0 - grab, y0 - grab, x1 + grab, y1 + grab) end
+    local v, changed, released = U.clamp(U.num(value) or 0, 0, 1), false, false
+    local w = math.max(x1 - x0, 1)
+    if input then
+      local c = W.clicked(id)
+      if c and c.x then
+        v, changed, released = U.clamp((c.x - x0) / w, 0, 1), true, true
+      elseif W.held(id) and W.mx then
+        v, changed = U.clamp((W.mx - x0) / w, 0, 1), true
+      end
+    end
+    local h = y1 - y0
+    SKIN.nine("bar_track", x0, y0, x1, y1)
+    local inset = h * 0.2
+    local fx0, fy0, fx1, fy1 = x0 + inset, y0 + inset, x1 - inset, y1 - inset
+    local fw = fx1 - fx0
+    local b = o and U.num(o.buffered)
+    if b and b > v then SKIN.rect(fx0, fy0, fx0 + fw * U.clamp(b, 0, 1), fy1, C.buffered) end
+    if v > 0 then SKIN.nine("bar_fill", fx0, fy0, fx0 + math.max(fw * v, fy1 - fy0), fy1,
+      {tint = enabled and 0xFFFFFF or C.offText}) end
+    local m = o and U.num(o.marker)
+    if m then
+      local mx = fx0 + fw * U.clamp(m, 0, 1)
+      SKIN.rect(mx - h * 0.08, y0 - h * 0.3, mx + h * 0.08, y1 + h * 0.3, C.white)
+    end
+    if input and (W.held(id) or W.state(id, x0, y0, x1, y1, true) == "hover") then
+      local k = h * 1.6
+      local kx = fx0 + fw * v
+      SKIN.part("knob", kx - k / 2, (y0 + y1 - k) / 2, kx + k / 2, (y0 + y1 + k) / 2)
+    end
+    return v, changed, released
+  end
+
+  ---------------------------------------------------------------- popovers
+
+  -- A list that opens above (or below) an anchor rect; items {{label, value, on, enabled}}, pick(value) on a click.
+  -- Opening the same id again closes it. The control that opened it (or `owner`, the control of a parent popover)
+  -- calls W.isOpen(id) every frame it shows, or the popover closes (its owner went away).
+  function W.togglePopover(id, x0, y0, x1, y1, items, pick, title, owner)
+    if popover and popover.id == id then
+      popover = nil
+      return
+    end
+    popover = {id = id, opener = owner or id, x0 = x0, y0 = y0, x1 = x1, y1 = y1, items = items, pick = pick,
+      title = title, seen = true}
+  end
+
+  function W.isOpen(id)
+    if popover and (popover.id == id or popover.opener == id) then
+      popover.seen = true
+      return popover.id == id or popover.opener == id
+    end
+    return false
+  end
+
+  function W.popoverOpen() return popover ~= nil end
+
+  -- Draws the open popover last (on top, its regions above everything else of Holo's).
+  function W.drawPopover()
+    local p = popover
+    if not p then return end
+    if not p.seen then
+      popover = nil
+      return
+    end
+    local s = SKIN.s
+    local rowH, padX = 34 * s, 14 * s
+    local size = 18 * s
+    local w = 0
+    for _, it in ipairs(p.items) do w = math.max(w, SKIN.measure(it.label, size, "body")) end
+    if p.title then w = math.max(w, SKIN.measure(p.title, size * 0.9, "display")) end
+    w = math.max(w + padX * 2 + 24 * s, 120 * s)
+    local h = #p.items * rowH + (p.title and rowH or 0) + 16 * s
+    local ww = select(1, wum.render.windowSize())
+    local x0 = U.clamp((p.x0 + p.x1) / 2 - w / 2, 8 * s, ww - w - 8 * s)
+    local y1 = p.y0 - 8 * s
+    local y0 = y1 - h
+    if y0 < 8 * s then
+      y0 = p.y1 + 8 * s
+      y1 = y0 + h
+    end
+    W.region(p.id .. "#", x0, y0, x0 + w, y1, "arrow")
+    SKIN.nine("tooltip", x0, y0, x0 + w, y1)
+    local y = y0 + 8 * s
+    if p.title then
+      SKIN.text(x0 + padX, y, p.title, size * 0.9, C.gold, {kind = "display", vcenter = rowH})
+      y = y + rowH
+    end
+    for i, it in ipairs(p.items) do
+      local rid = p.id .. "#" .. i
+      local enabled = it.enabled ~= false
+      W.region(rid, x0 + 4 * s, y, x0 + w - 4 * s, y + rowH)
+      local st = W.state(rid, x0, y, x0 + w, y + rowH, enabled)
+      if it.on or st == "hover" or st == "press" then
+        SKIN.part("swash", x0 + 6 * s, y + 2 * s, x0 + w - 6 * s, y + rowH - 2 * s, {a = it.on and 1 or 0.6})
+      end
+      if it.on then SKIN.icon("check", x0 + padX * 0.5, y + (rowH - 22 * s) / 2, 22 * s) end
+      SKIN.text(x0 + padX + 18 * s, y, it.label, size, enabled and (it.on and C.title or C.cream) or C.offText,
+        {vcenter = rowH, maxWidth = w - padX * 2 - 18 * s})
+      if W.clicked(rid) and enabled then
+        popover = nil
+        local ok, err = pcall(p.pick, it.value)
+        if not ok then U.log("error", "popover", err) end
+        return
+      end
+      y = y + rowH
+    end
+  end
+
+  ---------------------------------------------------------------- text box
+
+  -- UTF-8 steps over a byte caret (0 = before the first byte).
+  local function prevChar(s, i)
+    if i <= 0 then return 0 end
+    i = i - 1
+    while i > 0 do
+      local b = s:byte(i + 1)
+      if b < 0x80 or b >= 0xC0 then break end
+      i = i - 1
+    end
+    return i
+  end
+  local function nextChar(s, i)
+    if i >= #s then return #s end
+    i = i + 1
+    while i < #s do
+      local b = s:byte(i + 1)
+      if b < 0x80 or b >= 0xC0 then break end
+      i = i + 1
+    end
+    return i
+  end
+  W.prevChar, W.nextChar = prevChar, nextChar
+
+  local KEYS = {RETURN = "enter", ENTER = "enter", NUMPADENTER = "enter", BACK = "backspace", BACKSPACE = "backspace",
+    DELETE = "delete", DEL = "delete", LEFT = "left", RIGHT = "right", HOME = "home", END = "end",
+    ESCAPE = "esc", ESC = "esc", A = "a", TAB = "tab"}
+
+  -- Key names come as the core's keys.h names ("RETURN", "BACK", "LEFT"); labels such as "Enter" read the same.
+  local function keyName(k)
+    if type(k) ~= "string" then return nil end
+    return KEYS[k:upper()]
+  end
+
+  -- A text box state: {id, text, caret, anchor (selection start or nil), focused, scroll}.
+  function W.newText(id, text)
+    return {id = id, text = text or "", caret = #(text or ""), anchor = nil, focused = false, scroll = 0}
+  end
+
+  local function selRange(st)
+    if not st.anchor or st.anchor == st.caret then return nil end
+    return math.min(st.anchor, st.caret), math.max(st.anchor, st.caret)
+  end
+
+  local function replaceSel(st, ins)
+    local a, b = selRange(st)
+    if not a then a, b = st.caret, st.caret end
+    ins = ins:gsub("[%c]", " ")
+    local room = MAX_TEXT - (#st.text - (b - a))
+    if #ins > room then
+      ins = ins:sub(1, math.max(room, 0))
+      while #ins > 0 and not utf8.len(ins) do ins = ins:sub(1, -2) end
+    end
+    st.text = st.text:sub(1, a) .. ins .. st.text:sub(b + 1)
+    st.caret, st.anchor = a + #ins, nil
+  end
+
+  local function move(st, to, shift)
+    if shift then
+      if not st.anchor then st.anchor = st.caret end
+    else
+      st.anchor = nil
+    end
+    st.caret = U.clamp(to, 0, #st.text)
+  end
+
+  -- Applies one key, char or paste event. Returns "submit", "changed" or nil.
+  function W.textKey(st, e)
+    if e.kind == "char" and type(e.text) == "string" then
+      replaceSel(st, e.text)
+      return "changed"
+    elseif e.kind == "paste" and type(e.text) == "string" then
+      replaceSel(st, e.text:gsub("[\r\n\t]+", " "))
+      return "changed"
+    elseif e.kind ~= "key" or not e.down then
+      return nil
+    end
+    local k = keyName(e.key)
+    local a, b = selRange(st)
+    if k == "enter" then return "submit"
+    elseif k == "esc" then W.blur()
+    elseif k == "backspace" then
+      if a then replaceSel(st, "") elseif st.caret > 0 then
+        local p = prevChar(st.text, st.caret)
+        st.text = st.text:sub(1, p) .. st.text:sub(st.caret + 1)
+        st.caret = p
+      end
+      return "changed"
+    elseif k == "delete" then
+      if a then replaceSel(st, "") elseif st.caret < #st.text then
+        st.text = st.text:sub(1, st.caret) .. st.text:sub(nextChar(st.text, st.caret) + 1)
+      end
+      return "changed"
+    elseif k == "left" then
+      if a and not e.shift then move(st, a, false) else move(st, prevChar(st.text, st.caret), e.shift) end
+    elseif k == "right" then
+      if a and not e.shift then move(st, b, false) else move(st, nextChar(st.text, st.caret), e.shift) end
+    elseif k == "home" then move(st, 0, e.shift)
+    elseif k == "end" then move(st, #st.text, e.shift)
+    elseif k == "a" and e.ctrl then
+      st.anchor, st.caret = 0, #st.text
+    end
+    return nil
+  end
+
+  -- The byte caret nearest to a pixel offset into the text.
+  local function caretAt(st, px, size)
+    local best, bestD, i = 0, math.abs(px), 0
+    while i < #st.text do
+      i = nextChar(st.text, i)
+      local d = math.abs(SKIN.measure(st.text:sub(1, i), size, "body") - px)
+      if d < bestD then best, bestD = i, d end
+    end
+    return best
+  end
+
+  -- Draws and runs a text box. Returns "submit" (Enter), "changed" or nil. o: {placeholder, size, enabled}.
+  function W.textbox(st, x0, y0, x1, y1, o)
+    local id = st.id
+    local enabled = not (o and o.enabled == false)
+    local h = y1 - y0
+    local size = o and o.size or math.floor(h * 0.45 + 0.5)
+    local padX = h * 0.35
+    if enabled then W.region(id, x0, y0, x1, y1, "ibeam") end
+    SKIN.nine("well", x0, y0, x1, y1)
+    local result
+    local c = enabled and W.clicked(id)
+    if c then
+      if not st.focused then
+        local ok, got = pcall(wum.input.focus, true)
+        if ok and got then
+          if focusBox and focusBox ~= st then W.blur() end
+          focusBox, st.focused, keyq = st, true, {}
+        end
+      end
+      if c.x then move(st, caretAt(st, c.x - (x0 + padX) + st.scroll, size), false) end
+    end
+    if not enabled and st.focused then W.blur() end
+    if st.focused then
+      st.drawn = true
+      local q = keyq
+      keyq = {}
+      for _, e in ipairs(q) do
+        local r = W.textKey(st, e)
+        if r == "submit" then result = "submit" elseif r == "changed" and result == nil then result = "changed" end
+        if not st.focused then break end
+      end
+    end
+    -- keep the caret in view
+    local inner = (x1 - x0) - padX * 2
+    local cx = SKIN.measure(st.text:sub(1, st.caret), size, "body")
+    if cx - st.scroll > inner then st.scroll = cx - inner end
+    if cx - st.scroll < 0 then st.scroll = cx end
+    if st.scroll < 0 then st.scroll = 0 end
+    SKIN.clip(x0 + padX * 0.5, y0, x1 - padX * 0.5, y1)
+    local tx = x0 + padX - st.scroll
+    if st.text == "" and not st.focused then
+      SKIN.text(x0 + padX, y0, o and o.placeholder or "", size, C.offText, {vcenter = h, maxWidth = inner})
+    else
+      local a, b = selRange(st)
+      if a and st.focused then
+        local sx0 = tx + SKIN.measure(st.text:sub(1, a), size, "body")
+        local sx1 = tx + SKIN.measure(st.text:sub(1, b), size, "body")
+        SKIN.rect(sx0, y0 + h * 0.2, sx1, y1 - h * 0.2, C.btnHover, 0.9)
+      end
+      SKIN.text(tx, y0, st.text, size, C.cream, {vcenter = h})
+      if st.focused and math.floor(U.now() / 530) % 2 == 0 then
+        SKIN.rect(tx + cx, y0 + h * 0.22, tx + cx + math.max(2, 2 * SKIN.s), y1 - h * 0.22, C.title)
+      end
+    end
+    SKIN.clipEnd()
+    return result
+  end
+
+  function W.focused() return focusBox end
 end
 
 -- ==== src/80_player_ui.lua ====
--- player UI (P3). Stub: the owner replaces this fragment.
+-- player UI (P3): the video in its frame at the LAYOUT rect (corner or half panel), the control bar of design 2.7,
+-- the minimised pill and the small idle pills (Watch party, Join, Continue party). The picture comes from
+-- wum.draw.media(PARTY.player(), ...) and the frame hugs the rect it returns. Controls show 100 ms after the cursor
+-- enters the player and hide 1.5 s after it stops moving; their rects are claimed only while they show and only
+-- while LAYOUT.interactive() (not faded, not auto-hidden). Peers get the same bar read-only for the shared controls
+-- (play, seek, skip, speed) and their own volume, subtitles, audio track and quality.
 do
+  local C = SKIN.C
+  local SHOW_AFTER, HIDE_AFTER, FADE = 100, 1500, 0.25   -- ms, ms, s
+  local SCRUB_EVERY = 150                                 -- ms between keyframe seeks while dragging
+  local QUALITIES = {360, 480, 720, 1080}
+
+  local hoverSince = nil
+  local ctrlA, lastT = 0, nil
+  local lastScrub = -1e9
+  local shown = false            -- the controls show this frame (and their regions are claimed)
+  local idleDismissed = {}       -- "continue" -> true once the user closed that pill
+  local lastView = "full"        -- the view a hide fades out from
+
+  function PUI.controlsShown() return shown end
+
+  ---------------------------------------------------------------- reads
+
+  local function pstate() return PARTY.state() end
+
+  local function isLive(st)
+    local it = QUEUE.current()
+    if it and it.live then return true end
+    return st ~= nil and not (U.num(st.duration) and st.duration > 0) and PARTY.phase() == "playing"
+  end
+
+  -- The host's position now, from its last st (peers: through the bus clock offset), or nil.
+  function PUI.hostPos()
+    local hs = PARTY.hostState()
+    if type(hs) ~= "table" or not U.num(hs.p) then return nil end
+    local p = hs.p
+    if hs.s == "play" and U.num(hs.a) then
+      local off = 0
+      local c = NET.hostId() and NET.clock(NET.hostId())
+      if c and U.num(c.offset) then off = c.offset end
+      p = p + math.max(0, (U.now() + off) - hs.a) / 1000 * (U.num(hs.r) or 1)
+    end
+    return math.max(0, p)
+  end
+
+  local function speedNow()
+    local hs = PARTY.hostState()
+    local st = pstate()
+    return (hs and U.num(hs.r)) or (st and U.num(st.speed)) or 1
+  end
+
+  local function fmtSpeed(x)
+    local s = string.format("%.2f", x):gsub("0+$", ""):gsub("%.$", "")
+    return s .. "x"
+  end
+
+  local function title()
+    local it = QUEUE.current()
+    local st = pstate()
+    local t = (it and it.title) or (st and st.title) or ""
+    if t == "" then t = "Watch party" end
+    return t
+  end
+
+  local function volIcon()
+    if PARTY.muted() then return "mute" end
+    local v = PARTY.volume()
+    if v <= 0 then return "vol0" elseif v < 50 then return "vol1" end
+    return "vol2"
+  end
+
+  ---------------------------------------------------------------- popovers
+
+  local function trackItems(kind)
+    local st = pstate()
+    local list = st and st.tracks and st.tracks[kind] or {}
+    local items = {}
+    if kind == "sub" then
+      local any = false
+      for _, t in ipairs(list) do any = any or t.selected end
+      items[1] = {label = "Off", value = false, on = not any}
+    end
+    for i, t in ipairs(list) do
+      local label = U.trim(t.title, 40)
+      if label == "" then label = type(t.lang) == "string" and t.lang or ("Track " .. i) end
+      if type(t.lang) == "string" and t.title and t.title ~= "" then label = label .. " (" .. t.lang .. ")" end
+      items[#items + 1] = {label = label, value = t.id, on = t.selected == true}
+    end
+    if #items == 0 then items[1] = {label = "No tracks", value = nil, enabled = false} end
+    return items
+  end
+
+  local openers = {}
+
+  function openers.speed(x0, y0, x1, y1, owner)
+    local items, cur, host = {}, speedNow(), PARTY.role() == "host"
+    for _, s in ipairs(PARTY.SPEEDS) do
+      items[#items + 1] = {label = fmtSpeed(s), value = s, on = math.abs(s - cur) < 0.01, enabled = host}
+    end
+    W.togglePopover("pui.speed", x0, y0, x1, y1, items, function(v) PARTY.setSpeed(v) end,
+      host and "Speed (everyone)" or "Speed (set by the host)", owner)
+  end
+
+  function openers.cc(x0, y0, x1, y1, owner)
+    W.togglePopover("pui.cc", x0, y0, x1, y1, trackItems("sub"), function(v)
+      if v ~= nil then PARTY.setTrack("sub", v) end
+    end, "Subtitles", owner)
+  end
+
+  function openers.audio(x0, y0, x1, y1, owner)
+    W.togglePopover("pui.audio", x0, y0, x1, y1, trackItems("audio"), function(v)
+      if v ~= nil then PARTY.setTrack("audio", v) end
+    end, "Audio track", owner)
+  end
+
+  function openers.quality(x0, y0, x1, y1, owner)
+    local items, q = {}, PARTY.quality()
+    for _, h in ipairs(QUALITIES) do items[#items + 1] = {label = h .. "p", value = h, on = q == h} end
+    W.togglePopover("pui.quality", x0, y0, x1, y1, items, function(v) PARTY.setQuality(v) end, "Max quality",
+      owner)
+  end
+
+  -- The corner's "..." popover holds what the collapsed bar leaves out.
+  function openers.more(x0, y0, x1, y1)
+    local host = PARTY.role() == "host"
+    local items = {
+      {label = "Previous", value = "prev", enabled = host},
+      {label = "Next", value = "next", enabled = host},
+      {label = "Speed: " .. fmtSpeed(speedNow()), value = "speed"},
+      {label = "Audio track", value = "audio"},
+      {label = "Quality: " .. PARTY.quality() .. "p", value = "quality"},
+      {label = "Queue and players", value = "setup"},
+      {label = "Minimise", value = "pill"},
+      {label = "Hide", value = "hide"},
+    }
+    W.togglePopover("pui.more", x0, y0, x1, y1, items, function(v)
+      if v == "prev" then PARTY.prev()
+      elseif v == "next" then PARTY.next()
+      elseif v == "setup" then PARTY.setSetup(true)
+      elseif v == "pill" then LAYOUT.setView("pill")
+      elseif v == "hide" then LAYOUT.setView("hidden")
+      elseif openers[v] then openers[v](x0, y0, x1, y1, "pui.more") end
+    end)
+  end
+  PUI.openers = openers
+
+  -- An icon button that opens a popover; drawn pressed while its popover is open.
+  local function popButton(name, icon, x, y, size)
+    local id = "pui." .. name
+    local open = W.isOpen(id)
+    if W.iconButton(id, icon, x, y, size, true, open) then openers[name](x, y, x + size, y + size) end
+  end
+
+  -- A small text chip (speed, quality, "...") that opens a popover.
+  local function popChip(name, label, x, y, w, h)
+    local id = "pui." .. name
+    local open = W.isOpen(id)
+    if W.button(id, x, y, x + w, y + h, label, {on = open, kind = "display"}) then openers[name](x, y, x + w, y + h) end
+  end
+
+  ---------------------------------------------------------------- shared pieces
+
+  -- The seek bar: the host drags it (keyframe seeks while dragging, an exact seek on release); peers see it
+  -- read-only with a white host marker.
+  local function seekBar(id, x0, y0, x1, y1)
+    local st = pstate()
+    local dur = st and U.num(st.duration) or 0
+    local t = st and U.num(st.time) or 0
+    if isLive(st) then
+      SKIN.nine("bar_track", x0, y0, x1, y1)
+      return
+    end
+    local host = PARTY.role() == "host" and PARTY.player() ~= nil and dur > 0
+    local frac = dur > 0 and t / dur or 0
+    local buffered = dur > 0 and st and U.num(st.cacheAhead) and (t + st.cacheAhead) / dur or nil
+    local marker
+    if PARTY.role() == "peer" and dur > 0 then
+      local hp = PUI.hostPos()
+      if hp then marker = hp / dur end
+    end
+    local v, changed, released = W.slider(id, x0, y0, x1, y1, frac, {readonly = not (host and shown), buffered = buffered,
+      marker = marker, grab = (y1 - y0) * 0.6})
+    if host and changed then
+      local now = U.now()
+      if released then
+        PARTY.seek(v * dur, "exact")
+      elseif now - lastScrub >= SCRUB_EVERY then
+        lastScrub = now
+        PARTY.seek(v * dur, "keyframes")
+      end
+    end
+  end
+
+  local function timeText(st)
+    if isLive(st) then return "LIVE" end
+    local t, d = st and U.num(st.time) or 0, st and U.num(st.duration) or 0
+    return U.fmtTime(t) .. " / " .. U.fmtTime(d)
+  end
+
+  local function driftText(st)
+    if PARTY.role() ~= "peer" or not st or isLive(st) then return nil end
+    local d = U.num(st.drift)
+    if not d then return nil end
+    return string.format("%+.2f s", d)
+  end
+
+  local PHASE_TEXT = {loading = "Loading...", buffering = "Buffering...", ["ended-item"] = "Finished",
+    ["needs-pack"] = "This machine needs the media pack"}
+
+  -- The status over the picture: spinner and text while loading, the pack download while it is missing.
+  local function overlay(vx0, vy0, vx1, vy1, s, big)
+    local ph = PARTY.phase()
+    local cx, cy = (vx0 + vx1) / 2, (vy0 + vy1) / 2
+    if ph == "needs-pack" then
+      local pk = PARTY.pack() or {}
+      local size = (big and 22 or 16) * s
+      if pk.state == "downloading" or pk.state == "verifying" or pk.state == "installing" or pk.state == "updating" then
+        local p = U.clamp(U.num(pk.progress) or 0, 0, 1)
+        SKIN.text(cx, cy - 34 * s, "Downloading the media pack " .. math.floor(p * 100) .. "%", size, C.cream,
+          {align = "center", maxWidth = vx1 - vx0 - 24 * s})
+        local w = (vx1 - vx0) * 0.6
+        SKIN.nine("bar_track", cx - w / 2, cy, cx + w / 2, cy + 12 * s)
+        SKIN.nine("bar_fill", cx - w / 2 + 2 * s, cy + 2 * s, cx - w / 2 + 2 * s + math.max((w - 4 * s) * p, 8 * s),
+          cy + 10 * s)
+        return
+      end
+      SKIN.text(cx, vy0 + 14 * s, PHASE_TEXT[ph], size, C.title, {align = "center", kind = "display",
+        maxWidth = vx1 - vx0 - 24 * s})
+      local mb = math.floor(U.num(pk.downloadMB) or 95)
+      local bw, bh = math.min(320 * s, vx1 - vx0 - 24 * s), 44 * s
+      local by = cy - bh / 2
+      if W.button("pui.pack", cx - bw / 2, by, cx + bw / 2, by + bh, "Download media pack (" .. mb .. " MB)",
+        {icon = "download", size = (big and 20 or 16) * s}) then
+        PARTY.installPack()
+      end
+      local note = big and PARTY.consentText() or ("From Melange's GitHub releases into Documents\\Melange\\media")
+      local lines = SKIN.wrap(note, 14 * s, "body", vx1 - vx0 - 32 * s, big and 5 or 2)
+      for i, ln in ipairs(lines) do
+        SKIN.text(cx, by + bh + 8 * s + (i - 1) * 18 * s, ln, 14 * s, C.cream, {align = "center"})
+      end
+      return
+    end
+    local text = PHASE_TEXT[ph]
+    if ph == "paused" and PARTY.role() == "peer" then text = "Paused by the host" end
+    if ph == "loading" or ph == "buffering" then
+      local is = (big and 56 or 40) * s
+      SKIN.icon(SKIN.spinner(), cx - is / 2, cy - is / 2 - 10 * s, is)
+      SKIN.text(cx, cy + is / 2 - 4 * s, text, (big and 20 or 16) * s, C.cream, {align = "center", kind = "display"})
+    elseif text then
+      SKIN.text(cx, cy - 12 * s, text, (big and 22 or 16) * s, C.cream, {align = "center", kind = "display"})
+    end
+  end
+
+  -- The peers' status icons (ready, buffering, no pack, no Holo, error), right to left from x1.
+  local PEER_ICON = {ready = "check", nopack = "download", noholo = "cross", error = "warning"}
+  local function peerIcons(x1, y, size, max)
+    local peers = PARTY.peers()
+    local x = x1
+    for i = 1, math.min(#peers, max) do
+      local p = peers[i]
+      local icon = p.state == "buffering" and SKIN.spinner() or PEER_ICON[p.state] or "people"
+      x = x - size
+      SKIN.icon(icon, x, y, size, p.state == "noholo" and "off" or "normal")
+      x = x - size * 0.15
+    end
+    return x
+  end
+
+  ---------------------------------------------------------------- the control bars
+
+  local function controlsVisible(hx0, hy0, hx1, hy1, interactive)
+    local now = U.now()
+    local inside = interactive and W.inside(hx0, hy0, hx1, hy1)
+    if inside then hoverSince = hoverSince or now else hoverSince = nil end
+    local want = inside and now - hoverSince >= SHOW_AFTER and now - W.lastMove < HIDE_AFTER
+    -- an open popover, a drag or the pointer over a control keeps them up
+    want = want or (interactive and (W.popoverOpen() or W.held("pui.seek") or W.held("pui.vol")))
+    return want
+  end
+
+  -- The corner's collapsed bar inside the bottom of the picture: play, -10, +10, volume, CC, "...", minimise.
+  local function cornerBar(vx0, vy0, vx1, vy1, s)
+    local host = PARTY.role() == "host"
+    local barH = 56 * s
+    local by0 = vy1 - barH
+    SKIN.part("scrim", vx0, vy1 - barH * 1.8, vx1, vy1, {a = 0.85})
+    W.region("pui.bar", vx0, by0, vx1, vy1, "arrow")
+    seekBar("pui.seek", vx0 + 10 * s, by0 + 2 * s, vx1 - 10 * s, by0 + 12 * s)
+    local is, gap = 32 * s, 4 * s
+    local x, y = vx0 + 8 * s, vy1 - is - 6 * s
+    local playing = PARTY.phase() == "playing" or (PARTY.hostState() or {}).s == "play"
+    if W.iconButton("pui.play", playing and "pause" or "play", x, y, is, host) then PARTY.togglePlay() end
+    x = x + is + gap
+    if W.iconButton("pui.back10", "back10", x, y, is, host) then PARTY.skip(-10) end
+    x = x + is + gap
+    if W.iconButton("pui.fwd10", "fwd10", x, y, is, host) then PARTY.skip(10) end
+    x = x + is + gap
+    if W.iconButton("pui.mute", volIcon(), x, y, is) then PARTY.setMute(not PARTY.muted()) end
+    x = x + is + gap
+    popButton("cc", "cc", x, y, is)
+    x = x + is + gap
+    local rx = vx1 - 8 * s - is
+    if W.iconButton("pui.min", "minimise", rx, y, is) then LAYOUT.setView("pill") end
+    rx = rx - gap - 44 * s
+    popChip("more", "...", rx, y, 44 * s, is)
+    local tx = x + 4 * s
+    if rx - tx > 60 * s then
+      SKIN.text(tx, y, timeText(pstate()), 14 * s, C.cream, {vcenter = is, maxWidth = rx - tx - 4 * s})
+    end
+  end
+
+  -- The half panel's full bar under the picture.
+  local function halfBar(x0, y0, x1, y1, s, interactive)
+    local host = PARTY.role() == "host"
+    local st = pstate()
+    seekBar("pui.seek", x0 + 6 * s, y0 + 6 * s, x1 - 6 * s, y0 + 18 * s)
+    local is, gap = 34 * s, 5 * s
+    local y = y0 + 24 * s
+    local x = x0 + 4 * s
+    local playing = PARTY.phase() == "playing" or (PARTY.hostState() or {}).s == "play"
+    W.active = interactive
+    if W.iconButton("pui.prev", "prev", x, y, is, host) then PARTY.prev() end
+    x = x + is + gap
+    if W.iconButton("pui.back10", "back10", x, y, is, host) then PARTY.skip(-10) end
+    x = x + is + gap
+    if W.iconButton("pui.play", playing and "pause" or "play", x, y, is, host) then PARTY.togglePlay() end
+    x = x + is + gap
+    if W.iconButton("pui.fwd10", "fwd10", x, y, is, host) then PARTY.skip(10) end
+    x = x + is + gap
+    if W.iconButton("pui.next", "next", x, y, is, host) then PARTY.next() end
+    x = x + is + gap * 2
+    -- right side, from the edge inwards
+    local rx = x1 - 4 * s - is
+    if W.iconButton("pui.hide", "hide", rx, y, is) then LAYOUT.setView("hidden") end
+    rx = rx - gap - is
+    if W.iconButton("pui.min", "minimise", rx, y, is) then LAYOUT.setView("pill") end
+    rx = rx - gap - is
+    if W.iconButton("pui.queue", "queue", rx, y, is, true, PARTY.setupOpen()) then PARTY.toggleSetup() end
+    rx = rx - gap - 64 * s
+    popChip("quality", PARTY.quality() .. "p", rx, y, 64 * s, is)
+    rx = rx - gap - is
+    popButton("audio", "audio", rx, y, is)
+    rx = rx - gap - is
+    popButton("cc", "cc", rx, y, is)
+    rx = rx - gap - 60 * s
+    popChip("speed", fmtSpeed(speedNow()), rx, y, 60 * s, is)
+    local sw = 90 * s
+    rx = rx - gap * 2 - sw
+    local v, changed = W.slider("pui.vol", rx, y + is * 0.36, rx + sw, y + is * 0.64, PARTY.volume() / 100,
+      {grab = 8 * s})
+    if changed then
+      PARTY.setVolume(v * 100)
+      if PARTY.muted() and v > 0 then PARTY.setMute(false) end
+    end
+    rx = rx - gap - is
+    if W.iconButton("pui.mute", volIcon(), rx, y, is) then PARTY.setMute(not PARTY.muted()) end
+    -- time (and the peer's drift) between the transport and the right group
+    local text = timeText(st)
+    local drift = driftText(st)
+    if drift then text = text .. "   " .. drift end
+    if rx - x > 40 * s then
+      SKIN.text(x, y, text, 16 * s, C.cream, {vcenter = is, maxWidth = rx - x - 6 * s})
+    end
+  end
+
+  ---------------------------------------------------------------- views
+
+  local function drawFull(s, now, dt)
+    local vx0, vy0, vx1, vy1 = LAYOUT.rect()
+    local half = LAYOUT.anchor() == "half"
+    local interactive = LAYOUT.interactive()
+    local pad, tagH, barH = 12 * s, 44 * s, 64 * s
+    local px0, py0, px1, py1 = vx0 - pad, vy0 - tagH, vx1 + pad, vy1 + barH
+    local hx0, hy0, hx1, hy1 = vx0, vy0, vx1, vy1
+    if half then hx0, hy0, hx1, hy1 = px0, py0, px1, py1 end
+
+    W.active = interactive
+    shown = controlsVisible(hx0, hy0, hx1, hy1, interactive)
+    ctrlA = U.clamp(ctrlA + (shown and 1 or -1) * dt / FADE, 0, 1)
+    local baseA = SKIN.alpha
+
+    if half then
+      SKIN.nine("panel", px0, py0, px1, py1)
+      if shown then
+        W.active = interactive
+        W.region("pui.panel", px0, py0, px1, py1, "arrow")
+      end
+      -- the title tag, and the peers' status at its right
+      local tagW = math.min((px1 - px0) * 0.62, SKIN.measure(title(), 20 * s, "display") + 48 * s)
+      SKIN.nine("tag", px0 + 14 * s, py0 + 6 * s, px0 + 14 * s + tagW, py0 + tagH - 4 * s)
+      SKIN.text(px0 + 14 * s + 20 * s, py0 + 6 * s, title(), 20 * s, C.ink,
+        {kind = "display", vcenter = tagH - 10 * s, maxWidth = tagW - 36 * s})
+      peerIcons(px1 - 14 * s, py0 + 10 * s, 24 * s, 8)
+    end
+
+    -- the picture, then the frame hugging the rect it took
+    local p = PARTY.player()
+    local qx0, qy0, qx1, qy1
+    if p and wum.draw.media then
+      local ok, a, b, c, d = pcall(wum.draw.media, p, vx0, vy0, vx1, vy1, {fit = "contain", alpha = SKIN.alpha})
+      if ok and type(a) == "number" then qx0, qy0, qx1, qy1 = a, b, c, d end
+    end
+    if not qx0 then
+      qx0, qy0, qx1, qy1 = vx0, vy0, vx1, vy1
+      SKIN.rect(qx0, qy0, qx1, qy1, C.dark, 0.92)
+    end
+    SKIN.frameAround(half and "frame_video" or "frame_corner", qx0, qy0, qx1, qy1)
+    overlay(vx0, vy0, vx1, vy1, s, half)
+
+    if half then
+      W.active = shown and interactive
+      halfBar(px0 + pad * 0.5, vy1 + 2 * s, px1 - pad * 0.5, py1 - 4 * s, s, shown and interactive)
+    elseif ctrlA > 0 then
+      SKIN.alpha = baseA * ctrlA
+      W.active = shown and interactive
+      cornerBar(vx0, vy0, vx1, vy1, s)
+      SKIN.alpha = baseA
+    end
+    W.active = true
+  end
+
+  -- The pill: state, title, time and an expand button.
+  local function drawPill(s)
+    local x0, y0, x1, y1 = LAYOUT.pillRect()
+    local h = y1 - y0
+    W.active = LAYOUT.interactive()
+    W.region("pui.pill", x0, y0, x1, y1, "arrow")
+    SKIN.nine("pill", x0, y0, x1, y1)
+    local is = h * 0.62
+    local iy = y0 + (h - is) / 2
+    local ph = PARTY.phase()
+    local host = PARTY.role() == "host"
+    local x = x0 + h * 0.3
+    if ph == "loading" or ph == "buffering" then
+      SKIN.icon(SKIN.spinner(), x, iy, is)
+    elseif ph == "needs-pack" then
+      if W.iconButton("pui.pillpack", "download", x, iy, is) then PARTY.installPack() end
+    else
+      local playing = ph == "playing"
+      if W.iconButton("pui.pillplay", playing and "pause" or "play", x, iy, is, host) then PARTY.togglePlay() end
+    end
+    x = x + is + 6 * s
+    local ex = x1 - h * 0.3 - is
+    if W.iconButton("pui.expand", "expand", ex, iy, is) then LAYOUT.setView("full") end
+    local label = ph == "needs-pack" and "Download media pack" or title()
+    SKIN.text(x, y0 + h * 0.12, label, 15 * s, C.cream, {kind = "display", maxWidth = ex - x - 6 * s})
+    SKIN.text(x, y0 + h * 0.5, ph == "needs-pack" and "Click the arrow to download" or timeText(pstate()), 12 * s,
+      C.gold, {maxWidth = ex - x - 6 * s})
+    W.active = true
+  end
+
+  -- Idle: a "Continue party" pill for a new lobby owner, "Join" for a declined running party, and a "Watch party"
+  -- pill in the lobby. Returns true if it drew one.
+  local function drawIdle(s)
+    if LAYOUT.view() == "hidden" or LAYOUT.autoHidden() then return false end
+    local label, action, icon, dismiss
+    if PARTY.canContinue() and not idleDismissed.continue then
+      label, icon, dismiss = "Continue party", "play", "continue"
+      action = function() PARTY.continueParty() end
+    elseif PARTY.partyRunning() then
+      label, icon = "Join " .. PARTY.hostName() .. "'s watch party", "people"
+      action = function() PARTY.join() end
+    elseif NET.inSession() and NET.phase() == "lobby" and not PARTY.setupOpen() then
+      label, icon = "Watch party", "people"
+      action = function() PARTY.setSetup(true) end
+    else
+      return false
+    end
+    local x0, y0, x1, y1 = LAYOUT.pillRect()
+    local h = y1 - y0
+    local w = math.min(SKIN.measure(label, 17 * s, "display") + h * 1.6 + (dismiss and h or 0), x1 - x0 + 120 * s)
+    if LAYOUT.side() == "right" then x0 = x1 - w else x1 = x0 + w end
+    W.active = LAYOUT.interactive()
+    local bx1 = dismiss and x1 - h * 0.9 or x1
+    if W.button("pui.idle", x0, y0, bx1, y1, label, {icon = icon, size = 17 * s}) then action() end
+    if dismiss and W.iconButton("pui.idlex", "close", bx1 + h * 0.08, y0 + h * 0.14, h * 0.72) then
+      idleDismissed[dismiss] = true
+    end
+    W.active = true
+    return true
+  end
+
+  -- A new owner change offers Continue again.
+  U.on("party.continuePrompt", function() idleDismissed.continue = nil end)
+
+  function PUI.draw()
+    local s = SKIN.s
+    local now = U.now()
+    local dt = lastT and U.clamp((now - lastT) / 1000, 0, 0.25) or 0
+    lastT = now
+    shown = false
+    if not PARTY.active() then
+      hoverSince, ctrlA = nil, 0
+      drawIdle(s)
+      return
+    end
+    local alpha = LAYOUT.alpha()
+    if alpha <= 0.01 then
+      hoverSince, ctrlA = nil, 0
+      return
+    end
+    local base = SKIN.alpha
+    SKIN.alpha = base * alpha
+    local view = LAYOUT.view()
+    if view == "hidden" then view = lastView else lastView = view end
+    if view == "pill" then
+      drawPill(s)
+    elseif view == "full" then
+      drawFull(s, now, dt)
+    end
+    SKIN.alpha = base
+  end
 end
 
 -- ==== src/85_setup.lua ====
--- setup panel (P3). Stub: the owner replaces this fragment.
+-- setup panel (P3): the 960x640 watch-party panel (design 2.7), opened with the setup hotkey, the "Watch party" pill
+-- or the queue button: a link box (focus on click, caret, selection, Ctrl+V, Enter adds, a live classify tick or
+-- cross), the queue (52 px rows, only the visible ones drawn, under a clip, wheel scrolling), the torrent file picker
+-- (a modal over the panel), the players list (Holo, pack, RTT), the pack consent block and the footer. Peers see the
+-- same panel read-only.
 do
+  local C = SKIN.C
+  local ROW = 52
+  local PICK_ROW = 44
+
+  local link = W.newText("setup.link")
+  local lastText, lastClass = nil, nil   -- classify result of the link box, recomputed only when the text changes
+  local scroll = 0                       -- queue scroll in pixels at scale 1
+  local status, statusKind, statusAt = nil, nil, 0
+  local picks = {}                       -- pending torrent pickers {token, files, name, sel, scroll}
+
+  local ADD_WHY = {
+    ["unsupported-url"] = "That is not a YouTube or magnet link",
+    ["not-host"] = "Only the lobby host can change the queue",
+    full = "The queue is full (200 items)",
+    busy = "Too many torrents are open; remove one first",
+    ["first-use-in-match"] = "Add the first torrent in the menus or the lobby",
+    pack = "Download the media pack first",
+  }
+
+  local function say(text, kind)
+    status, statusKind, statusAt = text, kind or "info", U.now()
+  end
+
+  function SETUP.status() return status, statusKind end
+  function SETUP.linkState() return link end
+  function SETUP.picks() return picks end
+  function SETUP.isOpen() return PARTY.setupOpen() end
+
+  -- The panel rect: 960x640 at 1080p, scaled, centred, kept inside the window.
+  function SETUP.rect()
+    local W0, H0 = wum.render.windowSize()
+    local s = SKIN.s
+    local w, h = math.min(960 * s, W0 - 16), math.min(640 * s, H0 - 16)
+    local x0, y0 = (W0 - w) / 2, (H0 - h) / 2
+    return x0, y0, x0 + w, y0 + h
+  end
+
+  U.on("queue.pick", function(token, files, name)
+    local sel = files[1] and files[1].index
+    picks[#picks + 1] = {token = token, files = files, name = name or "Torrent", sel = sel, scroll = 0}
+    if not PARTY.setupOpen() then PARTY.setSetup(true) end
+  end)
+
+  U.on("queue.picked", function(it)
+    say("Added " .. U.trim(it.title, 60), "info")
+  end)
+
+  local function classify(text)
+    if text == lastText then return lastClass end
+    lastText = text
+    local t = text:match("^%s*(.-)%s*$")
+    if t == "" then
+      lastClass = nil
+    else
+      local ok, c = pcall(wum.media.classify, t)
+      lastClass = ok and c or false
+    end
+    return lastClass
+  end
+
+  local function classText(c)
+    if c == nil then return "Paste a YouTube video, playlist or magnet link (Ctrl+V)", C.offText end
+    if c == false then return "Not a link Holo can play", C.error end
+    if c.kind == "magnet" then return "Torrent" .. (c.name and (": " .. U.trim(c.name, 60)) or ""), C.ok end
+    if c.playlist and not c.id then return "YouTube playlist", C.ok end
+    if c.live then return "YouTube live stream", C.ok end
+    return "YouTube video", C.ok
+  end
+
+  local function submit()
+    local text = link.text
+    if text:match("^%s*$") then return end
+    local ok, why = QUEUE.add(text)
+    if ok then
+      link.text, link.caret, link.anchor, link.scroll = "", 0, nil, 0
+      local c = lastClass
+      if c and c.kind == "magnet" then say("Reading the torrent's file list...", "info")
+      elseif c and c.playlist and not c.id then say("Listing the playlist...", "info")
+      else say("Added to the queue", "info") end
+    else
+      say(ADD_WHY[why] or ("Could not add that link (" .. tostring(why) .. ")"), "error")
+    end
+  end
+  SETUP.submit = submit
+
+  local function fmtSize(b)
+    b = U.num(b) or 0
+    if b >= 1073741824 then return string.format("%.1f GB", b / 1073741824) end
+    return string.format("%d MB", math.floor(b / 1048576 + 0.5))
+  end
+
+  ---------------------------------------------------------------- the queue list
+
+  local function queueList(x0, y0, x1, y1, s, canEdit)
+    local items = QUEUE.items()
+    local rowH = ROW * s
+    W.region("setup.list", x0, y0, x1, y1, "arrow")
+    SKIN.nine("well", x0, y0, x1, y1)
+    local ix0, iy0, ix1, iy1 = x0 + 8 * s, y0 + 8 * s, x1 - 8 * s, y1 - 8 * s
+    local viewH = iy1 - iy0
+    local total = #items * ROW
+    local maxScroll = math.max(0, total - viewH / s)
+    scroll = U.clamp(scroll - W.wheel("setup.list") * ROW * 1.5, 0, maxScroll)
+    if #items == 0 then
+      SKIN.text((x0 + x1) / 2, iy0 + 20 * s, canEdit and "The queue is empty: add a link above" or
+        "The host has not queued anything yet", 16 * s, C.offText, {align = "center"})
+      return
+    end
+    local scrollbar = maxScroll > 0
+    if scrollbar then ix1 = ix1 - 12 * s end
+    local first = math.floor(scroll / ROW) + 1
+    local last = math.min(#items, first + math.ceil(viewH / rowH) + 1)
+    local curId = PARTY.active() and PARTY.currentId() or (QUEUE.current() and QUEUE.current().id)
+    SKIN.clip(ix0, iy0, ix1, iy1)
+    for i = first, last do
+      local it = items[i]
+      local ry0 = iy0 + (i - 1) * rowH - scroll * s
+      local ry1 = ry0 + rowH
+      local isCur = it.id == curId
+      if isCur then SKIN.part("swash", ix0 + 2 * s, ry0 + 6 * s, ix1 - 2 * s, ry1 - 6 * s) end
+      local x = ix0 + 6 * s
+      SKIN.text(x + 22 * s, ry0, tostring(i), 14 * s, isCur and C.title or C.gold, {align = "right", vcenter = rowH})
+      x = x + 30 * s
+      SKIN.icon(isCur and "play" or (it.kind == "bt" and "magnet" or "link"), x, ry0 + (rowH - 26 * s) / 2, 26 * s)
+      x = x + 32 * s
+      local right = ix1 - 6 * s
+      if canEdit then
+        local bs = 28 * s
+        local by = ry0 + (rowH - bs) / 2
+        local vis = ry0 >= iy0 - 1 and ry1 <= iy1 + 1   -- only rows fully inside take clicks
+        local was = W.active
+        W.active = was and vis
+        right = right - bs
+        if W.iconButton("setup.rm." .. it.id, "cross", right, by, bs) then QUEUE.remove(it.id) end
+        right = right - bs - 2 * s
+        if W.iconButton("setup.dn." .. it.id, "down", right, by, bs, i < #items) then QUEUE.move(it.id, 1) end
+        right = right - bs - 2 * s
+        if W.iconButton("setup.up." .. it.id, "up", right, by, bs, i > 1) then QUEUE.move(it.id, -1) end
+        W.active = was
+        right = right - 8 * s
+      end
+      local d = U.num(it.duration) or 0
+      local dur = it.live and "LIVE" or (d > 0 and U.fmtTime(d) or "")
+      if dur ~= "" then
+        SKIN.text(right, ry0, dur, 14 * s, C.cream, {align = "right", vcenter = rowH})
+        right = right - SKIN.measure(dur, 14 * s, "body") - 10 * s
+      end
+      SKIN.text(x, ry0, it.title ~= "" and it.title or it.url, 17 * s, isCur and C.title or C.cream,
+        {vcenter = rowH, maxWidth = right - x})
+      if i < #items then SKIN.part("divider", ix0 + 20 * s, ry1 - 3 * s, ix1 - 20 * s, ry1 + 1 * s, {a = 0.25}) end
+    end
+    SKIN.clipEnd()
+    if scrollbar then
+      local tx0 = ix1 + 4 * s
+      local th = math.max(viewH * viewH / (total * s), 24 * s)
+      local ty = iy0 + (viewH - th) * (scroll / maxScroll)
+      SKIN.rect(tx0, iy0, tx0 + 6 * s, iy1, C.dark2)
+      SKIN.rect(tx0, ty, tx0 + 6 * s, ty + th, C.light2)
+    end
+  end
+
+  ---------------------------------------------------------------- players and the pack
+
+  local PEER_TEXT = {ready = "ready", buffering = "buffering", nopack = "no media pack", noholo = "no Holo",
+    error = "can't play this"}
+  local PEER_ICON = {ready = "check", nopack = "download", noholo = "cross", error = "warning"}
+
+  local function players(x0, y0, x1, s)
+    local y = y0
+    SKIN.text(x0, y, "Players", 20 * s, C.gold, {kind = "display"})
+    y = y + 30 * s
+    local rowH = 34 * s
+    local rows = {}
+    local pk = PARTY.pack() or {}
+    local mine = pk.state == "ready" and "ready" or "nopack"
+    rows[1] = {name = "You", host = NET.isHost(), state = mine}
+    local ms = {}
+    for _, m in ipairs(NET.members()) do ms[m.id] = m end
+    for _, p in ipairs(PARTY.peers()) do
+      local m = ms[p.id] or {}
+      rows[#rows + 1] = {name = p.name, host = p.host, state = p.state, rtt = p.rtt,
+        progress = m.pack == "downloading" and m.progress}
+    end
+    local maxRows = 7
+    for i = 1, math.min(#rows, maxRows) do
+      local r = rows[i]
+      local x = x0
+      if r.host then SKIN.icon("crown", x, y + (rowH - 24 * s) / 2, 24 * s) end
+      x = x + 28 * s
+      local icon = r.state == "buffering" and SKIN.spinner() or PEER_ICON[r.state] or "people"
+      SKIN.icon(icon, x, y + (rowH - 22 * s) / 2, 22 * s, r.state == "noholo" and "off" or "normal")
+      x = x + 28 * s
+      local info = r.progress and ("downloading " .. r.progress .. "%") or PEER_TEXT[r.state] or ""
+      if r.rtt then info = info .. ", " .. r.rtt .. " ms" end
+      SKIN.text(x1, y, info, 13 * s, r.state == "ready" and C.cream or C.offText, {align = "right", vcenter = rowH})
+      local iw = SKIN.measure(info, 13 * s, "body")
+      SKIN.text(x, y, r.name, 16 * s, C.cream, {vcenter = rowH, maxWidth = x1 - x - iw - 10 * s})
+      y = y + rowH
+    end
+    if #rows > maxRows then
+      SKIN.text(x0, y, "and " .. (#rows - maxRows) .. " more", 13 * s, C.offText)
+      y = y + 20 * s
+    end
+    return y
+  end
+
+  local BUSY = {downloading = true, verifying = true, installing = true, updating = true}
+  local PACK_ERR = {hash = "The download did not match its hashes", ["disk-space"] = "Not enough disk space",
+    network = "The download failed (network)", cancelled = "The download was cancelled",
+    blocked = "Downloads are turned off in Melange.ini"}
+
+  -- The pack consent block: what is downloaded, from where, where it goes, and the button whose click is the consent.
+  local function packBlock(x0, y0, x1, y1, s)
+    local pk = PARTY.pack() or {}
+    if pk.state == "ready" then return end
+    SKIN.nine("panel_dark", x0, y0, x1, y1)
+    local ix0, ix1 = x0 + 14 * s, x1 - 14 * s
+    local y = y0 + 10 * s
+    SKIN.text(ix0, y, "Media pack", 18 * s, C.gold, {kind = "display"})
+    y = y + 26 * s
+    if pk.state == "unsupported" or pk.state == "disabled" then
+      local why = pk.state == "unsupported" and "Holo needs 64-bit Windows to play videos." or
+        "Media is turned off in Melange.ini ([Media] Enabled)."
+      for _, ln in ipairs(SKIN.wrap(why, 14 * s, "body", ix1 - ix0, 3)) do
+        SKIN.text(ix0, y, ln, 14 * s, C.cream)
+        y = y + 18 * s
+      end
+      return
+    end
+    local lines = SKIN.wrap(PARTY.consentText(), 13 * s, "body", ix1 - ix0, 8)
+    for _, ln in ipairs(lines) do
+      SKIN.text(ix0, y, ln, 13 * s, C.cream)
+      y = y + 17 * s
+    end
+    y = math.max(y + 6 * s, y1 - 56 * s)
+    if BUSY[pk.state] then
+      local p = U.clamp(U.num(pk.progress) or 0, 0, 1)
+      SKIN.nine("bar_track", ix0, y + 14 * s, ix1, y + 28 * s)
+      SKIN.nine("bar_fill", ix0 + 2 * s, y + 16 * s, ix0 + 2 * s + math.max((ix1 - ix0 - 4 * s) * p, 8 * s), y + 26 * s)
+      SKIN.text(ix0, y - 6 * s, (pk.state == "downloading" and "Downloading " or "Installing ") ..
+        math.floor(p * 100) .. "%", 13 * s, C.cream)
+      return
+    end
+    if pk.state == "error" then
+      SKIN.text(ix0, y - 8 * s, PACK_ERR[pk.error] or "The download failed", 13 * s, C.error)
+    end
+    local mb = math.floor(U.num(pk.downloadMB) or 95)
+    local label = (pk.state == "error" and "Try again" or "Download") .. " (" .. mb .. " MB)"
+    if W.button("setup.pack", ix0, y + 4 * s, ix1, y + 46 * s, label, {icon = "download", size = 18 * s}) then
+      PARTY.installPack()
+    end
+  end
+
+  ---------------------------------------------------------------- the torrent file picker
+
+  local function picker(x0, y0, x1, y1, s)
+    local p = picks[1]
+    local W0, H0 = x1 - x0, y1 - y0
+    local w, h = math.min(640 * s, W0 - 40 * s), math.min(440 * s, H0 - 40 * s)
+    local mx0, my0 = x0 + (W0 - w) / 2, y0 + (H0 - h) / 2
+    local mx1, my1 = mx0 + w, my0 + h
+    SKIN.rect(x0, y0, x1, y1, C.black, 0.45)
+    W.region("setup.pick", mx0, my0, mx1, my1, "arrow")
+    SKIN.nine("panel_dark", mx0, my0, mx1, my1)
+    SKIN.text(mx0 + 20 * s, my0 + 14 * s, "Pick the video to play", 22 * s, C.title, {kind = "display"})
+    SKIN.text(mx0 + 20 * s, my0 + 44 * s, p.name, 15 * s, C.gold, {maxWidth = w - 40 * s})
+    local lx0, ly0, lx1, ly1 = mx0 + 16 * s, my0 + 72 * s, mx1 - 16 * s, my1 - 70 * s
+    W.region("setup.picklist", lx0, ly0, lx1, ly1, "arrow")
+    SKIN.nine("well", lx0, ly0, lx1, ly1)
+    local rowH = PICK_ROW * s
+    local viewH = ly1 - ly0 - 12 * s
+    local maxScroll = math.max(0, #p.files * PICK_ROW - viewH / s)
+    p.scroll = U.clamp(p.scroll - W.wheel("setup.picklist") * PICK_ROW * 1.5, 0, maxScroll)
+    local first = math.floor(p.scroll / PICK_ROW) + 1
+    local last = math.min(#p.files, first + math.ceil(viewH / rowH) + 1)
+    SKIN.clip(lx0 + 6 * s, ly0 + 6 * s, lx1 - 6 * s, ly1 - 6 * s)
+    for i = first, last do
+      local f = p.files[i]
+      local ry0 = ly0 + 6 * s + (i - 1) * rowH - p.scroll * s
+      local rid = "setup.file." .. i
+      local vis = ry0 >= ly0 and ry0 + rowH <= ly1
+      local was = W.active
+      W.active = was and vis
+      W.region(rid, lx0 + 6 * s, ry0, lx1 - 6 * s, ry0 + rowH)
+      if W.clicked(rid) then p.sel = f.index end
+      W.active = was
+      local on = p.sel == f.index
+      if on then SKIN.part("swash", lx0 + 8 * s, ry0 + 4 * s, lx1 - 8 * s, ry0 + rowH - 4 * s) end
+      local size = fmtSize(f.size)
+      SKIN.text(lx1 - 16 * s, ry0, size, 14 * s, C.cream, {align = "right", vcenter = rowH})
+      local name = tostring(f.path):match("([^/\\]+)$") or tostring(f.path)
+      SKIN.text(lx0 + 18 * s, ry0, name, 16 * s, on and C.title or C.cream,
+        {vcenter = rowH, maxWidth = lx1 - lx0 - 50 * s - SKIN.measure(size, 14 * s, "body")})
+    end
+    SKIN.clipEnd()
+    local bw, bh = 150 * s, 46 * s
+    local by = my1 - bh - 14 * s
+    if W.button("setup.pickok", mx1 - 20 * s - bw, by, mx1 - 20 * s, by + bh, "Add", {enabled = p.sel ~= nil}) then
+      local ok, why = QUEUE.pickFile(p.token, p.sel)
+      table.remove(picks, 1)
+      if not ok then say(ADD_WHY[why] or "Could not add that file", "error") end
+    end
+    if W.button("setup.pickno", mx1 - 30 * s - bw * 2, by, mx1 - 30 * s - bw, by + bh, "Cancel") then
+      QUEUE.cancelPick(p.token)
+      table.remove(picks, 1)
+    end
+  end
+
+  ---------------------------------------------------------------- the panel
+
+  local function footer(x0, y0, x1, y1, s)
+    local bh = y1 - y0
+    local role = PARTY.role()
+    local x = x1
+    local function btn(id, label, w, enabled, icon)
+      x = x - w
+      local hit = W.button(id, x, y0, x + w, y1, label, {enabled = enabled, icon = icon, size = 19 * s})
+      x = x - 12 * s
+      return hit
+    end
+    if btn("setup.close", "Close", 130 * s, true) then PARTY.setSetup(false) end
+    local pk = PARTY.pack() or {}
+    if role == "host" then
+      if btn("setup.end", "End party", 170 * s, true, "close") then PARTY.stop() end
+    elseif role == "peer" then
+      if btn("setup.leave", "Leave party", 180 * s, true) then PARTY.stop() end
+    elseif PARTY.canContinue() then
+      if btn("setup.continue", "Continue party", 220 * s, true, "play") then
+        local ok, why = PARTY.continueParty()
+        if not ok then say("Could not continue (" .. tostring(why) .. ")", "error") end
+      end
+    elseif PARTY.partyRunning() then
+      if btn("setup.join", "Join party", 180 * s, true, "people") then PARTY.join() end
+    elseif PARTY.canControl() then
+      local ready = QUEUE.count() > 0 and pk.state == "ready"
+      if btn("setup.start", "Start party", 200 * s, ready, "play") then
+        local ok, why = PARTY.start()
+        if ok then PARTY.setSetup(false)
+        else say(why == "empty" and "Add a link first" or ("Could not start (" .. tostring(why) .. ")"), "error") end
+      end
+    end
+    -- the status line, left of the buttons
+    local text, kind = status, statusKind
+    if text and U.now() - statusAt > 6000 then
+      status, text = nil, nil
+    end
+    if not text and PARTY.canControl() and role == "none" and pk.state ~= "ready" then
+      text, kind = "Download the media pack to start", "warn"
+    end
+    if text then
+      SKIN.text(x0, y0, text, 15 * s, kind == "error" and C.error or (kind == "warn" and C.warn or C.cream),
+        {vcenter = bh, maxWidth = x - x0 - 8 * s})
+    end
+  end
+
+  function SETUP.draw()
+    if not PARTY.setupOpen() then
+      if link.focused then W.blur() end
+      return
+    end
+    local s = SKIN.s
+    local x0, y0, x1, y1 = SETUP.rect()
+    local modal = picks[1] ~= nil
+    W.region("setup.panel", x0, y0, x1, y1, "arrow")
+    W.active = not modal
+    SKIN.nine("panel", x0, y0, x1, y1)
+    local canEdit = PARTY.canControl()
+
+    -- title tag, the host line and the close button
+    local tagW = SKIN.measure("Watch party", 26 * s, "display") + 56 * s
+    SKIN.nine("tag", x0 + 22 * s, y0 + 14 * s, x0 + 22 * s + tagW, y0 + 60 * s)
+    SKIN.text(x0 + 22 * s + 28 * s, y0 + 14 * s, "Watch party", 26 * s, C.ink, {kind = "display", vcenter = 46 * s})
+    if W.iconButton("setup.x", "close", x1 - 58 * s, y0 + 16 * s, 40 * s) then PARTY.setSetup(false) end
+    local who
+    if canEdit then
+      who = NET.inSession() and "You host this party" or "Playing on this machine only (no lobby)"
+    else
+      who = "Only the host (" .. PARTY.hostName() .. ") controls the party"
+    end
+    SKIN.text(x0 + 40 * s + tagW, y0 + 14 * s, who, 15 * s, C.gold,
+      {vcenter = 46 * s, maxWidth = x1 - 70 * s - (x0 + 40 * s + tagW)})
+
+    -- left column: the link box and the queue
+    local lx0, lx1 = x0 + 28 * s, x0 + 620 * s
+    local ly = y0 + 78 * s
+    local boxH = 48 * s
+    local addW = 110 * s
+    local tick = 34 * s
+    local bx1 = lx1 - addW - tick - 16 * s
+    local r = W.textbox(link, lx0, ly, bx1, ly + boxH, {enabled = canEdit, size = 18 * s,
+      placeholder = canEdit and "Paste a YouTube or magnet link" or "The host adds the videos"})
+    local c = classify(link.text)
+    if c ~= nil then SKIN.icon(c and "check" or "cross", bx1 + 8 * s, ly + (boxH - tick) / 2, tick) end
+    local addHit = W.button("setup.add", lx1 - addW, ly, lx1, ly + boxH, "Add",
+      {enabled = canEdit and c ~= nil and c ~= false, icon = "add", size = 19 * s})
+    if canEdit and (r == "submit" or addHit) then submit() end
+    local hint, hc = classText(c)
+    SKIN.text(lx0 + 6 * s, ly + boxH + 4 * s, hint, 13 * s, hc, {maxWidth = lx1 - lx0})
+
+    local qy = ly + boxH + 30 * s
+    SKIN.text(lx0, qy, "Queue (" .. QUEUE.count() .. ")", 20 * s, C.gold, {kind = "display"})
+    if canEdit and PARTY.role() == "none" then
+      local last = U.pref("lastQueue")
+      if QUEUE.count() == 0 and type(last) == "table" and type(last.items) == "table" and #last.items > 0 then
+        if W.button("setup.restore", lx1 - 220 * s, qy - 4 * s, lx1, qy + 30 * s, "Restore last queue",
+          {size = 15 * s}) then
+          PARTY.restoreLastQueue()
+        end
+      elseif QUEUE.count() > 0 then
+        if W.button("setup.clear", lx1 - 120 * s, qy - 4 * s, lx1, qy + 30 * s, "Clear", {size = 15 * s}) then
+          QUEUE.clear()
+        end
+      end
+    end
+    local footY = y1 - 74 * s
+    queueList(lx0, qy + 34 * s, lx1, footY - 14 * s, s, canEdit)
+
+    -- right column: players and the pack
+    local rx0, rx1 = x0 + 650 * s, x1 - 28 * s
+    local py = players(rx0, y0 + 78 * s, rx1, s)
+    local pk = PARTY.pack() or {}
+    if pk.state ~= "ready" then packBlock(rx0, math.max(py + 8 * s, y0 + 300 * s), rx1, footY - 14 * s, s) end
+
+    footer(lx0, footY, rx1, footY + 50 * s, s)
+    W.active = true
+    if modal then picker(x0, y0, x1, y1, s) end
+  end
+
+  -- A closed panel cancels its open pickers, so their torrents do not stay open.
+  U.on("party.changed", function()
+    if PARTY.setupOpen() or #picks == 0 then return end
+    for _, p in ipairs(picks) do QUEUE.cancelPick(p.token) end
+    picks = {}
+  end)
 end
 
 -- ==== src/90_main.lua ====
--- main: wiring and hotkeys (P3). Stub: the owner replaces this fragment.
+-- main (P3): the "screen" draw callback that runs every surface (player, setup panel, toasts, popovers) each under
+-- its own guard, the four hotkeys of the bus ("hotkey", name from CFG), pointer mode for a match, the toasts and the
+-- join / continue prompts. The pointer is Melange's: Holo asks for it with its themed cursor and the default
+-- release on a click outside its regions; Esc, the hotkey again or a turn of this machine's player also end it.
 do
+  local C = SKIN.C
+  local TOAST_MS, MAX_TOASTS = 3000, 3
+
+  local toasts = {}            -- {id, text, kind, at, until (ms or nil = while keep() holds), actions, keep}
+  local pointerForSetup = false
+  local lastPhase = PARTY.phase()
+  local lastSetup = PARTY.setupOpen()
+
+  local function toast(t)
+    t.at = U.now()
+    for i, o in ipairs(toasts) do
+      if (t.id and o.id == t.id) or (not t.id and o.text == t.text) then
+        toasts[i] = t
+        return t
+      end
+    end
+    toasts[#toasts + 1] = t
+    while #toasts > 6 do table.remove(toasts, 1) end
+    return t
+  end
+  function MAIN.toast(text, kind, ms)
+    return toast{text = U.trim(text, 140), kind = kind or "info", life = ms or TOAST_MS}
+  end
+  function MAIN.toasts() return toasts end
+
+  U.on("party.toast", function(text, kind) MAIN.toast(text, kind) end)
+
+  -- Auto-joined: say so and offer "Not now". After a decline: ask (Join / Not now) while the party runs.
+  U.on("party.joinPrompt", function(hostName, autoJoined)
+    local host = U.trim(hostName, 32)
+    if autoJoined then
+      toast{id = "join", text = "Joined " .. host .. "'s watch party", kind = "info", life = 8000,
+        actions = {{"Not now", function() PARTY.decline() end}}}
+    else
+      toast{id = "join", text = host .. "'s watch party is running", kind = "info",
+        keep = function() return PARTY.partyRunning() end,
+        actions = {{"Join", function() PARTY.join() end}, {"Not now", function() end}}}
+    end
+  end)
+
+  U.on("party.continuePrompt", function()
+    toast{id = "continue", text = "The party host left. You can continue the party.", kind = "info", life = 20000,
+      keep = function() return PARTY.canContinue() end,
+      actions = {{"Continue party", function() PARTY.continueParty() end}}}
+  end)
+
+  -- While the player is hidden, a short toast tells what changed.
+  local PHASE_TOAST = {playing = "Holo: playing", paused = "Holo: paused", ["ended-item"] = "Holo: video finished",
+    ["needs-pack"] = "Holo needs the media pack: open the player (F9) to download it"}
+
+  local function pointerOn()
+    local o = {release = "click-outside"}
+    local cur = SKIN.texture("cursor")
+    if cur then o.cursor = cur end
+    local ok, got, why = pcall(wum.input.pointer, true, o)
+    if ok and got then return true end
+    return false, ok and why or got
+  end
+
+  local function pointerOff()
+    pcall(wum.input.pointer, false)
+  end
+
+  local function pointerActive()
+    local ok, on = pcall(wum.input.pointerActive)
+    return ok and on == true
+  end
+
+  -- The pointer hotkey: toggles pointer mode in a match (outside a match the game's own cursor already works).
+  function MAIN.togglePointer()
+    if pointerActive() then
+      pointerOff()
+      pointerForSetup = false
+      return false
+    end
+    local ok, why = pointerOn()
+    if not ok and why ~= "unavailable" then MAIN.toast("The mouse is busy (" .. tostring(why) .. ")", "warn") end
+    return ok
+  end
+
+  U.on("hotkey", function(name)
+    if name == "hide" then
+      LAYOUT.toggleHide()
+    elseif name == "play" then
+      if PARTY.role() == "host" then PARTY.togglePlay()
+      elseif PARTY.role() == "peer" then MAIN.toast("Only the host (" .. PARTY.hostName() .. ") can pause", "info") end
+    elseif name == "setup" then
+      PARTY.toggleSetup()
+    elseif name == "pointer" then
+      MAIN.togglePointer()
+    end
+  end)
+
+  U.on("party.changed", function()
+    local open = PARTY.setupOpen()
+    if open ~= lastSetup then
+      lastSetup = open
+      if open then
+        -- in a match there is no cursor: the panel brings the pointer with it, and closes when it goes
+        local ok, x = pcall(wum.input.cursor)
+        if not (ok and x) and not pointerActive() and pointerOn() then pointerForSetup = true end
+      else
+        if pointerForSetup and pointerActive() then pointerOff() end
+        pointerForSetup = false
+      end
+    end
+    local ph = PARTY.phase()
+    if ph ~= lastPhase then
+      lastPhase = ph
+      if LAYOUT.view() == "hidden" and PHASE_TOAST[ph] then MAIN.toast(PHASE_TOAST[ph], "info") end
+    end
+  end)
+
+  ---------------------------------------------------------------- toasts
+
+  local function drawToasts()
+    local now = U.now()
+    for i = #toasts, 1, -1 do
+      local t = toasts[i]
+      local alive
+      if t.keep then alive = t.keep() and (not t.life or now - t.at < t.life)
+      else alive = now - t.at < (t.life or TOAST_MS) end
+      if not alive then table.remove(toasts, i) end
+    end
+    local s = SKIN.s
+    local ww = select(1, wum.render.windowSize())
+    local y = 20 * s
+    local h, size = 46 * s, 17 * s
+    for i = 1, math.min(#toasts, MAX_TOASTS) do
+      local t = toasts[i]
+      local life = t.life or TOAST_MS
+      local left = t.keep and math.huge or (life - (now - t.at))
+      local a = U.clamp(left / 300, 0, 1) * U.clamp((now - t.at) / 150, 0, 1)
+      local base = SKIN.alpha
+      SKIN.alpha = base * a
+      local tw = math.min(SKIN.measure(t.text, size, "display"), ww * 0.5)
+      local bws = {}
+      local bw = 0
+      for j, act in ipairs(t.actions or {}) do
+        bws[j] = SKIN.measure(act[1], 15 * s, "display") + 36 * s
+        bw = bw + bws[j] + 8 * s
+      end
+      local icon = (t.kind == "warn" or t.kind == "error") and "warning" or nil
+      local iw = icon and 30 * s or 0
+      local w = tw + iw + bw + 40 * s
+      local x0 = (ww - w) / 2
+      W.active = t.actions ~= nil and left > 300
+      if t.actions then W.region("main.toast." .. i, x0, y, x0 + w, y + h, "arrow") end
+      SKIN.nine("tooltip", x0, y, x0 + w, y + h)
+      local x = x0 + 18 * s
+      if icon then
+        SKIN.icon(icon, x, y + (h - 26 * s) / 2, 26 * s)
+        x = x + iw
+      end
+      SKIN.text(x, y, t.text, size, t.kind == "error" and C.error or C.cream,
+        {kind = "display", vcenter = h, maxWidth = tw + 1})
+      x = x + tw + 12 * s
+      for j, act in ipairs(t.actions or {}) do
+        local bid = "main.toast." .. i .. "." .. j
+        if W.button(bid, x, y + 6 * s, x + bws[j], y + h - 6 * s, act[1], {size = 15 * s}) then
+          for k, o in ipairs(toasts) do if o == t then table.remove(toasts, k) break end end
+          local ok, err = pcall(act[2])
+          if not ok then U.log("error", "toast action", err) end
+        end
+        x = x + bws[j] + 8 * s
+      end
+      SKIN.alpha = base
+      W.active = true
+      y = y + h + 8 * s
+    end
+  end
+
+  ---------------------------------------------------------------- the frame
+
+  local pieces = {
+    {"draw.player", function() PUI.draw() end},
+    {"draw.setup", function() SETUP.draw() end},
+    {"draw.toasts", drawToasts},
+    {"draw.popover", function() W.drawPopover() end},
+  }
+  for _, p in ipairs(pieces) do p[2] = U.guard(p[1], p[2]) end
+
+  function MAIN.draw()
+    SKIN.ensure()
+    SKIN.s = LAYOUT.scale()
+    W.beginFrame()
+    for _, p in ipairs(pieces) do
+      SKIN.alpha, W.active = 1, true
+      p[2]()
+    end
+    SKIN.alpha, W.active = 1, true
+    W.endFrame()
+    -- the pointer the panel brought ended (a click outside, Esc, my turn): the panel goes with it
+    if pointerForSetup and not pointerActive() then
+      pointerForSetup = false
+      if PARTY.setupOpen() then PARTY.setSetup(false) end
+    end
+  end
+
+  wum.draw.on("screen", U.guard("draw", MAIN.draw))
 end
