@@ -7,7 +7,11 @@
 --      on one quick-match map, which would put a minY-based line under the sea), else minY. It never moves, even
 --      when the land is blown away.
 --   2. The hourglass. The strike is armed once STRIKE_MS of the round clock have elapsed (RoundTime minus
---      RoundTimeRemaining, the clock the game itself counts down to sudden death).
+--      RoundTimeRemaining, the clock the game itself counts down to sudden death). The clock is polled every POLL
+--      ticks (and read again at every turn end) until the strike is armed; while it cannot be read the hourglass
+--      simply keeps running (phase 0) and the read is retried at the next poll. There is no other clock to fall
+--      back on: sim ticks also run between turns, so a machine timing the hourglass by ticks would arm it on a
+--      different tick than one reading the round clock, which is a real desync.
 --   3. The curse. At the first GameLogic.Turn.Ended after the strike is armed, every alive worm whose feet are below
 --      the line is anchored for the rest of the match (wum.sim.worm(slot):anchor()), and the next turn start is held
 --      for INTRO + n * PER + OUTRO ticks so the clients can tour the cursed worms. It happens once per match.
@@ -22,11 +26,15 @@
 -- deciding that from each machine's own speed: a demoted machine then folds a stale digest into the ticks it skips,
 -- while the others hash the fresh one, and the first state change on a skipped tick (phase 0 -> 1 at 3:00) is
 -- reported as a desync of mod.sandtide.env by every faster machine (five false "desync at tick 9004" bundles in one
--- evening, every engine component equal; Melange 0.11.2 no longer demotes). So:
+-- evening, every engine component equal). Melange 0.11.2 removes the cause (it no longer demotes); on 0.11.0 and
+-- 0.11.1 this file makes it far less likely:
 --   - the tuning values are locals (they are in the content hash anyway) and the storage table is not aliased as a
 --     global, which halved the digest (the table was walked twice);
---   - the script runs on 1 tick in POLL = 25, so digests are under 5 % of a 500-tick window and the 95th-percentile
---     sample is always a cheap tick (a cached digest), on any machine; the strike is still armed within 0.5 s of 3:00.
+--   - the script runs on 1 tick in POLL = 50 (2 % of a 500-tick window, plus the turn events), and not at all
+--     between turn events once the hourglass is empty or the style is not Sandworms, so the 95th-percentile sample
+--     is normally a cheap tick (a cached digest); the strike is still armed within 1 s of 3:00.
+-- Anything kept only for the log (the "cannot be read" warnings) is a local, never storage: it may differ between
+-- machines.
 --
 -- Messages to the clients (both sent with wum.sim.sendString; every peer's own sim sends them to its own client):
 --
@@ -52,7 +60,7 @@ local INTRO         = 60      -- hold ticks before the first worm (50 ticks = 1 
 local PER           = 175     -- hold ticks per cursed worm (3.5 s)
 local OUTRO         = 50      -- hold ticks after the last worm
 local HOLD_CAP      = 3000    -- wum.sim.holdTurn's hard cap (60 s)
-local POLL          = 25      -- ticks between round-clock reads (0.5 s); see the digest note above before lowering it
+local POLL          = 50      -- ticks between round-clock reads (1 s); see the digest note above before lowering it
 
 -- ---------------------------------------------------------------- state (hashed by Wormsign)
 local S = wum.sim.storage
@@ -68,12 +76,16 @@ S.holdTicks = 0
 S.per = PER
 S.curseTick = -1
 S.status = ""
-S.clockFallback = false
 S.style = nil      -- true once the game style is known to be Sandworms, false once it is known to be another
 S.styleWarned = false
 
 local function info(...) wum.log.info(unpack(arg)) end
 local function warn(...) wum.log.warn(unpack(arg)) end
+
+-- Per machine, for the log only (locals: not hashed). clockWarned: nil, 1 once the clock was unreadable (warned
+-- once), 2 once it was read after that (said once).
+local clockWarned = nil
+local pollHandle = nil
 
 -- A data value as a number, or nil (getData answers nil and a reason; it raises only on a bad argument type).
 local function readNumber(id)
@@ -82,33 +94,54 @@ local function readNumber(id)
     return nil
 end
 
--- Round clock elapsed in ms. The fallback (no RoundTimeRemaining) counts sim ticks since the match started: the same
--- on every machine, but it also runs between turns, so it strikes a little early; it is logged once.
-local function elapsedMs()
-    local total = S.roundMs
-    local left = readNumber("RoundTimeRemaining")
-    if total and left then return total - left end
-    if not S.clockFallback then
-        S.clockFallback = true
-        warn("sandtide: the round clock cannot be read; timing the hourglass by sim ticks instead")
-    end
-    return wum.sim.tick() * 20
-end
-
+-- RoundTime, read until a read succeeds (nothing is assumed from a failed one). True once it is known.
 local function readRoundTime()
-    if S.roundMs then return end
+    if S.roundMs then return true end
     local r = readNumber("RoundTime")
-    if r and r > 0 then
-        S.roundMs = math.floor(r)
-    else
-        S.roundMs = 300000
-        warn("sandtide: RoundTime unreadable, assuming", S.roundMs)
-    end
+    if not r or r <= 0 then return false end
+    S.roundMs = math.floor(r)
     -- A custom round shorter than the strike plus a turn would never strike: strike at 60 % of it instead.
     if S.roundMs < STRIKE_MS + 30000 then
         S.strikeMs = math.floor(S.roundMs * 0.6)
         warn("sandtide: RoundTime", S.roundMs, "is short; the hourglass empties at", S.strikeMs, "ms")
     end
+    return true
+end
+
+-- Round clock elapsed in ms (RoundTime minus RoundTimeRemaining), or nil while either cannot be read. No fallback:
+-- the caller keeps the hourglass running and reads again at its next poll. Logged once per machine.
+local function elapsedMs()
+    local left = nil
+    if readRoundTime() then left = readNumber("RoundTimeRemaining") end
+    if left then
+        if clockWarned == 1 then
+            clockWarned = 2
+            info("sandtide: the round clock can be read now")
+        end
+        return S.roundMs - left
+    end
+    if not clockWarned then
+        clockWarned = 1
+        warn("sandtide: the round clock cannot be read; the hourglass waits for it (read again every", POLL, "ticks)")
+    end
+    return nil
+end
+
+-- Arms the strike when the hourglass is empty. Returns true when it is armed.
+local function checkHourglass()
+    if S.phase ~= 0 then return true end
+    local e = elapsedMs()
+    if not e or e < S.strikeMs then return false end
+    S.phase = 1
+    info("sandtide: the hourglass is empty at", e, "ms; the curse strikes at the next turn end")
+    return true
+end
+
+-- The poll is of no further use once the strike is armed, or in a match of another style: it stops, so the script
+-- runs only at turn events (deterministic: the same tick on every machine).
+local function stopPolling()
+    if pollHandle and wum.sim.cancel then wum.sim.cancel(pollHandle) end
+    pollHandle = nil
 end
 
 -- The rules belong to the Sandworms game style alone. A content mod's sim script runs in every match, so each hook
@@ -245,24 +278,25 @@ local function strike()
 end
 
 -- ---------------------------------------------------------------- hooks
-wum.sim.every(POLL, function()
-    if not sandworms() then return end
+pollHandle = wum.sim.every(POLL, function()
+    if not sandworms() then
+        if S.style == false then stopPolling() end
+        return
+    end
     readRoundTime()
     if not S.line then
         if computeLine() then sendLine() end
     end
-    if S.phase == 0 and elapsedMs() >= S.strikeMs then
-        S.phase = 1
-        info("sandtide: the hourglass is empty at", elapsedMs(), "ms; the curse strikes at the next turn end")
-        sendLine()
-    end
+    if S.phase == 0 and checkHourglass() then sendLine() end
+    -- The poll also fixes the line early for the clients, so it stops only once the line is known as well.
+    if S.phase ~= 0 and S.line then stopPolling() end
 end)
 
 wum.events.on("GameLogic.Turn.Ended", function()
     if not sandworms() or S.phase == 2 then return end
     readRoundTime()
     if not computeLine() then return end
-    if S.phase == 0 and elapsedMs() >= S.strikeMs then S.phase = 1 end
+    checkHourglass()
     if S.phase == 1 then strike() end
 end)
 
