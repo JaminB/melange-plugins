@@ -134,7 +134,7 @@ def compose(size, bg_path):
     px0, py0, px1, py1 = 40, 150, 40 + 760, 150 + 560
     k.nine(canvas, "panel", px0, py0, px1, py1)
     k.nine(canvas, "tag", px0 + 220, py0 - 8, px0 + 540, py0 + 52)
-    k.text(canvas, "body", "Watch Party", px0 + 380, py0 + 8, 20, (0x1A, 0x10, 0x04), "center")
+    k.text(canvas, "tag", "Watch Party", px0 + 380, py0 + 6, 24, (0x1A, 0x10, 0x04), "center")
     vx0, vy0 = px0 + 34, py0 + 64
     vw = px1 - px0 - 68
     vh = round(vw * 9 / 16)
@@ -160,13 +160,13 @@ def compose(size, bg_path):
     # pill
     k.nine(canvas, "pill", W - 340, 300, W - 40, 348)
     k.icon(canvas, "play", W - 330, 305, 38)
-    k.text(canvas, "body", "Lofi hip hop radio - beats to...", W - 288, 311, 20)
+    k.text(canvas, "body", "Lofi hip hop radio - be...", W - 288, 311, 20)
     k.icon(canvas, "expand", W - 84, 305, 38)
     # setup panel slice
     sx0, sy0, sx1, sy1 = 880, 420, 1520, 1040
     k.nine(canvas, "panel", sx0, sy0, sx1, sy1)
     k.nine(canvas, "tag", sx0 + 160, sy0 - 10, sx0 + 480, sy0 + 50)
-    k.text(canvas, "body_s", "Queue", sx0 + 320, sy0 + 10, 16, (0x1A, 0x10, 0x04), "center")
+    k.text(canvas, "tag", "Queue", sx0 + 320, sy0 + 6, 24, (0x1A, 0x10, 0x04), "center")
     k.nine(canvas, "well", sx0 + 30, sy0 + 70, sx1 - 130, sy0 + 124)
     k.text(canvas, "body", "https://www.youtube.com/watch?v=", sx0 + 48, sy0 + 83, 20, A.TEXT_OFF)
     k.nine(canvas, "btn", sx1 - 118, sy0 + 70, sx1 - 30, sy0 + 124)

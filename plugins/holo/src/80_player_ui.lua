@@ -386,10 +386,10 @@ do
         W.region("pui.panel", px0, py0, px1, py1, "arrow")
       end
       -- the title tag, and the peers' status at its right
-      local tagW = math.min((px1 - px0) * 0.62, SKIN.measure(title(), 20 * s, "display") + 48 * s)
+      local tagW = math.min((px1 - px0) * 0.62, SKIN.measure(title(), 20 * s, "tag") + 48 * s)
       SKIN.nine("tag", px0 + 14 * s, py0 + 6 * s, px0 + 14 * s + tagW, py0 + tagH - 4 * s)
       SKIN.text(px0 + 14 * s + 20 * s, py0 + 6 * s, title(), 20 * s, C.ink,
-        {kind = "display", vcenter = tagH - 10 * s, maxWidth = tagW - 36 * s})
+        {kind = "tag", vcenter = tagH - 10 * s, maxWidth = tagW - 36 * s})
       peerIcons(px1 - 14 * s, py0 + 10 * s, 24 * s, 8)
     end
 

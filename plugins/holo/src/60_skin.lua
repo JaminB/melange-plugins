@@ -36,7 +36,7 @@ do
     if loaded then return end
     loaded = true
     for _, k in ipairs{"panels", "icons", "cursor"} do tex[k] = loadTex(k) end
-    for _, k in ipairs{"display", "display_s", "body", "body_s"} do
+    for _, k in ipairs{"display", "display_s", "body", "body_s", "tag"} do
       local f = SKIN.fonts and SKIN.fonts[k]
       local ok, id, why = false, nil, nil
       if f and wum.draw.font then ok, id, why = pcall(wum.draw.font, f.png, f.json) end
@@ -153,6 +153,7 @@ do
 
   -- The baked font for a style ("display" or "body") at a pixel size: the nearer of its two bakes.
   local function fontFor(kind, size)
+    if kind == "tag" then return fonts.tag or fonts.display_s or nil end
     if kind == "display" then
       if size >= 24 then return fonts.display or fonts.display_s or nil end
       return fonts.display_s or fonts.display or nil
@@ -185,7 +186,7 @@ do
     return w, h
   end
 
-  -- Text whose top-left (or top-centre / top-right with o.align) is x, y. o: {kind = "display"|"body", align,
+  -- Text whose top-left (or top-centre / top-right with o.align) is x, y. o: {kind = "display"|"body"|"tag", align,
   -- maxWidth (cut with an ellipsis), a, vcenter = a box height to centre the line in}.
   function SKIN.text(x, y, text, size, rgb, o)
     text = tostring(text)

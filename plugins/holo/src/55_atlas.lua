@@ -110,5 +110,6 @@ do
     display_s = {png = "fonts/display_s.png", json = "fonts/display_s.json", size = 20, w = 1152, h = 616},
     body = {png = "fonts/body.png", json = "fonts/body.json", size = 20, w = 768, h = 800},
     body_s = {png = "fonts/body_s.png", json = "fonts/body_s.json", size = 16, w = 768, h = 456},
+    tag = {png = "fonts/tag.png", json = "fonts/tag.json", size = 24, w = 768, h = 784},
   }
 end

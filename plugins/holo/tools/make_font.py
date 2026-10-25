@@ -40,6 +40,8 @@ FACES = [
     ("display_s", "Holo Display", "lilita", 20, 2),
     ("body", "Holo Body", "baloo", 20, 2),
     ("body_s", "Holo Body", "baloo", 16, 1),
+    # ink on the cream title tags: no outline, the tint is the whole glyph
+    ("tag", "Holo Display", "lilita", 24, 0),
 ]
 
 PUNCT = [0x2013, 0x2014, 0x2018, 0x2019, 0x201A, 0x201C, 0x201D, 0x201E, 0x2020, 0x2021, 0x2022, 0x2026, 0x2030,

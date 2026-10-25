@@ -373,9 +373,9 @@ do
     local canEdit = PARTY.canControl()
 
     -- title tag, the host line and the close button
-    local tagW = SKIN.measure("Watch party", 26 * s, "display") + 56 * s
+    local tagW = SKIN.measure("Watch party", 26 * s, "tag") + 56 * s
     SKIN.nine("tag", x0 + 22 * s, y0 + 14 * s, x0 + 22 * s + tagW, y0 + 60 * s)
-    SKIN.text(x0 + 22 * s + 28 * s, y0 + 14 * s, "Watch party", 26 * s, C.ink, {kind = "display", vcenter = 46 * s})
+    SKIN.text(x0 + 22 * s + 28 * s, y0 + 14 * s, "Watch party", 26 * s, C.ink, {kind = "tag", vcenter = 46 * s})
     if W.iconButton("setup.x", "close", x1 - 58 * s, y0 + 16 * s, 40 * s) then PARTY.setSetup(false) end
     local who
     if canEdit then

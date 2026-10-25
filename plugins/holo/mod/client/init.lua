@@ -2376,6 +2376,7 @@ do
     display_s = {png = "fonts/display_s.png", json = "fonts/display_s.json", size = 20, w = 1152, h = 616},
     body = {png = "fonts/body.png", json = "fonts/body.json", size = 20, w = 768, h = 800},
     body_s = {png = "fonts/body_s.png", json = "fonts/body_s.json", size = 16, w = 768, h = 456},
+    tag = {png = "fonts/tag.png", json = "fonts/tag.json", size = 24, w = 768, h = 784},
   }
 end
 
@@ -2418,7 +2419,7 @@ do
     if loaded then return end
     loaded = true
     for _, k in ipairs{"panels", "icons", "cursor"} do tex[k] = loadTex(k) end
-    for _, k in ipairs{"display", "display_s", "body", "body_s"} do
+    for _, k in ipairs{"display", "display_s", "body", "body_s", "tag"} do
       local f = SKIN.fonts and SKIN.fonts[k]
       local ok, id, why = false, nil, nil
       if f and wum.draw.font then ok, id, why = pcall(wum.draw.font, f.png, f.json) end
@@ -2535,6 +2536,7 @@ do
 
   -- The baked font for a style ("display" or "body") at a pixel size: the nearer of its two bakes.
   local function fontFor(kind, size)
+    if kind == "tag" then return fonts.tag or fonts.display_s or nil end
     if kind == "display" then
       if size >= 24 then return fonts.display or fonts.display_s or nil end
       return fonts.display_s or fonts.display or nil
@@ -2567,7 +2569,7 @@ do
     return w, h
   end
 
-  -- Text whose top-left (or top-centre / top-right with o.align) is x, y. o: {kind = "display"|"body", align,
+  -- Text whose top-left (or top-centre / top-right with o.align) is x, y. o: {kind = "display"|"body"|"tag", align,
   -- maxWidth (cut with an ellipsis), a, vcenter = a box height to centre the line in}.
   function SKIN.text(x, y, text, size, rgb, o)
     text = tostring(text)
@@ -3503,10 +3505,10 @@ do
         W.region("pui.panel", px0, py0, px1, py1, "arrow")
       end
       -- the title tag, and the peers' status at its right
-      local tagW = math.min((px1 - px0) * 0.62, SKIN.measure(title(), 20 * s, "display") + 48 * s)
+      local tagW = math.min((px1 - px0) * 0.62, SKIN.measure(title(), 20 * s, "tag") + 48 * s)
       SKIN.nine("tag", px0 + 14 * s, py0 + 6 * s, px0 + 14 * s + tagW, py0 + tagH - 4 * s)
       SKIN.text(px0 + 14 * s + 20 * s, py0 + 6 * s, title(), 20 * s, C.ink,
-        {kind = "display", vcenter = tagH - 10 * s, maxWidth = tagW - 36 * s})
+        {kind = "tag", vcenter = tagH - 10 * s, maxWidth = tagW - 36 * s})
       peerIcons(px1 - 14 * s, py0 + 10 * s, 24 * s, 8)
     end
 
@@ -4005,9 +4007,9 @@ do
     local canEdit = PARTY.canControl()
 
     -- title tag, the host line and the close button
-    local tagW = SKIN.measure("Watch party", 26 * s, "display") + 56 * s
+    local tagW = SKIN.measure("Watch party", 26 * s, "tag") + 56 * s
     SKIN.nine("tag", x0 + 22 * s, y0 + 14 * s, x0 + 22 * s + tagW, y0 + 60 * s)
-    SKIN.text(x0 + 22 * s + 28 * s, y0 + 14 * s, "Watch party", 26 * s, C.ink, {kind = "display", vcenter = 46 * s})
+    SKIN.text(x0 + 22 * s + 28 * s, y0 + 14 * s, "Watch party", 26 * s, C.ink, {kind = "tag", vcenter = 46 * s})
     if W.iconButton("setup.x", "close", x1 - 58 * s, y0 + 16 * s, 40 * s) then PARTY.setSetup(false) end
     local who
     if canEdit then
