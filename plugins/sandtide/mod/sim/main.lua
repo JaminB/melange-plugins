@@ -158,7 +158,7 @@ local function sendCurse()
         S.curseTick, INTRO, S.per, OUTRO) .. S.status)
 end
 
--- The worms below the line, alive and standing (not flying, sliding or on a rope), ordered by team, position in team,
+-- The worms below the line, alive and at rest (state 0 Ambulatory or 6 Passive), ordered by team, position in team,
 -- slot. Returns the list, or nil and a reason.
 local function victims()
     local list = {}
@@ -171,10 +171,12 @@ local function victims()
         if w and w:alive() then
             local x, y, z = w:pos()
             local st = w:state()
-            if type(y) == "number" and y < S.line and (st == 2 or st == 3 or st == 5) then
-                -- Flying, sliding or on a rope/jetpack at the turn end: an anchor would pin it in mid-air for the
-                -- rest of the match, so the sands spare it (the state is sim data, the same on every machine).
-                info("sandtide: worm", slot, "is in motion (state", st, ") below the line; the sands spare it")
+            if type(y) == "number" and y < S.line and st ~= 0 and st ~= 6 then
+                -- Only a worm at rest is cursed: state 0 (Ambulatory) or 6 (Passive). Any other state at the turn end
+                -- (1 DetectJump, 2 Ballistic, 3 Sliding, 4 Vaulting, 5 Override: rope/jetpack, 7/8 dying or drowning)
+                -- means it is leaving the ground or the ground is leaving it, and an anchor would pin it in mid-air
+                -- for the rest of the match, so the sands spare it (the state is sim data, the same on every machine).
+                info("sandtide: worm", slot, "is not at rest (state", st, ") below the line; the sands spare it")
             elseif type(y) == "number" and y < S.line then
                 local team, pos = w:team()
                 table.insert(list, { slot = slot, team = team or 0, pos = pos or 0, w = w })

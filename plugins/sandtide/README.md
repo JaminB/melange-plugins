@@ -35,20 +35,33 @@ Pick **Sandworms** under *Game Style*. It is Standard with:
 - **3:00, the hourglass empties.** The curse waits for the turn in progress to end.
 - **The curse.** At that turn end every alive worm whose feet are below the line is cursed: its tail turns to sand and
   it is anchored where it stands, on every team. The camera tours each cursed worm (about 3.5 s each) before the next
-  turn starts. When no worm is below the line, the sands spare everyone and play goes straight on. A worm still flying,
-  sliding or on a rope at that moment is spared too (it would otherwise be pinned in mid-air).
+  turn starts. When no worm is below the line, the sands spare everyone and play goes straight on. Only a worm at rest
+  is cursed: one still jumping, vaulting, flying, sliding or on a rope or jetpack at that moment is spared (it would
+  otherwise be pinned in mid-air).
 - **A cursed worm** still takes its turns. It can turn on the spot, aim, change weapon and fire. It cannot walk, jump,
   backflip, rope, jetpack, teleport or parachute, and explosions damage it without moving it. Like a worm hit by No More
   Nails, its weapon panel greys out what a nailed worm cannot use: the rope, jetpack, parachute and teleport, and also
   armour, the bridge kit, Red Bull, the melee weapons, the sheep, the Old Woman, Starburst and Scouser. As with No More
   Nails, picking a greyed cell does nothing and the panel stays open, so the next click takes whatever cell is under the
   pointer; pick a usable weapon instead. It has no armour: it takes normal damage, and it drowns when the water reaches
-  it (the sand dissolves as it goes under).
-- **5:00, the water rises.** After the curse the hourglass shatters and becomes a water drop that fills until the water
-  rises.
+  it: the cast crumbles and floats off as the water reaches it, before the game's own drowning takes it.
+- **Teleport.** The Sandworms scheme stocks no teleport: the only one is the Teleport utility that comes out of crates.
+  A cursed worm cannot use it (its weapon panel greys it out, and firing it is refused), like the rope, the jetpack and
+  the parachute. Girders still work: they move nothing. The other utilities that could move a worm are not stocked
+  either (Alien Abduction and Bubble Trouble have no ammo), and an anchored worm's pin holds against anything that
+  pushes it.
+- **5:00, the water rises.** At the curse the hourglass leaps to the centre of the screen and shatters, then becomes a
+  water drop that fills until the water rises. During every turn intro it steps aside, left of "Ready?".
 
 Ammo for the Acid Spitter, Acid Flask and Crucible follows their base weapons (Bazooka, Grenade and Holy Hand Grenade),
 as for every Kindjal clone.
+
+## Sound
+
+Sandtide stays well under the game's own effects. The ticking is soft and only in the last 15 s, with a faint pour of
+sand over the last 10 s; the glass cracks and shatters as one-shots; the low drone and the wind play only during the
+camera tour and stop when it ends (or at the match end, a menu, a reload, or any error). No sound plays more than a few
+times a second.
 
 ## Settings
 
@@ -57,7 +70,7 @@ as for every Kindjal clone.
 | Camera tour of the cursed worms | on | Off keeps the game's own camera during the curse (the turn start is still held, so the timing is the same for everyone) |
 | Curse effects | dramatic | How much dust, shake and sand the curse throws around: subtle, full or dramatic |
 | Hourglass size | 1.0 | Scales the hourglass, 0.5 to 2.0 |
-| Sandtide sound volume | 0.8 | The curse, the hourglass and the wind |
+| Sound volume | 60 | 0 to 100. Sandtide's own sounds only (the hourglass, the strike and the tour); 0 turns them off |
 
 The settings are local: they change only what you see and hear, never the match.
 
@@ -82,11 +95,11 @@ the content hash: a player who edits them has a different Sandtide from everyone
   *Hourglass size* setting.
 - When land stands between two stops of the camera tour, the camera cuts through a short sand wipe instead of flying
   through it.
-- A worm cursed in mid-air (rare: the turn ends once things settle) is held where it is.
 - The camera tour is render-only: the game's own camera does not move, so the land the game fades for its own camera can
   show world effects faintly through it.
-- Players on Melange 0.10 see "mod contributors differ" against 0.11 players (Melange's anchor is a Wormsign
-  contributor); everyone needs 0.11 anyway.
+- Players on Melange 0.10 see "mod contributors differ" against 0.11 players (Melange 0.11 adds two Wormsign
+  contributors, `melange.wormanchor` for the anchors and `melange.turnhold` for the turn-start hold); everyone needs
+  0.11 anyway.
 
 ## Credits
 

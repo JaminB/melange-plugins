@@ -7,8 +7,11 @@ inharmonic partials for glass and brass, thousands of short band-passed noise gr
 sweeping low-passes for the drone, tanh saturation to glue layers. Nothing comes from the game or any other recording.
 All randomness comes from seeded random.Random instances, so the output is deterministic; --check regenerates
 everything in memory and compares it byte-for-byte with the files on disk. One-shots are DC-blocked, faded over 5 ms at
-both ends and peak-normalised to -1 dBFS. Loops (names ending in _loop) are generated past their end and the tail is
-crossfaded (equal power) into the head, so the loop point is seamless; they are normalised but not faded.
+both ends and normalised. Loops (names ending in _loop) are generated past their end and the tail is crossfaded
+(equal power) into the head, so the loop point is seamless; they are normalised but not faded. The last step,
+master(), sets the level of each file for the mix, well under the game's own effects: one-shots peak at -6 dBFS with
+their RMS held to -18 dBFS at most (the rumble's sub would otherwise be the loudest thing in the game), loops sit at an
+RMS of -24 dBFS (peak at most -6 dBFS). tools/sound_report.py reads the files back and checks these targets.
 Stdlib only. The approach and the small DSP helpers follow plugins/kindjal/tools/make_sounds.py.
 
     python make_sounds.py          write the files
@@ -513,12 +516,32 @@ def wav_bytes(x):
     return buf.getvalue(), ch
 
 
+ONESHOT_PEAK = 10 ** (-6.0 / 20)     # -6 dBFS
+ONESHOT_RMS_MAX = 10 ** (-18.0 / 20)  # -18 dBFS
+LOOP_RMS = 10 ** (-24.0 / 20)         # -24 dBFS
+LOOP_PEAK_MAX = 10 ** (-6.0 / 20)
+
+
+def master(name, x):
+    """One gain for the whole file (both channels alike): see the module docstring for the targets."""
+    chans = list(x) if isinstance(x, tuple) else [x]
+    peak = max(max(abs(v) for v in c) for c in chans) or 1.0
+    n = sum(len(c) for c in chans)
+    rms = math.sqrt(sum(v * v for c in chans for v in c) / n) or 1.0
+    if name.endswith("_loop"):
+        g = min(LOOP_RMS / rms, LOOP_PEAK_MAX / peak)
+    else:
+        g = min(ONESHOT_PEAK / peak, ONESHOT_RMS_MAX / rms)
+    out = [[v * g for v in c] for c in chans]
+    return tuple(out) if isinstance(x, tuple) else out[0]
+
+
 def render_all(only=None):
     out = {}
     for name, fn in SOUNDS:
         if only and name not in only:
             continue
-        data, ch = wav_bytes(fn())
+        data, ch = wav_bytes(master(name, fn()))
         if len(data) > MAX_BYTES:
             raise SystemExit("%s.wav is %d bytes, over the %d byte limit" % (name, len(data), MAX_BYTES))
         out[name + ".wav"] = (data, ch)

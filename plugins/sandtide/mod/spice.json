@@ -60,12 +60,12 @@
       "label": "Hourglass size"
     },
     {
-      "key": "sounds",
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "default": 0.8,
-      "label": "Sandtide sound volume"
+      "key": "volume",
+      "type": "int",
+      "min": 0,
+      "max": 100,
+      "default": 60,
+      "label": "Sound volume"
     }
   ]
 }

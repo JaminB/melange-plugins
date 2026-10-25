@@ -6,12 +6,14 @@
 -- called.
 --
 -- API (slot is the worm slot 0..15, as wum.game.worms() and wum.sim.worm() number them):
---   Petrify.setWorm(slot, level[, seed[, dissolve]])
+--   Petrify.setWorm(slot, level[, seed[, dissolve[, linger]]])
 --       level    0..1, how far the cast has crept from the tail up to the waist (0 clears the slot). The caller animates it
 --                (the creep over the tour) and holds it at 1 for the rest of the match.
 --       seed     any number; picks the worm's own grain, cracks, quartz and the shape of its front. Default: the slot.
 --                Use the same seed on every frame (the match's curse order or the slot is fine).
 --       dissolve 0..1, how much of the cast has washed away under water (0 whole, 1 gone). Default 0.
+--       linger   an os.clock() deadline: until then the cast is drawn even when the game reports the worm dead (the
+--                drowning worm, whose cast washes off as it goes under). Default nil.
 --       Values are clamped, and sent in steps of 1/256. The worm's position is read from wum.game.worms() by frame().
 --   Petrify.frame()       call once per frame (wum.timers.every(0, ...) or a draw callback). Reads the worms, smooths their
 --                         positions, sends what changed, and switches the pass on only while a cast worm is alive and near the
@@ -71,7 +73,7 @@ local Petrify = (function()
         if ok and res ~= false then F.enabled = on end
     end
 
-    function M.setWorm(slot, level, seed, dissolve)
+    function M.setWorm(slot, level, seed, dissolve, linger)
         slot = tonumber(slot)
         if not slot or slot ~= floor(slot) or slot < 0 or slot >= SLOTS then return false end
         local lv = q(clamp01(level))
@@ -87,6 +89,7 @@ local Petrify = (function()
         local sd = tonumber(seed) or slot
         if sd ~= sd or abs(sd) > 1e6 then sd = slot end
         s.lv, s.sd, s.dz = lv, floor(sd * 64 + 0.5) / 64 % 1024, q(clamp01(dissolve))
+        s.linger = tonumber(linger)
         return true
     end
 
@@ -215,7 +218,7 @@ local Petrify = (function()
                         local x, y, z = tonumber(p.x or p[1]), tonumber(p.y or p[2]), tonumber(p.z or p[3])
                         if x and y and z then
                             follow(s, x, y, z, dt)
-                            s.alive, s.seen = w.alive == true, F.n
+                            s.alive, s.seen = w.alive == true or (s.linger ~= nil and now < s.linger), F.n
                         end
                     end
                 end
@@ -279,7 +282,7 @@ end)()
 if not (wum and wum.draw and wum.draw.on and wum.game and wum.events and wum.timers) then return end
 
 local U = {}          -- utilities
-local CFG = { tour = true, fx = "dramatic", scale = 1, vol = 0.8, at = -1,
+local CFG = { tour = true, fx = "dramatic", scale = 1, vol = 0.6, at = -1,
               fxk = { shake = 1, parts = 1, petrify = 1 } }
 local TX = { cache = {}, fail = {} }
 local AU = { h = {}, fail = {}, loops = {}, ok = nil }
@@ -334,6 +337,9 @@ function U.guard(name, fn)
         if not ok then
             f.n = f.n + 1
             U.warn("sandtide: " .. name .. " error " .. f.n .. ": " .. tostring(err))
+            -- A loop must never outlive the code that would stop it: any error stops them (the owner restarts its
+            -- own on the next good frame, if it still wants it).
+            pcall(AU.stopLoops)
             if f.n >= 3 then
                 f.off = true
                 U.warn("sandtide: " .. name .. " disabled after 3 errors")
@@ -355,7 +361,8 @@ function CFG.refresh()
     CFG.tour = get("cameraTour", true) ~= false
     CFG.fx = tostring(get("fx", "dramatic"))
     CFG.scale = U.clamp(tonumber(get("hourglassScale", 1)) or 1, 0.5, 2)
-    CFG.vol = U.clamp(tonumber(get("sounds", 0.8)) or 0.8, 0, 1)
+    -- "Sound volume", 0 to 100 (default 60): scales the whole mix (AU.MIX).
+    CFG.vol = U.clamp(tonumber(get("volume", 60)) or 60, 0, 100) / 100
     local k = CFG.fxk
     if CFG.fx == "subtle" then k.shake, k.parts, k.petrify = 0.25, 0.4, 0.85
     elseif CFG.fx == "full" then k.shake, k.parts, k.petrify = 0.65, 0.75, 1
@@ -379,7 +386,21 @@ function TX.get(name, opts)
     return nil
 end
 
--- Audio. The library has no volume control on a playing voice, so beds are layers started and stopped whole.
+-- Audio. wum.audio has no volume control on a playing voice, so a loop is started and stopped whole. The rules:
+--   * Loops play only under the curse: the tour's drone and wind (the director), and a faint pour in the last 10 s
+--     of the hourglass. Each has one key, so it never plays twice; each carries a deadline and an owner check, and
+--     AU.sweep (every frame, outside the guarded pieces) stops it once the deadline passes or the owner says so,
+--     the match is over, the volume is 0 or a guarded piece faulted.
+--   * Everything else is a one-shot, and no sound plays more than AU.CAP[name] times in any second.
+--   * Every volume is the mix table's (MIX) times the "Sound volume" setting (0 to 100, default 60).
+AU.MIX = {
+    glass_crack = 0.35, glass_shatter = 0.45, tick = 0.16, tock = 0.16, sand_pour_loop = 0.12,
+    rumble = 0.4, drone_loop = 0.3, wind_loop = 0.2, sand_grind = 0.4, dust_burst = 0.3, crunch = 0.45,
+}
+AU.CAP = { glass_crack = 3, glass_shatter = 1, tick = 2, tock = 2, rumble = 1, sand_grind = 3, dust_burst = 3,
+           crunch = 3 }
+AU.recent = {}
+
 function AU.ready()
     if AU.ok ~= nil then return AU.ok end
     AU.ok = false
@@ -398,28 +419,70 @@ function AU.handle(name)
     U.warn("sandtide: sound " .. name .. " did not load: " .. tostring(got))
     return nil
 end
-function AU.play(name, vol, pitch, pos, loop)
+-- The per-sound cap: true when `name` has played fewer than its cap in the last second (and counts this play).
+function AU.allow(name)
+    local cap = AU.CAP[name] or 3
+    local r = AU.recent[name]
+    if not r then r = {}; AU.recent[name] = r end
+    local n = 0
+    for i = #r, 1, -1 do
+        if G.now - r[i] >= 1 then table.remove(r, i) else n = n + 1 end
+    end
+    if n >= cap then return false end
+    r[#r + 1] = G.now
+    return true
+end
+-- `gain` scales the sound's MIX level (default 1, so a call says only how it differs from its usual level).
+function AU.voice(name, gain, pitch, pos, loop)
     if CFG.vol <= 0 or not AU.ready() then return nil end
     local h = AU.handle(name)
     if not h then return nil end
-    local o = { volume = U.clamp((vol or 1) * CFG.vol, 0, 2), pitch = pitch or 1 }
+    local o = { volume = U.clamp((AU.MIX[name] or 0.3) * (gain or 1) * CFG.vol, 0, 1), pitch = pitch or 1 }
     if pos then o.pos = pos end
     if loop then o.loop = true end
     local ok, v = pcall(wum.audio.play, h, o)
-    if ok then return v end
+    if ok and type(v) == "number" then return v end
     return nil
 end
-function AU.loop(key, name, vol, pitch)
+function AU.play(name, gain, pitch, pos)
+    if not AU.allow(name) then return nil end
+    return AU.voice(name, gain, pitch, pos, false)
+end
+-- Starts the loop `key` unless it already plays (or was refused: no retry until it is stopped). It stops by itself
+-- after `maxSec`, or as soon as `owner()` returns false.
+function AU.loop(key, name, gain, pitch, maxSec, owner)
     if AU.loops[key] then return end
-    AU.loops[key] = AU.play(name, vol, pitch, nil, true) or false
+    local v = AU.voice(name, gain, pitch, nil, true)
+    AU.loops[key] = { v = v, name = name, untilT = G.now + (maxSec or 10), owner = owner }
+    if v then U.log(string.format("sandtide: sound loop %s on (%s, at most %.1f s)", key, name, maxSec or 10)) end
 end
 function AU.stop(key)
-    local v = AU.loops[key]
-    if v and wum.audio.stop then pcall(wum.audio.stop, v) end
+    local l = AU.loops[key]
+    if not l then return end
+    if l.v and wum.audio and wum.audio.stop then pcall(wum.audio.stop, l.v) end
     AU.loops[key] = nil
 end
-function AU.stopAll()
+function AU.stopLoops()
     for k in pairs(AU.loops) do AU.stop(k) end
+end
+-- Everything this mod plays, loops and one-shots (the match end, a menu, a reset).
+function AU.stopAll()
+    AU.stopLoops()
+    if wum.audio and wum.audio.stopAll then pcall(wum.audio.stopAll) end
+end
+-- Every frame, before the guarded pieces run: no loop outlives its deadline, its owner, the match or a fault.
+function AU.sweep()
+    if next(AU.loops) == nil then return end
+    local fault = (FAULT.update and FAULT.update.off) or (FAULT.director and FAULT.director.off)
+    if fault or not G.inMatch or CFG.vol <= 0 then AU.stopLoops(); return end
+    for k, l in pairs(AU.loops) do
+        local keep = G.now < l.untilT
+        if keep and l.owner then
+            local ok, r = pcall(l.owner)
+            keep = ok and r == true
+        end
+        if not keep then AU.stop(k) end
+    end
 end
 
 -------------------------------------------------------------------------------------------------------------- 2.
@@ -512,6 +575,7 @@ function HG.reset()
     HG.lastLeft, HG.running, HG.runAt = nil, false, -10
     HG.ts, HG.tsAt, HG.intro, HG.overlay, HG.groupsAt = nil, -100, false, false, -1
     HG.turnRan, HG.tl = true, nil
+    HG.introK, HG.broke, HG.crack2, HG.shards = 0, false, false, {}
 end
 
 -- What the game itself shows over the bottom centre, so the hourglass steps aside for it:
@@ -552,12 +616,115 @@ end
 -- Called when the curse message arrives. A late copy goes straight to the water countdown.
 function HG.strike(live)
     HG.strikeElapsed = HG.elapsed or (L.strikeMs or 180000)
-    AU.stop("pour"); AU.stop("wind1"); AU.stop("wind2")
+    AU.stop("pour")
     if live then
-        HG.state, HG.shAt, HG.jolt, HG.flash = "shatter", G.now, 1, 1
-        AU.play("glass_shatter", 1.0)
+        HG.state, HG.shAt, HG.jolt, HG.flash = "shatter", G.now, 1, 0.4
+        HG.broke, HG.crack2, HG.shards = false, false, {}
+        AU.play("glass_crack", 1.15, 0.85)
+        U.log("sandtide: the hourglass strike beat")
     else
         HG.state = "water"
+    end
+end
+
+-- The owner check of the pour loop (AU.sweep): the glass still running down in a match.
+-- The clock counts as flowing for 1.5 s after it last moved (the round clock may step only once a second), so the
+-- loop is not stopped and restarted between steps.
+function HG.pourWanted()
+    return HG.state == "run" and G.now - (HG.runAt or -10) < 1.5 and (HG.remain or 0) > 0 and (HG.remain or 0) <= 10500
+        and not HG.overlay
+end
+
+-- The strike beat (seconds from the curse): the empty glass leaps to the centre of the screen, enlarged, over the
+-- opening of the tour (0 to 0.4 s), cracks again (0.28 s), bursts (0.5 s: the shatter frames, glass shards and sand
+-- flying across the screen), shows the water drop forming, then shrinks back to its place (1.35 to 1.85 s). It is
+-- drawn whatever hides the hourglass otherwise (the letterbox, the turn intro), so it is always seen.
+HG.BEAT = { grow = 0.4, crack = 0.28, brk = 0.5, fdt = 0.06, back = 1.35, done = 1.85 }
+function HG.pop()
+    if HG.state ~= "shatter" or not HG.shAt then return 0 end
+    local u, B = G.now - HG.shAt, HG.BEAT
+    if u < B.grow then return U.outBack(u / B.grow) end
+    if u < B.back then return 1 end
+    return 1 - U.smoother((u - B.back) / (B.done - B.back))
+end
+-- Seconds left of the beat (the tour's title banner waits for it).
+function HG.beatLeft()
+    if HG.state ~= "shatter" or not HG.shAt then return 0 end
+    return max(0, HG.shAt + HG.BEAT.back - G.now)
+end
+
+-- Where the hourglass sits: bottom centre; during a turn intro aside, smaller, left of "Ready?" and its countdown
+-- (measured in game: the intro text spans x 0.44 to 0.56 of the width, y 0.76 to 0.94); in the strike beat, centre
+-- screen at 2.1 times. Returns the art's top-left corner, the scale and the beat's pop factor.
+function HG.geom()
+    local base = G.sh / 1080 * CFG.scale * 0.88
+    local cx, cy, s = G.sw / 2, G.sh * 0.815 - 114 * base, base
+    local k = HG.introK or 0
+    if k > 0.001 then
+        local si = base * 0.62
+        local ix, iy = G.sw / 2 - G.sh * 0.37, G.sh * 0.935 - 114 * si
+        cx, cy, s = U.lerp(cx, ix, k), U.lerp(cy, iy, k), U.lerp(s, si, k)
+    end
+    local P = HG.pop()
+    if P > 0 then
+        cx, cy, s = U.lerp(cx, G.sw / 2, P), U.lerp(cy, G.sh * 0.47, P), U.lerp(s, G.sh / 1080 * 2.1, P)
+    end
+    return cx - 64 * s, cy - 114 * s, s, P
+end
+
+-- Shards (HUD pixels): glass splinters spinning out under gravity and a spray of sand, from the glass's centre.
+function HG.spawnShards()
+    local x0, y0, s = HG.geom()
+    local cx, cy = x0 + 64 * s, y0 + 100 * s
+    local px = G.sh / 1080
+    local list = {}
+    local nG, nS = floor(44 * max(0.5, CFG.fxk.parts)), floor(70 * max(0.5, CFG.fxk.parts))
+    for i = 1, nG + nS do
+        local glass = i <= nG
+        local a = math.random() * 6.283
+        local sp = (glass and U.rand(380, 1050) or U.rand(120, 520)) * px
+        local r = U.rand(0, 20) * s
+        list[i] = { x = cx + cos(a) * r, y = cy + sin(a) * r * 1.4, vx = cos(a) * sp, vy = sin(a) * sp - U.rand(150, 420) * px,
+                    rot = math.random() * 6.283, vr = U.rand(-14, 14),
+                    len = (glass and U.rand(3.5, 11) or U.rand(0.8, 1.8)) * s,
+                    life = glass and U.rand(0.8, 1.3) or U.rand(0.6, 1.1), age = 0, glass = glass,
+                    rgb = glass and (math.random() < 0.5 and 0xE8F4FF or 0xBFDDF2) or (math.random() < 0.6 and 0xF0D09A or 0xD8AE6E) }
+    end
+    HG.shards = list
+end
+
+function HG.updateShards()
+    local dt = G.dt
+    if dt <= 0 or #HG.shards == 0 then return end
+    local g = 1500 * G.sh / 1080
+    local live = 0
+    for _, p in ipairs(HG.shards) do
+        if p.age < p.life then
+            p.age = p.age + dt
+            p.vx, p.vy = p.vx * (1 - min(1, dt * 0.8)), p.vy + g * dt
+            p.x, p.y, p.rot = p.x + p.vx * dt, p.y + p.vy * dt, p.rot + p.vr * dt
+            live = live + 1
+        end
+    end
+    if live == 0 then HG.shards = {} end
+end
+
+function HG.drawShards()
+    for _, p in ipairs(HG.shards) do
+        if p.age < p.life then
+            local a = U.sat((p.life - p.age) / (p.life * 0.5))
+            if p.glass then
+                local c, sn = cos(p.rot) * p.len, sin(p.rot) * p.len
+                local w = max(1.5, p.len * 0.22)
+                pcall(wum.draw.hudLine, p.x - c, p.y - sn, p.x + c, p.y + sn, U.col(p.rgb, 0.9 * a), w)
+                -- the glint: a bright core on the splinter, flickering as it spins
+                pcall(wum.draw.hudLine, p.x - c * 0.4, p.y - sn * 0.4, p.x + c * 0.4, p.y + sn * 0.4,
+                    U.col(0xFFFFFF, a * (0.5 + 0.5 * abs(sin(p.rot * 2)))), max(1, w * 0.45))
+            else
+                local r = p.len
+                pcall(wum.draw.hudRect, p.x - r, p.y - r, p.x + r, p.y + r, U.col(p.rgb, 0.95 * a), true)
+            end
+        end
     end
 end
 
@@ -614,7 +781,10 @@ function HG.update()
     -- The hourglass steps aside while the tour's letterbox is up (the shatter itself always shows).
     HG.gate(m)
     local want = (DIR.letter > 0.3 and HG.state ~= "shatter") and 0 or 1
-    if HG.overlay then want = 0 elseif HG.intro and HG.state ~= "shatter" then want = 0.12 end
+    if HG.overlay then want = 0 elseif HG.intro and HG.state ~= "shatter" then want = 0.6 end
+    -- In a turn intro the hourglass slides aside (HG.geom) instead of fading out.
+    local ik = (HG.intro and not HG.overlay and HG.state ~= "shatter") and 1 or 0
+    if HG.introK < ik then HG.introK = min(ik, HG.introK + G.dt * 3.5) else HG.introK = max(ik, HG.introK - G.dt * 2.5) end
     if HG.alpha < want then HG.alpha = min(want, HG.alpha + G.dt * 2) else HG.alpha = max(want, HG.alpha - G.dt * (HG.overlay and 12 or 3)) end
 
     if HG.state == "hidden" then HG.state = (L.phase or 0) >= 2 and "water" or "run" end
@@ -622,7 +792,7 @@ function HG.update()
         if (L.phase or 0) >= 1 or HG.remain <= 0 then
             if HG.state ~= "empty" then
                 HG.state = "empty"
-                AU.play("glass_crack", 0.9, 0.8)
+                AU.play("glass_crack", 1.0, 0.8)
                 HG.jolt = 1
             end
         end
@@ -639,19 +809,32 @@ function HG.update()
         end
         local sec = ceil(HG.remain / 1000)
         if HG.state == "run" and HG.remain <= 15000 and HG.remain > 0 and HG.running and HG.lastSec and sec < HG.lastSec then
-            AU.play(sec % 2 == 0 and "tick" or "tock", 0.55 + 0.03 * (15 - sec), 1 + (15 - sec) * 0.012)
+            -- Soft: from 0.16 at 0:15 to about 0.27 at 0:01 (times the setting).
+            AU.play(sec % 2 == 0 and "tick" or "tock", 1 + 0.05 * (15 - sec), 1 + (15 - sec) * 0.012)
             HG.beat = G.now
         end
         HG.lastSec = sec
-        if HG.state == "run" and HG.remain <= 60000 and HG.remain > 0 then AU.loop("wind1", "wind_loop", 0.22) end
-        if HG.state == "run" and HG.remain <= 15000 and HG.remain > 0 then
-            AU.loop("wind2", "wind_loop", 0.35, 0.86)
-            AU.loop("pour", "sand_pour_loop", 0.28)
+        -- The only hourglass ambience: a faint pour over the last 10 s while the clock runs (stopped the moment the
+        -- glass is empty, the clock stops, the strike comes or a menu opens).
+        if HG.pourWanted() then
+            AU.loop("pour", "sand_pour_loop", 1, 1, 11, HG.pourWanted)
+        else
+            AU.stop("pour")
         end
-        if HG.state == "empty" then AU.stop("pour") end
     elseif HG.state == "shatter" then
-        if G.now - HG.shAt > 12 * 0.055 + 0.15 then HG.state = "water" end
+        local u, B = G.now - HG.shAt, HG.BEAT
+        if u >= B.crack and not HG.crack2 then
+            HG.crack2, HG.jolt = true, 1
+            AU.play("glass_crack", 1.15, 1.12)
+        end
+        if u >= B.brk and not HG.broke then
+            HG.broke, HG.flash, HG.jolt = true, 1, 1.3
+            AU.play("glass_shatter", 1)
+            HG.spawnShards()
+        end
+        if u > B.done then HG.state = "water" end
     end
+    HG.updateShards()
     if HG.state == "water" or HG.state == "flood" then
         local flood = m.suddenDeath == true or elapsed >= roundMs
         if flood and HG.state ~= "flood" then
@@ -659,7 +842,7 @@ function HG.update()
             if not HG.flooded then
                 HG.flooded = true
                 if G.now - (HG.shAt or -100) > 2 then
-                    AU.play("rumble", 0.9, 0.7)
+                    AU.play("rumble", 0.85, 0.7)
                     BAN.show("THE TIDE RISES", "the drowned sands awaken", COLS.water, 4)
                 end
             end
@@ -671,12 +854,13 @@ end
 
 function HG.draw()
     if HG.state == "hidden" or not G.m then return end
-    local s = G.sh / 1080 * CFG.scale * 0.88
-    local W, H = 128 * s, 228 * s
-    local x0 = floor(G.sw / 2 - W / 2)
-    local y0 = floor(G.sh * 0.815 - H)
+    local x0, y0, s, P = HG.geom()
     local a = HG.alpha
-    if a <= 0.01 then return end
+    if P > 0 then a = U.lerp(a, 1, U.sat(P)) end
+    if a <= 0.01 then
+        HG.drawShards()
+        return
+    end
     -- Shake: a jolt at each crack and the strike; a tremble while the empty glass waits.
     local jx, jy = 0, 0
     local amp = HG.jolt * 5 * s + (HG.state == "empty" and 1.3 * s or 0)
@@ -687,8 +871,10 @@ function HG.draw()
     x0, y0 = x0 + jx, y0 + jy
     local st = HG.state
     HG.img("hud/hg_shadow", R.full, x0, y0, s, a * 0.9)
+    local bu = st == "shatter" and (G.now - HG.shAt) or 0     -- seconds into the strike beat
 
-    if st == "run" or st == "empty" then
+    if st == "run" or st == "empty" or (st == "shatter" and not HG.broke) then
+        if st == "shatter" then st = "empty" end   -- the whole, empty glass until it bursts
         local frac = HG.sandFrac(HG.remain, L.strikeMs or 180000)
         local lowT = HG.remain <= 15000 and (1 - HG.remain / 15000) or 0
         if st == "empty" then lowT = 1 end
@@ -715,7 +901,8 @@ function HG.draw()
         if f > 0.01 and b0 > 0 then HG.img(HGN.bot[b0 - 1], R.bot, x0, y0, s, a * f) end
         HG.img("hud/hg_glow_inner", R.full, x0, y0, s, a * glowA)
         HG.img("hud/hg_glass_front", R.full, x0, y0, s, a)
-        if HG.crack > 0 then HG.img(HGN.crack[HG.crack], R.full, x0, y0, s, a) end
+        local ck = HG.state == "shatter" and 3 or HG.crack
+        if ck > 0 then HG.img(HGN.crack[ck], R.full, x0, y0, s, a) end
         HG.img("hud/hg_frame", R.full, x0, y0, s, a)
         HG.img("hud/hg_plate", R.plate, x0, y0, s, a)
         local txt, rgb, glow
@@ -738,7 +925,7 @@ function HG.draw()
         local span = max(1000, HG.roundMs - (HG.strikeElapsed or HG.roundMs))
         local wl = max(0, HG.roundMs - HG.elapsed)
         local fill = st == "flood" and 1 or U.sat(1 - wl / span)
-        local appear = st == "shatter" and U.sat((G.now - HG.shAt - 0.35) / 0.4) or 1
+        local appear = st == "shatter" and U.sat((bu - HG.BEAT.brk - 0.4) / 0.4) or 1
         local lv = fill * 8
         local i0 = min(8, floor(lv))
         local f = lv - i0
@@ -748,7 +935,7 @@ function HG.draw()
         HG.img(HGN.drop[i0], R.drop, x0, y0 + bob, s, da)
         if f > 0.01 and i0 < 8 then HG.img(HGN.drop[i0 + 1], R.drop, x0, y0 + bob, s, da * f) end
         if st == "shatter" then
-            local fr = floor((G.now - HG.shAt) / 0.055)
+            local fr = floor((bu - HG.BEAT.brk) / HG.BEAT.fdt)
             if fr <= 11 then
                 HG.img(HGN.shatter[fr], R.shatter, x0, y0, s, a)
             else
@@ -767,6 +954,7 @@ function HG.draw()
     if HG.flash > 0.02 then
         HG.img("hud/hg_glow", R.full, x0, y0, s, HG.flash, 0xFFE0B0)
     end
+    HG.drawShards()
 end
 
 -------------------------------------------------------------------------------------------------------------- 4.
@@ -1260,6 +1448,7 @@ end
 -- Every frame: positions (pinned, but the snapshot is the truth), the dissolve under water, the crumble on death,
 -- and the petrify driver's slot.
 function CU.update()
+    CU.water()
     if not C then return end
     local water = G.m and tonumber(G.m.waterLevel) or -1e9
     -- Mounds are built one per frame (a build is a few tens of thousands of instructions).
@@ -1286,17 +1475,58 @@ function CU.update()
             rec.name = w.name or rec.name
         end
         local alive = w and w.alive == true
+        local under = rec.y and (water - rec.y) or -1e9    -- the water over the worm's feet
         if rec.alive and not alive and rec.mound > 0.05 and not rec.crumble then
             rec.crumble = G.now
-            PT.burst(rec, 0.5)
+            if under > -4 then
+                -- Drowned: the engine's drown sequence takes the worm, and the rest of the cast comes off it as it
+                -- goes under (the cast stays drawn, dissolving, for CU.LINGER s).
+                rec.drown = G.now
+                if not rec.wash then rec.wash = G.now end
+                PT.wash(rec, water, 1.3)
+                AU.play("sand_grind", 0.85, 0.62, { x = rec.x, y = rec.y, z = rec.z })
+            else
+                PT.burst(rec, 0.5)
+            end
         end
         rec.alive = alive
-        -- Under water the cast washes away: from the feet (0) to the drowning height (feet + 7).
-        local target = rec.y and U.sat((water - rec.y + 0.5) / 7.5) or 0
-        if target > rec.dz then rec.dz = min(target, rec.dz + G.dt * 0.6) else rec.dz = max(target, rec.dz - G.dt * 0.3) end
+        -- The water reaching the worm: the cast crumbles and floats off from the water line up, before the engine's
+        -- drown sequence (the water drowns a worm some 7 to 14 units over its feet: measured, alive at +6.2, drowned
+        -- at +14.2). The wash beat (a burst of floating sand, a sound, a short camera shot when it comes with the
+        -- water rising) plays once, then grains keep floating off while the cast is in the water.
+        if not rec.wash and rec.mound > 0.05 and under > -1 and rec.final then
+            rec.wash = G.now
+            PT.wash(rec, water, 1)
+            AU.play("sand_grind", 0.85, 0.72, { x = rec.x, y = rec.y, z = rec.z })
+            AU.play("dust_burst", 0.8, 0.7)
+            if G.now - (CU.waterAt or -100) < 4 then DIR.washStart(rec) end
+            U.log(string.format("sandtide: the water reaches %s (%.1f over its feet)", tostring(rec.name), under))
+        end
+        local target = rec.y and U.sat((under + 1) / 8) or 0
+        if rec.drown then target = max(target, U.sat((G.now - rec.drown) / (CU.LINGER - 0.3))) end
+        if target > rec.dz then rec.dz = min(target, rec.dz + G.dt * 1.1) else rec.dz = max(target, rec.dz - G.dt * 0.3) end
+        if rec.wash and rec.dz < 0.98 and under > -2 and (alive or rec.drown) then
+            rec.washAcc = (rec.washAcc or 0) + G.dt * (rec.drown and 60 or 26) * CFG.fxk.parts
+            while rec.washAcc >= 1 do
+                rec.washAcc = rec.washAcc - 1
+                PT.floatOff(rec, water)
+            end
+        end
         if rec.final then rec.level, rec.mound = 1, max(rec.mound, rec.crumble and 0 or 1) end
-        Petrify.setWorm(slot, alive and rec.level or 0, rec.seed, rec.dz)
+        local linger = rec.drown and (rec.drown + CU.LINGER) or nil
+        local shown = alive or (linger ~= nil and G.now < linger)
+        Petrify.setWorm(slot, shown and rec.level or 0, rec.seed, rec.dz, linger)
     end
+end
+CU.LINGER = 1.8
+
+-- Notes when the water level last moved (the wash shot plays only with the water rising, not for a worm cursed at
+-- the shore).
+function CU.water()
+    local wl = G.m and tonumber(G.m.waterLevel)
+    if not wl then return end
+    if CU.lastWater and abs(wl - CU.lastWater) > 0.05 then CU.waterAt = G.now end
+    CU.lastWater = wl
 end
 
 function CU.drawWorld()
@@ -1345,6 +1575,48 @@ function PT.burst(rec, strength)
     end
 end
 
+-- The wash: sand lifting off the cast where the water meets it, floating up and out, a slick of sand spreading on
+-- the surface, and a few swirls rising. strength 0..1.5.
+function PT.wash(rec, water, strength)
+    if not rec.x then return end
+    local k = CFG.fxk.parts * strength
+    local x, z = rec.x, rec.z
+    local wy = min(max(water, rec.y), rec.y + 11)
+    for _ = 1, floor(70 * k) do
+        local a = math.random() * 6.28
+        local r = U.rand(3, 7)
+        local sp = U.rand(6, 26)
+        PT.spawn(1, x + cos(a) * r, wy + U.rand(-1, 6), z + sin(a) * r, cos(a) * sp, U.rand(6, 24), sin(a) * sp,
+            U.rand(1.4, 2.6), U.rand(0.8, 1.6), 0xF2D6A0, 0.95, 0.04, 0.7)
+    end
+    for _ = 1, floor(18 * k) do
+        local a = math.random() * 6.28
+        local sp = U.rand(4, 14)
+        PT.spawn(2, x + cos(a) * 6, wy + U.rand(0, 1.5), z + sin(a) * 6, cos(a) * sp, U.rand(0, 1.5), sin(a) * sp,
+            U.rand(2.4, 3.6), U.rand(8, 14), 0xDCC08C, U.rand(0.35, 0.55), 0, 0.5, 2.2)
+    end
+    for i = 1, max(1, floor(3 * k)) do
+        local q = PT.spawn(3, x, wy + 2 + i * 3, z, 0, U.rand(4, 8), 0, 1.8, 18 - i * 3, 0xE8C890, 0.5, 0.02, 0.3, -0.4)
+        if q then q.spin = (i % 2 == 0 and -1 or 1) * U.rand(4, 7) end
+    end
+end
+
+-- One grain coming off the cast at the water line and floating away.
+function PT.floatOff(rec, water)
+    if not rec.x then return end
+    local a = math.random() * 6.28
+    local r = U.rand(3.5, 6)
+    local y = min(max(water, rec.y), rec.y + 11.5) + U.rand(-1, 1.5)
+    local sp = U.rand(3, 11)
+    if math.random() < 0.85 then
+        PT.spawn(1, rec.x + cos(a) * r, y, rec.z + sin(a) * r, cos(a) * sp, U.rand(3, 10), sin(a) * sp,
+            U.rand(1.2, 2.2), U.rand(0.7, 1.4), 0xEED29C, 0.9, 0.03, 0.6)
+    else
+        PT.spawn(2, rec.x + cos(a) * r, y, rec.z + sin(a) * r, cos(a) * sp * 0.5, U.rand(0.5, 2), sin(a) * sp * 0.5,
+            U.rand(1.8, 3), U.rand(5, 9), 0xDCC08C, U.rand(0.25, 0.4), 0, 0.5, 1.6)
+    end
+end
+
 -- Swirls converge on a worm before the cast creeps up it.
 function PT.converge(rec)
     if not rec.x then return end
@@ -1372,8 +1644,12 @@ end
 -- Without the camera tour the same timeline plays the effects and captions. Any error ends the override.
 DIR.spec = { pos = { x = 0, y = 0, z = 0 }, target = { x = 0, y = 0, z = 0 }, fov = 45, frames = 3 }
 
+-- The owner check of the tour's sound beds.
+function DIR.tourActive() return DIR.active == true end
+
 function DIR.reset()
     if DIR.cam then pcall(wum.render.cameraOverride, nil) end
+    DIR.rel, DIR.wash, DIR.planCo, DIR.planned, DIR.wipe = nil, nil, nil, {}, 0
     DIR.active, DIR.mode, DIR.cam, DIR.c, DIR.h, DIR.T, DIR.seg, DIR.shots = false, nil, false, nil, nil, 0, -2, {}
     DIR.pose, DIR.from, DIR.letter, DIR.shake, DIR.waitAt, DIR.camOff = nil, nil, 0, 0, nil, false
     DIR.lastTick, DIR.frac = nil, 0
@@ -1386,6 +1662,7 @@ function DIR.abort(why)
     DIR.cam = false
     DIR.camOff = true
     DIR.wipe = 0
+    DIR.rel, DIR.wash, DIR.planCo = nil, nil, nil
     for _, rec in pairs(CU.w) do rec.final = true end
     DIR.active = false
     AU.stop("drone"); AU.stop("tourwind")
@@ -1394,8 +1671,8 @@ end
 function DIR.curse(c, live)
     if not live then return end
     if c.status == "spared" then
-        AU.play("rumble", 0.6, 1.2)
-        BAN.show("THE SANDS SPARE YOU", "no worm stood below the line", COLS.sand, 4)
+        AU.play("rumble", 0.75, 1.2)
+        BAN.show("THE SANDS SPARE YOU", "no worm stood below the line", COLS.sand, 4, HG.beatLeft())
         return
     end
     if #c.slots == 0 then return end
@@ -1420,6 +1697,8 @@ function DIR.holdEnd()
 end
 
 function DIR.start(c, h, mode)
+    if (DIR.rel or DIR.wash) and DIR.cam then pcall(wum.render.cameraOverride, nil); DIR.cam = false end
+    DIR.rel, DIR.wash = nil, nil
     DIR.active, DIR.mode, DIR.c, DIR.h, DIR.waitAt = true, mode, c, h, nil
     DIR.T, DIR.seg, DIR.shots, DIR.t0 = 0, -2, {}, G.now
     DIR.from, DIR.pose, DIR.outFrom, DIR.cur, DIR.segCut, DIR.outCut, DIR.wipe = nil, nil, nil, nil, false, false, 0
@@ -1430,25 +1709,77 @@ function DIR.start(c, h, mode)
     DIR.base = h and (DIR.useTick and h.tick or nil)
     DIR.frac, DIR.lastTick = 0, G.tick
     DIR.camOff = not (CFG.tour and mode == "tour" and wum.render.cameraOverride)
-    AU.play("rumble", 1.0)
-    AU.loop("drone", "drone_loop", 0.55)
-    AU.loop("tourwind", "wind_loop", 0.3, 0.8)
+    -- Every stop is chosen ahead, over the intro's frames (the land-ray budget is per frame), so a stop can afford
+    -- dense sight rays; a stop not planned in time is chosen on the spot.
+    DIR.planned, DIR.planCo, DIR.planRays = {}, nil, 0
+    if not DIR.camOff then
+        DIR.planCo = coroutine.create(function()
+            for _, slot in ipairs(c.slots) do
+                local rec = CU.w[slot]
+                if rec and rec.x then DIR.planned[slot] = DIR.shot(rec) or false end
+            end
+        end)
+    end
+    AU.play("rumble", 1)
+    -- The tour's two beds, for the tour only: DIR.finish, DIR.abort and DIR.reset stop them, and AU.sweep stops them
+    -- when the director is no longer active or the hold has run its length (plus 2 s).
+    local bedSec = DIR.total / 50 + 2
+    AU.loop("drone", "drone_loop", 1, 1, bedSec, DIR.tourActive)
+    AU.loop("tourwind", "wind_loop", 1, 0.8, bedSec, DIR.tourActive)
     DIR.shake = 0.5
     local n = DIR.n
+    -- The title waits for the hourglass's strike beat, which plays over the opening of the tour.
+    local wait = HG.beatLeft()
     BAN.show("THE HOURGLASS IS EMPTY", n == 1 and "one worm is claimed by the sands" or (n .. " worms are claimed by the sands"),
-        COLS.sand, mode == "tour" and (c.intro / 50 + 1.4) or 3)
+        COLS.sand, max(1.8, (mode == "tour" and (c.intro / 50 + 1.4) or 3) - wait * 0.5), wait)
     U.log(string.format("sandtide: tour %s, %d worms, %.0f ticks, camera %s, tick sync %s", mode, n, DIR.total,
         DIR.camOff and "off" or "on", tostring(DIR.useTick)))
 end
 
+-- The end of the tour. The game's camera underneath is still the last turn's until the next turn starts (a frame or
+-- more after the hold ends), so releasing the override at once flashed that old view before the "Ready?" intro.
+-- Instead the outro closes on a sand wipe, the last pose is held under it until the game's camera has moved to the
+-- new turn (or 1.2 s), and only then is the override released and the wipe lifted.
 function DIR.finish()
-    DIR.wipe = 0
-    if DIR.cam then pcall(wum.render.cameraOverride, nil) end
-    DIR.cam = false
     for _, rec in pairs(CU.w) do rec.final = true end
-    DIR.active = false
+    DIR.active, DIR.planCo = false, nil
     AU.stop("drone"); AU.stop("tourwind")
+    if DIR.cam and DIR.pose then
+        local gx, gy, gz = nil, nil, nil
+        if G.gcam then gx, gy, gz = U.vx(G.gcam.pos) end
+        DIR.rel = { at = G.now, ts = HG.ts, pose = DIR.pose, w = DIR.wipe or 0, gx = gx, gy = gy, gz = gz }
+    else
+        DIR.wipe = 0
+        if DIR.cam then pcall(wum.render.cameraOverride, nil) end
+        DIR.cam = false
+    end
     U.log("sandtide: tour done")
+end
+
+function DIR.release()
+    local r = DIR.rel
+    if not r.out then
+        r.w = min(1, r.w + G.dt / 0.15)
+        DIR.wipe = r.w
+        DIR.applyPose(r.pose, true)
+        if HG.ts ~= r.ts and not r.tsAt then r.tsAt = G.now end
+        local moved = false
+        if r.gx and G.gcam then
+            local x, y, z = U.vx(G.gcam.pos)
+            if x then moved = (x - r.gx) ^ 2 + (y - r.gy) ^ 2 + (z - r.gz) ^ 2 > 60 * 60 end
+        end
+        if r.w >= 1 and ((r.tsAt and G.now - r.tsAt > 0.12) or moved or G.now - r.at > 1.2) then
+            if DIR.cam then pcall(wum.render.cameraOverride, nil) end
+            DIR.cam = false
+            r.out = G.now
+            U.log(string.format("sandtide: camera handed back after %.2f s (%s)", G.now - r.at,
+                (r.tsAt and "turn started") or (moved and "game camera moved") or "timeout"))
+        end
+    else
+        local e = (G.now - r.out) / 0.4
+        DIR.wipe = 1 - U.smooth(e)
+        if e >= 1 then DIR.rel, DIR.wipe = nil, 0 end
+    end
 end
 
 -- The camera pose for one worm: a low three-quarter view, picked by what the eye would actually see.
@@ -1468,45 +1799,80 @@ DIR.RING = { { d = 88, hs = { 16, 30, 46 }, offs = { 35, -35, 70, -70, 0, 110, -
              { d = 32, hs = { 9, 18 }, offs = { 35, -35, 70, -70, 0, 110, -110, 180 } } }
 DIR.rays = 0
 
--- One land ray; true when clear, false when it hits, nil when the frame's budget is spent (unknown).
+-- One land ray; true when clear, false (and the hit fraction) when it hits, nil when unknown (the frame's budget
+-- is spent). Inside the stop planner (DIR.planCo) a spent budget waits for the next frame instead, and the planner
+-- yields every 40 rays to stay inside the callback's instruction budget.
 function DIR.ray(x0, y0, z0, x1, y1, z1)
     DIR.rays = DIR.rays + 1
-    local ok, t, why = pcall(wum.game.landRay, x0, y0, z0, x1, y1, z1)
-    if not ok then return nil end
-    if t == nil then
-        if why == nil then return true end
-        return nil
+    local co = coroutine.running()
+    local inPlan = DIR.planCo ~= nil and co == DIR.planCo
+    if inPlan then
+        DIR.planRays = (DIR.planRays or 0) + 1
+        if DIR.planRays % 40 == 0 then coroutine.yield() end
     end
-    return false
+    for _ = 1, 4 do
+        local ok, t, why = pcall(wum.game.landRay, x0, y0, z0, x1, y1, z1)
+        if not ok then return nil end
+        if t ~= nil then return false, t end
+        if why == nil then return true end
+        if why ~= "budget" or not inPlan then return nil end
+        coroutine.yield()
+    end
+    return nil
 end
 
--- The share of the worm an eye sees through the land: 1 ray to the waist, or 8 to the whole figure and the mound.
-function DIR.sight(ex, ey, ez, rec, full)
+-- The share of the worm an eye sees through the land. `pts` is a list of {across, up} points on the figure (across
+-- the view in the ground plane, up from the feet): DIR.ptsOne (the waist), DIR.ptsQuick (the mid-shot check) or
+-- DIR.ptsFull. The full set is a fan over the whole figure, three columns wide (a thin post a few units wide that
+-- hid a worm for 1.5 s in round 3 slipped between the old 8 rays, which had a single centre column).
+function DIR.sight(ex, ey, ez, rec, pts)
     if not wum.game.landRay then return 1 end
     local x, y, z = rec.x, rec.y, rec.z
     local dx, dz = x - ex, z - ez
     local l = sqrt(dx * dx + dz * dz)
     if l < 1e-3 then l = 1 end
     local ax, az = -dz / l, dx / l       -- across the view, in the ground plane
-    local pts = DIR.ptsOne
-    if full then
-        pts = DIR.ptsFull
-        pts[5][1], pts[5][3], pts[6][1], pts[6][3] = ax * 7, az * 7, -ax * 7, -az * 7
-        pts[7][1], pts[7][3], pts[8][1], pts[8][3] = ax * 11, az * 11, -ax * 11, -az * 11
-    end
+    pts = pts or DIR.ptsOne
     local clear, n = 0, 0
     for i = 1, #pts do
         local p = pts[i]
-        local r = DIR.ray(ex, ey, ez, x + p[1], y + p[2], z + p[3])
+        local r = DIR.ray(ex, ey, ez, x + ax * p[1], y + p[2], z + az * p[1])
         n = n + 1
         if r == true then clear = clear + 1 elseif r == nil then clear = clear + 0.5 end
     end
     return clear / n
 end
--- The waist; the shins (a ray to the feet themselves grazes the ground and answers either way), chest, hat, both
--- shoulders, and the mound's rim on both sides.
-DIR.ptsOne = { { 0, 8, 0 } }
-DIR.ptsFull = { { 0, 8, 0 }, { 0, 5, 0 }, { 0, 15, 0 }, { 0, 21, 0 }, { 0, 10, 0 }, { 0, 10, 0 }, { 0, 6, 0 }, { 0, 6, 0 } }
+-- Shins (a ray to the feet themselves grazes the ground and answers either way), waist, chest, head and hat in the
+-- centre column; the waist, chest and hat brim 4 units to either side; the mound's rim on both sides.
+DIR.ptsOne = { { 0, 8 } }
+DIR.ptsQuick = { { 0, 8 }, { 0, 15 }, { 0, 21 }, { -4, 12 }, { 4, 12 } }
+DIR.ptsFull = { { 0, 4 }, { 0, 8 }, { 0, 12 }, { 0, 16 }, { 0, 21 }, { -4, 8 }, { 4, 8 }, { -4, 15 }, { 4, 15 },
+                { -3, 21 }, { 3, 21 }, { -11, 6 }, { 11, 6 } }
+
+-- The near field: a prop right in front of the lens (a post, a fence) covers a large part of the frame without
+-- crossing the rays to the worm. Rays from the eye to the frame around the worm (24 units to each side at the waist,
+-- 14 to each side above the hat) that hit land in the first 70 % of their way cost 0.3 each.
+DIR.ptsFrame = { { -24, 10 }, { 24, 10 }, { -14, 26 }, { 14, 26 } }
+function DIR.frameBlock(ex, ey, ez, rec)
+    if not wum.game.landRay then return 0 end
+    local dx, dz = rec.x - ex, rec.z - ez
+    local l = sqrt(dx * dx + dz * dz)
+    if l < 1e-3 then l = 1 end
+    local ax, az = -dz / l, dx / l
+    local pen = 0
+    for _, p in ipairs(DIR.ptsFrame) do
+        local r, t = DIR.ray(ex, ey, ez, rec.x + ax * p[1], rec.y + p[2], rec.z + az * p[1])
+        if r == false and t and t < 0.7 then pen = pen + 0.3 end
+    end
+    return pen
+end
+
+-- The mid-shot check: is the worm still seen from this eye, with nothing in front of the lens?
+function DIR.stillSees(ex, ey, ez, rec)
+    local vis = DIR.sight(ex, ey, ez, rec, DIR.ptsQuick)
+    local fb = DIR.frameBlock(ex, ey, ez, rec)
+    return vis >= 0.6 and fb < 0.5, vis, fb
+end
 
 -- How close the ground runs under the line of sight: a plateau edge a few units under it hides the worm's legs and
 -- the mound behind its own horizon, and the eye then sees mostly that plateau (measured in game: a ledge 10 units
@@ -1567,7 +1933,7 @@ function DIR.shot(rec)
     local yaw = rec.yaw or 0
     DIR.rays = 0
     local best, bestScore
-    local cands = {}
+    local cands, fine = {}, {}
     local function score(c, vis)
         -- Sight weighs most; a foreground worm costs about as much as losing the whole figure.
         return vis * 2 - c.pen * 1.6 + 0.35 * (1 - abs(c.off) / 180 * 0.6 - U.sat((c.h - 9) / 40) * 0.3)
@@ -1581,27 +1947,37 @@ function DIR.shot(rec)
                 local ex, ey, ez = tx + sin(a) * ring.d, ty + h, tz + cos(a) * ring.d
                 local c = { a = a, h = h, d = ring.d, off = off, ex = ex, ey = ey, ez = ez }
                 c.pen = DIR.wormBlock(ex, ey, ez, rec)
-                c.vis = DIR.sight(ex, ey, ez, rec, false)
+                c.vis = DIR.sight(ex, ey, ez, rec, DIR.ptsOne)
                 c.s = score(c, c.vis)
                 cands[#cands + 1] = c
             end
         end
         table.sort(cands, function(p, q) return p.s > q.s end)
-        -- Fine: the whole figure and the ground under the line of sight for the best few.
+        -- Fine: the whole figure, the near field and the ground under the line of sight for the best few.
         for i = 1, min(6, #cands) do
             local c = cands[i]
             if c.vis > 0 then
-                c.vis = DIR.sight(c.ex, c.ey, c.ez, rec, true)
-                c.pen = c.pen + DIR.clearance(c.ex, c.ey, c.ez, rec)
+                c.vis = DIR.sight(c.ex, c.ey, c.ez, rec, DIR.ptsFull)
+                c.pen = c.pen + DIR.clearance(c.ex, c.ey, c.ez, rec) + DIR.frameBlock(c.ex, c.ey, c.ez, rec)
                 c.s = score(c, c.vis)
+                fine[#fine + 1] = c
             end
             if not best or c.s > bestScore then best, bestScore = c, c.s end
         end
         -- Good enough at this distance: a mostly visible worm with nothing in front of it.
         if best and best.vis >= 0.75 and best.pen < 0.3 then break end
-        if ri == #DIR.RING or DIR.rays > 170 then break end
+        if ri == #DIR.RING or DIR.rays > 600 then break end
     end
     if not best then best = { a = yaw + 0.6, h = 30, d = 70, off = 35, vis = 0, pen = 0 } end
+    -- Fallbacks for the mid-shot check: the next best fine-scored eyes from another direction or height.
+    table.sort(fine, function(p, q) return p.s > q.s end)
+    best.alts = {}
+    for _, c in ipairs(fine) do
+        if c ~= best and #best.alts < 3 and c.vis >= 0.6 and (abs(c.off - best.off) >= 30 or c.h ~= best.h or c.d ~= best.d) then
+            c.side, c.d0, c.tx, c.ty, c.tz = 0, 1.0, tx, ty, tz
+            best.alts[#best.alts + 1] = c
+        end
+    end
     best.side = best.off >= 0 and 1 or -1
     if best.off == 0 then best.side = 1 end
     best.tx, best.ty, best.tz = tx, ty, tz
@@ -1615,8 +1991,8 @@ function DIR.shot(rec)
     if not endClear(best.a + best.side * sw, best.d * 0.94, best.h * 0.9) then
         if endClear(best.a - best.side * sw, best.d * 0.94, best.h * 0.9) then best.side = -best.side else best.side = 0 end
     end
-    U.log(string.format("sandtide: shot for %s: off %d, h %d, d %d, sight %.2f, worms %.2f, swing %d, %d rays",
-        tostring(rec.name), best.off, best.h, best.d, best.vis, best.pen, best.side, DIR.rays))
+    U.log(string.format("sandtide: shot for %s: off %d, h %d, d %d, sight %.2f, worms+frame %.2f, swing %d, %d alts, %d rays",
+        tostring(rec.name), best.off, best.h, best.d, best.vis, best.pen, best.side, #best.alts, DIR.rays))
     return best
 end
 
@@ -1708,16 +2084,16 @@ function DIR.beats(rec, u, cam)
     if u >= 0.25 and not ev.swirl then ev.swirl = true; PT.converge(rec) end
     if u >= 0.55 and not ev.grind then
         ev.grind = true
-        AU.play("sand_grind", 1.0, U.rand(0.95, 1.05), rec.x and { x = rec.x, y = rec.y, z = rec.z } or nil)
+        AU.play("sand_grind", 1, U.rand(0.95, 1.05), rec.x and { x = rec.x, y = rec.y, z = rec.z } or nil)
     end
     rec.level = max(rec.level, U.smooth((u - 0.6) / 2.0))
     if u >= 1.75 then rec.mound = max(rec.mound, U.outBack((u - 1.75) / 0.85)) end
-    if u >= 1.75 and not ev.dust then ev.dust = true; AU.play("dust_burst", 0.9, U.rand(0.92, 1.08)) end
+    if u >= 1.75 and not ev.dust then ev.dust = true; AU.play("dust_burst", 1, U.rand(0.92, 1.08)) end
     if u >= 2.55 and not ev.crunch then
         ev.crunch = true
         rec.level, rec.mound = 1, max(rec.mound, 1)
         PT.burst(rec, 1)
-        AU.play("crunch", 1.0, U.rand(0.97, 1.03))
+        AU.play("crunch", 1, U.rand(0.97, 1.03))
         DIR.shake = max(DIR.shake, cam and 1 or 0.4)
         HG.jolt = max(HG.jolt, 0.5)
     end
@@ -1727,7 +2103,89 @@ function DIR.beats(rec, u, cam)
     end
 end
 
+function DIR.stopPose(s)
+    return { px = s.tx + sin(s.a) * s.d * (s.d0 or 1), py = s.ty + s.h, pz = s.tz + cos(s.a) * s.d * (s.d0 or 1),
+             tx = s.tx, ty = s.ty, tz = s.tz, fov = 44 }
+end
+
+-- Mid-shot: every 0.2 s the eye the camera is actually at is checked again (the dolly and the swing move it off the
+-- chosen point). Two failed checks in a row switch to the stop's next fallback that still sees the worm, blending
+-- from where the camera is over 0.7 s (a sand wipe when land lies between). At most two switches per stop.
+function DIR.recheck(T, u)
+    local s, rec = DIR.cur, DIR.curRec
+    if not (s and rec and rec.x and DIR.pose) or u < 0.15 or u > 3.1 or G.now < (DIR.chkAt or 0) then return end
+    DIR.chkAt = G.now + 0.2
+    local p = DIR.pose
+    local ok, vis, fb = DIR.stillSees(p.px, p.py, p.pz, rec)
+    DIR.bad = ok and 0 or (DIR.bad or 0) + 1
+    if DIR.bad < 2 or (DIR.switches or 0) >= 2 then return end
+    for i, alt in ipairs(s.alts or {}) do
+        local e = DIR.stopPose(alt)
+        if DIR.stillSees(e.px, e.py, e.pz, rec) then
+            table.remove(s.alts, i)
+            alt.alts = s.alts
+            DIR.from, DIR.cur = DIR.pose, alt
+            DIR.blendAt, DIR.blendDur, DIR.blendLift = T, 0.7, 0.3
+            DIR.segCut = not DIR.pathClear(DIR.pose, e, 0.3)
+            DIR.switches, DIR.bad = (DIR.switches or 0) + 1, 0
+            U.log(string.format("sandtide: %s hidden mid-shot (sight %.2f, near field %.2f): switching to off %d h %d d %d%s",
+                tostring(rec.name), vis, fb, alt.off, alt.h, alt.d, DIR.segCut and " through a wipe" or ""))
+            return
+        end
+    end
+end
+
+-- The wash shot: a short look at a cursed worm the rising water has just reached (between turns, render-only),
+-- 2.8 s, ended at once by a turn start or a menu.
+function DIR.washStart(rec)
+    if DIR.active or DIR.rel or DIR.wash or not CFG.tour or not wum.render.cameraOverride or HG.overlay then return false end
+    if not rec.x then return false end
+    local from = DIR.gamePose()
+    if not from then return false end
+    local s = DIR.shot(rec)
+    if not s then return false end
+    local w = { rec = rec, at = G.now, ts = HG.ts, s = s, from = from, dur = 2.8 }
+    w.cut = not DIR.pathClear(from, DIR.stopPose(s), 0.5)
+    DIR.wash = w
+    U.log("sandtide: wash shot for " .. tostring(rec.name))
+    return true
+end
+
+function DIR.washUpdate()
+    local w = DIR.wash
+    local u = G.now - w.at
+    DIR.wipe = 0
+    if u >= w.dur or HG.ts ~= w.ts or HG.overlay then
+        if DIR.cam then pcall(wum.render.cameraOverride, nil) end
+        DIR.cam, DIR.wash = false, nil
+        return
+    end
+    local s = w.s
+    local a = s.a + 0.22 * U.smooth(u / w.dur) * ((s.side ~= 0) and s.side or 1)
+    local d = s.d * 0.8
+    local tgt = { px = s.tx + sin(a) * d, py = s.ty + s.h * 0.75, pz = s.tz + cos(a) * d, tx = s.tx, ty = s.ty - 5,
+                  tz = s.tz, fov = 42 }
+    local pose
+    if u < 0.7 then
+        pose = w.cut and DIR.lerpPose(w.from, tgt, DIR.wipeAt(u / 0.7 * 0.65), 0) or DIR.lerpPose(w.from, tgt, U.smoother(u / 0.7), 0.5)
+    elseif u > w.dur - 0.5 then
+        local g = DIR.gamePose() or w.from
+        local e = (u - (w.dur - 0.5)) / 0.5
+        pose = w.cut and DIR.lerpPose(tgt, g, DIR.wipeAt(e * 0.65), 0) or DIR.lerpPose(tgt, g, U.smoother(e), 0.5)
+    else
+        pose = tgt
+    end
+    DIR.applyPose(pose)
+end
+
 function DIR.update()
+    if DIR.rel then DIR.release() end
+    if DIR.wash then DIR.washUpdate() end
+    if DIR.planCo then
+        local ok, err = coroutine.resume(DIR.planCo)
+        if not ok then U.warn("sandtide: stop planner: " .. tostring(err)); DIR.planCo = nil
+        elseif coroutine.status(DIR.planCo) == "dead" then DIR.planCo = nil end
+    end
     if not DIR.active then
         -- The curse came but no hold followed (the hold refused late): play the effects without the camera.
         if DIR.c and DIR.waitAt and G.now - DIR.waitAt > 3 then
@@ -1783,8 +2241,16 @@ function DIR.update()
         if k ~= DIR.seg then
             DIR.seg = k
             DIR.from = DIR.pose
-            local rec = CU.w[c.slots[k + 1]]
-            DIR.cur = (rec and rec.alive) and DIR.shot(rec) or nil
+            local slot = c.slots[k + 1]
+            local rec = CU.w[slot]
+            DIR.cur = nil
+            if rec and rec.alive then
+                DIR.cur = DIR.planned[slot] or nil
+                if not DIR.cur then DIR.cur = DIR.shot(rec) end
+            end
+            DIR.curRec = rec
+            DIR.blendAt, DIR.blendDur, DIR.blendLift = intro + k * per, 0.95, 1
+            DIR.switches, DIR.bad, DIR.chkAt = 0, 0, 0
             DIR.segCut = false
             if DIR.cur and DIR.from then
                 local s0 = DIR.cur
@@ -1795,6 +2261,7 @@ function DIR.update()
             end
         end
         local u = (T - intro - k * per) / 50
+        DIR.recheck(T, u)
         local s = DIR.cur
         local target
         if s then
@@ -1807,10 +2274,11 @@ function DIR.update()
             target = DIR.wide() or DIR.gamePose()
         end
         local from = DIR.from or target
+        local ub = (T - (DIR.blendAt or (intro + k * per))) / 50
         if DIR.segCut then
-            pose = DIR.lerpPose(from, target, DIR.wipeAt(u), 0)
+            pose = DIR.lerpPose(from, target, DIR.wipeAt(ub), 0)
         else
-            pose = DIR.lerpPose(from, target, U.smoother(u / 0.95), 1)
+            pose = DIR.lerpPose(from, target, U.smoother(ub / (DIR.blendDur or 0.95)), DIR.blendLift or 1)
         end
     else
         local g = DIR.gamePose()
@@ -1825,11 +2293,18 @@ function DIR.update()
         else
             pose = DIR.lerpPose(DIR.outFrom, g, U.smoother((T - tourEnd) / (span * 0.9)), 0.2)
         end
+        -- The outro closes on a sand wipe (DIR.finish holds it until the next turn's camera is in place).
+        if T > endT - 16 then DIR.wipe = max(DIR.wipe or 0, U.smooth((T - (endT - 16)) / 14)) end
     end
     if not pose then return end
     DIR.pose = pose
+    DIR.applyPose(pose)
+end
+
+-- Sends a pose to the render-only camera, with the decaying shake. `still` leaves the shake out.
+function DIR.applyPose(pose, still)
     -- Shake: three incommensurate sines per axis, decaying, scaled by the effects setting.
-    local sk = DIR.shake * CFG.fxk.shake * 2.6
+    local sk = still and 0 or DIR.shake * CFG.fxk.shake * 2.6
     local ox, oy, oz = 0, 0, 0
     if sk > 0.01 then
         local t = G.now
@@ -1847,16 +2322,18 @@ function DIR.update()
     if not ok or res ~= true then
         DIR.camOff = true
         DIR.cam = false
+        DIR.rel, DIR.wash = nil, nil
         U.warn("sandtide: camera override refused: " .. tostring(ok and why or res))
-        return
+        return false
     end
     DIR.cam = true
+    return true
 end
 
 -------------------------------------------------------------------------------------------------------------- banners
 BAN.big, BAN.cap = nil, nil
-function BAN.show(title, sub, rgb, dur)
-    BAN.big = { title = title, sub = sub, rgb = rgb, at = G.now, dur = dur or 3 }
+function BAN.show(title, sub, rgb, dur, delay)
+    BAN.big = { title = title, sub = sub, rgb = rgb, at = G.now + (delay or 0), dur = dur or 3 }
 end
 function BAN.caption(rec, a)
     BAN.cap = { rec = rec, a = a, at = G.now }
@@ -1875,7 +2352,7 @@ function BAN.draw()
         local t = G.now - b.at
         if t > b.dur + 0.8 then BAN.big = nil
         else
-            local a = U.sat(t / 0.5) * U.sat((b.dur + 0.8 - t) / 0.8)
+            local a = t < 0 and 0 or U.sat(t / 0.5) * U.sat((b.dur + 0.8 - t) / 0.8)
             -- A third of the way down: below the game's own turn-intro name and above the hourglass.
             local y = H * 0.33 - (1 - U.outCubic(t / 0.8)) * 14 * s
             local size = 46 * s
@@ -1973,6 +2450,7 @@ end
 local updateG = U.guard("update", update)
 local directorG = U.guard("director", function() DIR.update() end)
 wum.timers.every(0, function()
+    pcall(AU.sweep)
     updateG()
     if G.inMatch then directorG() end
 end)
@@ -2004,6 +2482,8 @@ on("melange.turnHold", MSG.hold)
 on("melange.turnHoldEnd", MSG.holdEnd)
 on("melange.match.end", function() resetMatch() end)
 Petrify.install()
+-- A reload already stops this mod's voices (Melange does it); this only makes sure of it.
+if wum.audio and wum.audio.stopAll then pcall(wum.audio.stopAll) end
 HG.reset()
 LN.reset()
 DIR.reset()
@@ -2011,12 +2491,17 @@ DIR.reset()
 -- Debugging through lua.eval @sandtide: SANDTIDE_STATE() returns a one-line summary.
 function SANDTIDE_STATE()
     local n = 0
-    for _ in pairs(CU.w) do n = n + 1 end
-    return string.format("water=%s line=%s phase=%s hg=%s remain=%s elapsed=%s curse=%s hold=%s dir=%s/%s T=%.0f cam=%s cursed=%d parts=%d segs=%d sheet=%s ribbon=%s tick=%s",
+    local cw = {}
+    local water = G.m and tonumber(G.m.waterLevel) or 0
+    for slot, r in pairs(CU.w) do
+        n = n + 1
+        cw[#cw + 1] = string.format("%d:%.2f:%.1f%s", slot, r.dz or 0, r.y and (water - r.y) or -999, r.wash and "w" or "")
+    end
+    return "cw=" .. table.concat(cw, ",") .. " " .. string.format("water=%s line=%s phase=%s hg=%s remain=%s elapsed=%s curse=%s hold=%s dir=%s/%s T=%.0f cam=%s cursed=%d parts=%d segs=%d sheet=%s ribbon=%s tick=%s intro=%.2f rel=%s wash=%s",
         tostring(G.m and G.m.waterLevel), tostring(L.line), tostring(L.phase), tostring(HG.state), tostring(HG.remain), tostring(HG.elapsed),
         C and (C.status .. "@" .. C.tick) or "-", HOLD and (HOLD.ticks .. "@" .. HOLD.tick) or "-",
         tostring(DIR.active), tostring(DIR.mode), DIR.T or 0, tostring(DIR.cam), n, PT.n, LN.ns or 0,
-        tostring(LN.sheet), tostring(LN.ribbon), tostring(G.tick))
+        tostring(LN.sheet), tostring(LN.ribbon), tostring(G.tick), HG.introK or 0, tostring(DIR.rel ~= nil), tostring(DIR.wash ~= nil))
 end
 
 -- SANDTIDE_GROUPS() lists the game's active input groups; SANDTIDE_PETRIFY(slot, level[, dissolve]) casts any worm (a
@@ -2047,6 +2532,22 @@ function SANDTIDE_SHOT(slot)
     if not s then return "no shot" end
     return string.format("off %d h %d d %d sight %.2f worms %.2f swing %d d0 %.1f rays %d", s.off, s.h, s.d, s.vis, s.pen,
         s.side, s.d0, DIR.rays)
+end
+-- SANDTIDE_STRIKE() replays the hourglass's strike beat (look check, HUD only). SANDTIDE_WASH(slot) plays the wash
+-- (the burst, the floating grains and the wash shot) on a worm cursed by SANDTIDE_TOUR or the sim (look check).
+function SANDTIDE_STRIKE()
+    if not L.have then return "no line yet" end
+    HG.strike(true)
+    return "strike beat"
+end
+function SANDTIDE_WASH(slot)
+    local rec = CU.w[math.tointeger(tonumber(slot) or -1) or -1]
+    if not rec then return "not cursed" end
+    local water = G.m and tonumber(G.m.waterLevel) or rec.y
+    rec.final, rec.wash = true, G.now
+    PT.wash(rec, max(water, rec.y + 4), 1)
+    AU.play("sand_grind", 0.85, 0.72)
+    return "wash " .. tostring(DIR.washStart(rec))
 end
 function SANDTIDE_TOUR(csv)
     local slots = {}

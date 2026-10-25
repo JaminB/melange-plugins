@@ -53,13 +53,15 @@ glass_front, crack, frame, plate (+ plate_glow), text. After it: shadow, frame, 
 
 ## Sounds
 
-All 16-bit PCM, 44.1 kHz, under 2 MiB, peak -1 dBFS, no clipping. `_loop` files loop seamlessly (`loop = true`).
+All 16-bit PCM, 44.1 kHz, under 2 MiB, no clipping. Mastered for the mix (`master()` in `make_sounds.py`): one-shots
+peak at -6 dBFS with their RMS at most -18 dBFS, loops at an RMS of -24 dBFS. `_loop` files loop seamlessly
+(`loop = true`). `python sound_report.py --strict` reads the files back and checks the levels and the loop seams.
 
 | File | Length | Use |
 | --- | --- | --- |
-| `sdt_wind_loop.wav` | 8.0 s stereo loop | desert wind bed; quiet all match, louder in the last 15 s and during the tour |
+| `sdt_wind_loop.wav` | 8.0 s stereo loop | desert wind bed under the camera tour only |
 | `sdt_drone_loop.wav` | 10.0 s stereo loop | ominous bed under the camera tour (A1 cluster, choir, heartbeat sub) |
-| `sdt_sand_pour_loop.wav` | 4.0 s loop | the hourglass running; very quiet, or only while the HUD is enlarged |
+| `sdt_sand_pour_loop.wav` | 4.0 s loop | the hourglass running out: faint, the last 10 s of the clock only |
 | `sdt_rumble.wav` | 4.5 s | the earth answering the curse, at the start of the tour |
 | `sdt_sand_grind.wav` | 3.6 s | the petrify creeping up one worm (one per worm in the tour, positional at the worm) |
 | `sdt_crunch.wav` | 2.8 s | the sting when a worm's tail locks into stone (crack, thump, rock crunch, tritone chord, gong) |
