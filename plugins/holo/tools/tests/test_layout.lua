@@ -78,6 +78,7 @@ do
   check(near(x1, 1920 - 24 - 9) and near(y0, 24 + 9 + L.WIND_OFFSET), "corner top-right with margin and frame")
   -- the wind disc (x 1652..1782, y 81..213 at 1080p) stays visible above the frame, at 1080p and scaled at 720p
   check(L.WIND_OFFSET > 0 and y0 - 9 >= 213, "corner frame below the wind disc: top " .. (y0 - 9))
+  check(y0 - 9 >= 365, "corner frame below the health badge: top " .. (y0 - 9))
   local _, ty0 = L.cornerRect(1280, 720, "right")
   check(ty0 - 9 * 720 / 1080 >= 213 * 720 / 1080, "corner below the wind disc at 720p")
   local _, py0 = L.pillRect()

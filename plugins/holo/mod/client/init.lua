@@ -1971,11 +1971,11 @@ do
   local ANIM, CTRL_FADE, FADE = 0.35, 0.25, 0.15     -- seconds
   local FADED = 0.3                                    -- alpha under a pause menu or the weapon panel
   local MARGIN, FRAME, PANEL_PAD, TAG, BAR = 24, 9, 12, 44, 64
-  -- Pixels at 1080p between the top margin and the corner player, so the wind disc stays visible. Measured from
-  -- match screenshots (1920x1080 and 1280x720, the HUD scales with the height): the disc spans y 81..213 at 1080p,
-  -- shadow included, so the frame starts at 24 + 198 = 222, 9 px below it. The left corner uses the same offset,
-  -- which also clears the radar (y 70..260).
-  local WIND_OFFSET = 198
+  -- Pixels at 1080p between the top margin and the corner player, so the wind disc and the worm health badge under
+  -- it stay visible. Measured from match screenshots (1920x1080 and 1280x720, the HUD scales with the height): the
+  -- disc spans y 81..213 and the badge with its team bars y 270..365 at 1080p, so the frame starts at
+  -- 24 + 347 = 371 and its picture at 380. The left corner uses the same offset, which also clears the radar (y 70..260).
+  local WIND_OFFSET = 347
   local SETTLE_QUIET, FLIGHT_FAILSAFE = 0.6, 8         -- the flight gate (seconds)
   local AIM_GROUPS = {WormAiming = true, WormFirstPersonAiming = true, Fire = true, UtilityFire = true}
   LAYOUT.WIND_OFFSET = WIND_OFFSET
