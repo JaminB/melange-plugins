@@ -1,0 +1,304 @@
+{
+ "canvas": [256, 384],
+ "logical": [128, 192],
+ "note": "Rects are [x0, y0, x1, y1] in canvas pixels (2x). Divide by 2 for HUD pixels at scale 1. Draw order: hg_shadow, hg_shadow_glass, hg_glow (when shown), hg_glass_back, hg_sand_top_NN, hg_stream_N, hg_sand_bot_NN, hg_glow_inner (when shown), hg_glass_front, hg_crack_N, hg_frame, then the plate; after the strike: hg_shadow, hg_frame, hg_drop_NN, hg_shatter_NN (during the shatter) or hg_sand_spill, then the plate.",
+ "plateText": [128, 420],
+ "files": {
+  "hg_shadow.png": {
+   "rect": [0, 0, 256, 384],
+   "note": "soft drop shadow of the frame; draw first"
+  },
+  "hg_shadow_glass.png": {
+   "rect": [0, 0, 256, 384],
+   "note": "soft drop shadow of the glass; draw after hg_shadow, hide after the strike"
+  },
+  "hg_glass_back.png": {
+   "rect": [0, 0, 256, 384],
+   "note": "glass interior tint, behind the sand"
+  },
+  "hg_glass_front.png": {
+   "rect": [0, 0, 256, 384],
+   "note": "glass highlights, rim light, Fresnel; over the sand"
+  },
+  "hg_frame.png": {
+   "rect": [0, 0, 256, 384],
+   "note": "brass and bone frame with the maw medallions; over the glass"
+  },
+  "hg_sand_top_00.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 0/15 full"
+  },
+  "hg_sand_bot_00.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 0/15 full"
+  },
+  "hg_sand_top_01.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 1/15 full"
+  },
+  "hg_sand_bot_01.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 1/15 full"
+  },
+  "hg_sand_top_02.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 2/15 full"
+  },
+  "hg_sand_bot_02.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 2/15 full"
+  },
+  "hg_sand_top_03.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 3/15 full"
+  },
+  "hg_sand_bot_03.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 3/15 full"
+  },
+  "hg_sand_top_04.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 4/15 full"
+  },
+  "hg_sand_bot_04.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 4/15 full"
+  },
+  "hg_sand_top_05.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 5/15 full"
+  },
+  "hg_sand_bot_05.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 5/15 full"
+  },
+  "hg_sand_top_06.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 6/15 full"
+  },
+  "hg_sand_bot_06.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 6/15 full"
+  },
+  "hg_sand_top_07.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 7/15 full"
+  },
+  "hg_sand_bot_07.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 7/15 full"
+  },
+  "hg_sand_top_08.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 8/15 full"
+  },
+  "hg_sand_bot_08.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 8/15 full"
+  },
+  "hg_sand_top_09.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 9/15 full"
+  },
+  "hg_sand_bot_09.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 9/15 full"
+  },
+  "hg_sand_top_10.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 10/15 full"
+  },
+  "hg_sand_bot_10.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 10/15 full"
+  },
+  "hg_sand_top_11.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 11/15 full"
+  },
+  "hg_sand_bot_11.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 11/15 full"
+  },
+  "hg_sand_top_12.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 12/15 full"
+  },
+  "hg_sand_bot_12.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 12/15 full"
+  },
+  "hg_sand_top_13.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 13/15 full"
+  },
+  "hg_sand_bot_13.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 13/15 full"
+  },
+  "hg_sand_top_14.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 14/15 full"
+  },
+  "hg_sand_bot_14.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 14/15 full"
+  },
+  "hg_sand_top_15.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "top bulb sand, 15/15 full"
+  },
+  "hg_sand_bot_15.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "bottom bulb sand, 15/15 full"
+  },
+  "hg_stream_0.png": {
+   "rect": [112, 176, 144, 340],
+   "note": "falling stream, frame 0 of 6 (loop); between the sand layers"
+  },
+  "hg_stream_1.png": {
+   "rect": [112, 176, 144, 340],
+   "note": "falling stream, frame 1 of 6 (loop); between the sand layers"
+  },
+  "hg_stream_2.png": {
+   "rect": [112, 176, 144, 340],
+   "note": "falling stream, frame 2 of 6 (loop); between the sand layers"
+  },
+  "hg_stream_3.png": {
+   "rect": [112, 176, 144, 340],
+   "note": "falling stream, frame 3 of 6 (loop); between the sand layers"
+  },
+  "hg_stream_4.png": {
+   "rect": [112, 176, 144, 340],
+   "note": "falling stream, frame 4 of 6 (loop); between the sand layers"
+  },
+  "hg_stream_5.png": {
+   "rect": [112, 176, 144, 340],
+   "note": "falling stream, frame 5 of 6 (loop); between the sand layers"
+  },
+  "hg_crack_1.png": {
+   "rect": [0, 0, 256, 384],
+   "note": "glass cracks, stage 1 (each stage contains the last)"
+  },
+  "hg_crack_2.png": {
+   "rect": [0, 0, 256, 384],
+   "note": "glass cracks, stage 2 (each stage contains the last)"
+  },
+  "hg_crack_3.png": {
+   "rect": [0, 0, 256, 384],
+   "note": "glass cracks, stage 3 (each stage contains the last)"
+  },
+  "hg_glow.png": {
+   "rect": [0, 0, 256, 384],
+   "note": "amber halo around the glass for the last 15 s; pulse its alpha"
+  },
+  "hg_glow_inner.png": {
+   "rect": [0, 0, 256, 384],
+   "note": "inner ember glow of the glass; pulse with hg_glow"
+  },
+  "hg_mask_top.png": {
+   "rect": [48, 48, 208, 196],
+   "note": "white bulb interior mask for tinted overlays"
+  },
+  "hg_mask_bot.png": {
+   "rect": [48, 188, 208, 336],
+   "note": "white bulb interior mask for tinted overlays"
+  },
+  "hg_shatter_00.png": {
+   "rect": [-64, -64, 320, 448],
+   "note": "shatter frame 0 of 12 (~40 ms each); replaces glass, sand and cracks"
+  },
+  "hg_shatter_01.png": {
+   "rect": [-64, -64, 320, 448],
+   "note": "shatter frame 1 of 12 (~40 ms each); replaces glass, sand and cracks"
+  },
+  "hg_shatter_02.png": {
+   "rect": [-64, -64, 320, 448],
+   "note": "shatter frame 2 of 12 (~40 ms each); replaces glass, sand and cracks"
+  },
+  "hg_shatter_03.png": {
+   "rect": [-64, -64, 320, 448],
+   "note": "shatter frame 3 of 12 (~40 ms each); replaces glass, sand and cracks"
+  },
+  "hg_shatter_04.png": {
+   "rect": [-64, -64, 320, 448],
+   "note": "shatter frame 4 of 12 (~40 ms each); replaces glass, sand and cracks"
+  },
+  "hg_shatter_05.png": {
+   "rect": [-64, -64, 320, 448],
+   "note": "shatter frame 5 of 12 (~40 ms each); replaces glass, sand and cracks"
+  },
+  "hg_shatter_06.png": {
+   "rect": [-64, -64, 320, 448],
+   "note": "shatter frame 6 of 12 (~40 ms each); replaces glass, sand and cracks"
+  },
+  "hg_shatter_07.png": {
+   "rect": [-64, -64, 320, 448],
+   "note": "shatter frame 7 of 12 (~40 ms each); replaces glass, sand and cracks"
+  },
+  "hg_shatter_08.png": {
+   "rect": [-64, -64, 320, 448],
+   "note": "shatter frame 8 of 12 (~40 ms each); replaces glass, sand and cracks"
+  },
+  "hg_shatter_09.png": {
+   "rect": [-64, -64, 320, 448],
+   "note": "shatter frame 9 of 12 (~40 ms each); replaces glass, sand and cracks"
+  },
+  "hg_shatter_10.png": {
+   "rect": [-64, -64, 320, 448],
+   "note": "shatter frame 10 of 12 (~40 ms each); replaces glass, sand and cracks"
+  },
+  "hg_shatter_11.png": {
+   "rect": [-64, -64, 320, 448],
+   "note": "shatter frame 11 of 12 (~40 ms each); replaces glass, sand and cracks"
+  },
+  "hg_sand_spill.png": {
+   "rect": [16, 280, 240, 340],
+   "note": "the spilled heap left on the base after the shatter"
+  },
+  "hg_drop_00.png": {
+   "rect": [80, 128, 176, 256],
+   "note": "water drop countdown, 0/8 full; shown in the empty frame after the shatter"
+  },
+  "hg_drop_01.png": {
+   "rect": [80, 128, 176, 256],
+   "note": "water drop countdown, 1/8 full; shown in the empty frame after the shatter"
+  },
+  "hg_drop_02.png": {
+   "rect": [80, 128, 176, 256],
+   "note": "water drop countdown, 2/8 full; shown in the empty frame after the shatter"
+  },
+  "hg_drop_03.png": {
+   "rect": [80, 128, 176, 256],
+   "note": "water drop countdown, 3/8 full; shown in the empty frame after the shatter"
+  },
+  "hg_drop_04.png": {
+   "rect": [80, 128, 176, 256],
+   "note": "water drop countdown, 4/8 full; shown in the empty frame after the shatter"
+  },
+  "hg_drop_05.png": {
+   "rect": [80, 128, 176, 256],
+   "note": "water drop countdown, 5/8 full; shown in the empty frame after the shatter"
+  },
+  "hg_drop_06.png": {
+   "rect": [80, 128, 176, 256],
+   "note": "water drop countdown, 6/8 full; shown in the empty frame after the shatter"
+  },
+  "hg_drop_07.png": {
+   "rect": [80, 128, 176, 256],
+   "note": "water drop countdown, 7/8 full; shown in the empty frame after the shatter"
+  },
+  "hg_drop_08.png": {
+   "rect": [80, 128, 176, 256],
+   "note": "water drop countdown, 8/8 full; shown in the empty frame after the shatter"
+  },
+  "hg_plate.png": {
+   "rect": [16, 384, 240, 456],
+   "note": "mm:ss readout plate; text centre at canvas (128, 420)"
+  },
+  "hg_plate_glow.png": {
+   "rect": [16, 384, 240, 456],
+   "note": "white screen-glow mask for the plate; tint orange (last 15 s) or blue (water)"
+  }
+ }
+}
