@@ -96,7 +96,7 @@ class Art(unittest.TestCase):
                 self.assertTrue(x >= 0 and y >= 0 and x + w <= img.width and y + h <= img.height, f"{key} {k}")
                 self.assertTrue(abs(xo) <= 8192 and abs(yo) <= 8192 and 0 <= adv <= 8192)
             self.assertEqual(f["w"], img.width)
-            self.assertEqual(m["name"], "Holo Display" if key.startswith("display") else "Holo Body")
+            self.assertEqual(m["name"], "Holo Display" if key.startswith("display") or key == "tag" else "Holo Body")
         notice = files["mod/fonts/OFL.txt"].decode("utf-8")
         for needle in ("Lilita", "Baloo 2", "Rubik", "SIL OPEN FONT LICENSE Version 1.1"):
             self.assertIn(needle, notice)

@@ -36,7 +36,7 @@ do
     if loaded then return end
     loaded = true
     for _, k in ipairs{"panels", "icons", "cursor"} do tex[k] = loadTex(k) end
-    for _, k in ipairs{"display", "display_s", "body", "body_s", "tag"} do
+    for _, k in ipairs{"display_s", "body", "body_s", "tag"} do
       local f = SKIN.fonts and SKIN.fonts[k]
       local ok, id, why = false, nil, nil
       if f and wum.draw.font then ok, id, why = pcall(wum.draw.font, f.png, f.json) end

@@ -36,7 +36,6 @@ SCALE = 2
 
 # (key, name in metrics, primary font, size at scale 1, outline at scale 1)
 FACES = [
-    ("display", "Holo Display", "lilita", 28, 2),
     ("display_s", "Holo Display", "lilita", 20, 2),
     ("body", "Holo Body", "baloo", 20, 2),
     ("body_s", "Holo Body", "baloo", 16, 1),

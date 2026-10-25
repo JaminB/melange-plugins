@@ -47,7 +47,7 @@ do
     check(files[f] and files[f].mips == false, f .. " loaded with mips = false")
   end
   check(mock.fonts and #mock.fonts == 4, "four fonts loaded")
-  check(ns.SKIN.font("display") and ns.SKIN.font("body_s"), "font ids kept")
+  check(ns.SKIN.font("display_s") and ns.SKIN.font("body_s") and ns.SKIN.font("tag"), "font ids kept")
   check(ns.SKIN.col(0x123456, 1) == 0x123456FF and ns.SKIN.col(0xFFFFFF, 0) == 0xFFFFFF00, "colour packing")
   local ok, e = errors(mock)
   check(ok, "no errors: " .. tostring(e))

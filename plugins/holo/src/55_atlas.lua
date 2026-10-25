@@ -106,7 +106,6 @@ do
     cursor = {file = "textures/ui/cursor.png", w = 96, h = 96, hot = {x = 10, y = 5}},
   }
   SKIN.fonts = {
-    display = {png = "fonts/display.png", json = "fonts/display.json", size = 28, w = 1280, h = 888},
     display_s = {png = "fonts/display_s.png", json = "fonts/display_s.json", size = 20, w = 1152, h = 616},
     body = {png = "fonts/body.png", json = "fonts/body.json", size = 20, w = 768, h = 800},
     body_s = {png = "fonts/body_s.png", json = "fonts/body_s.json", size = 16, w = 768, h = 456},
