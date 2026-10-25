@@ -48,6 +48,10 @@ Extra requirements the store puts on `spice.json`: `melange.range` is a lower bo
 upper limit would break every install on the next Melange release. `authors` needs at least one name, `description` is 1-400
 characters, `defaultEnabled` must be absent or `true`, every `settings[]` entry needs a `label`, and
 `permissions.network` must be absent or `false` (Melange plugins don't get direct network access).
+A plugin can still use Melange's network-facing core APIs (`wum.media`, `wum.peer`, `wum.lobby`), which need no
+permission because core does the networking under its own limits. Say so plainly in your README: what core downloads and
+from where, what other players or third parties see (a torrent shares the user's IP address with the swarm), and that
+downloads start only from a user click. Never describe an API as private if it talks to a server.
 
 ## 3. Validate locally
 
