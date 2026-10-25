@@ -9,3 +9,12 @@ plugins/kindjal/tools/meshes/*.gltf -text
 *.wav binary
 *.png binary
 *.bin binary
+
+# Holo's generated client script is compared byte for byte with a fresh build (plugins/holo/tools/build_lua.py --check)
+# and its fragments, tests and tools are LF text. Without this, a Windows checkout with core.autocrlf=true turns them
+# into CRLF and the check reports a difference although nothing is out of date.
+plugins/holo/mod/client/init.lua text eol=lf
+plugins/holo/src/*.lua text eol=lf
+plugins/holo/tools/tests/*.lua text eol=lf
+plugins/holo/tools/*.py text eol=lf
+plugins/holo/mod/spice.json text eol=lf
