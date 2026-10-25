@@ -233,7 +233,9 @@ do
       end
       return
     end
-    local lines = SKIN.wrap(PARTY.consentText(), 13 * s, "body", ix1 - ix0, 8)
+    -- as many lines as fit above the button: the consent must be readable in full (at 1080p it takes 9)
+    local fit = math.max(3, math.floor((y1 - 62 * s - y) / (17 * s)))
+    local lines = SKIN.wrap(PARTY.consentText(), 13 * s, "body", ix1 - ix0, fit)
     for _, ln in ipairs(lines) do
       SKIN.text(ix0, y, ln, 13 * s, C.cream)
       y = y + 17 * s
@@ -425,7 +427,7 @@ do
     local rx0, rx1 = x0 + 650 * s, x1 - 28 * s
     local py = players(rx0, y0 + 78 * s, rx1, s)
     local pk = PARTY.pack() or {}
-    if pk.state ~= "ready" then packBlock(rx0, math.max(py + 8 * s, y0 + 300 * s), rx1, footY - 14 * s, s) end
+    if pk.state ~= "ready" then packBlock(rx0, math.max(py + 8 * s, y0 + 270 * s), rx1, footY - 14 * s, s) end
 
     footer(lx0, footY, rx1, footY + 50 * s, s)
     W.active = true

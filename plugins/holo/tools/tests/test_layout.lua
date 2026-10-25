@@ -192,14 +192,15 @@ do
   state.inMatch = true
   mock.setTurn{team = 1, worm = 1, mine = true}; mock.frame()
   check(not L.autoHidden(), "my turn, walking: shown")
-  mock.groups = {"InGame", "WormAiming"}; mock.frame()
-  check(L.autoHidden() and not L.interactive(), "aiming group: auto-hidden")
+  -- the groups of a turn where the worm just stands with a weapon (measured in game): not aiming
+  mock.groups = {"Menu", "InGame", "WormAiming", "WormMoving", "CameraSelect", "Fire", "CrateChuteRelease"}; mock.frame()
+  check(not L.autoHidden(), "standing with a weapon (WormAiming and Fire are on all turn): shown")
+  mock.groups = {"InGame", "UtilityFire"}; mock.frame()
+  check(not L.autoHidden(), "a utility selected: shown")
+  mock.groups = {"InGame", "WormAiming", "WormFirstPersonAiming"}; mock.frame()
+  check(L.autoHidden() and not L.interactive(), "first-person aiming: auto-hidden")
   mock.frames(9)
   check(L.alpha() == 0, "faded out within 0.15 s")
-  mock.groups = {"InGame", "WormFirstPersonAiming"}; mock.frame()
-  check(L.autoHidden(), "first-person aiming")
-  mock.groups = {"InGame", "UtilityFire"}; mock.frame()
-  check(L.autoHidden(), "utility fire")
   mock.groups = {"InGame"}; mock.frame()
   check(not L.autoHidden(), "aim ended")
   mock.frames(10)
@@ -235,7 +236,7 @@ do
   check(not L.autoHidden(), "failsafe at 8 s")
   -- never on another player's turn, never with the setting off
   mock.setTurn{team = 2, worm = 1, mine = false}
-  mock.groups = {"WormAiming"}; mock.frame()
+  mock.groups = {"WormFirstPersonAiming"}; mock.frame()
   check(not L.autoHidden(), "not my turn: no auto-hide")
   mock.setTurn{team = 1, worm = 1, mine = true}; mock.frame()
   check(L.autoHidden(), "my turn again")
@@ -257,7 +258,7 @@ do
   check(p and not p.muted, "playing, not muted")
   state.inMatch = true
   mock.setTurn{team = 1, worm = 1, mine = true}
-  mock.groups = {"WormAiming"}; mock.frames(3)
+  mock.groups = {"WormFirstPersonAiming"}; mock.frames(3)
   check(L.autoHidden() and not p.muted, "auto-hidden but not muted")
   mock.groups = {"InGame"}; mock.frames(3)
   L.toggleHide(); mock.frames(2)

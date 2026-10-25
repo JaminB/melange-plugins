@@ -56,7 +56,12 @@ do
   local function pointerOn()
     local o = {release = "click-outside"}
     local cur = SKIN.texture("cursor")
-    if cur then o.cursor = cur end
+    if cur then
+      o.cursor = cur
+      -- the arrow's tip is not the PNG's corner: Melange puts this pixel on the pointer, so clicks land at the tip
+      local a = SKIN.atlas and SKIN.atlas.cursor
+      if a and a.hot then o.hot = {x = a.hot.x, y = a.hot.y} end
+    end
     local ok, got, why = pcall(wum.input.pointer, true, o)
     if ok and got then return true end
     return false, ok and why or got

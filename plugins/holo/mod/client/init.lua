@@ -1977,7 +1977,11 @@ do
   -- 24 + 347 = 371 and its picture at 380. The left corner uses the same offset, which also clears the radar (y 70..260).
   local WIND_OFFSET = 347
   local SETTLE_QUIET, FLIGHT_FAILSAFE = 0.6, 8         -- the flight gate (seconds)
-  local AIM_GROUPS = {WormAiming = true, WormFirstPersonAiming = true, Fire = true, UtilityFire = true}
+  -- Only first-person aiming (Q held) means "aiming": WormAiming, Fire and UtilityFire are switched on for the whole of
+  -- one's own turn whenever the worm holds a weapon (measured in game: Menu, InGame, WormAiming, WormMoving,
+  -- CameraSelect, Fire, CrateChuteRelease while just standing), so they would hide the player for every turn.
+  -- Third-person charging is covered by the fire-held gate and the shot by the flight gate.
+  local AIM_GROUPS = {WormFirstPersonAiming = true}
   LAYOUT.WIND_OFFSET = WIND_OFFSET
 
   -- "hidden" lasts for the session only: a launch starts shown, so a party joined later is never silent and unseen.
@@ -3866,7 +3870,9 @@ do
       end
       return
     end
-    local lines = SKIN.wrap(PARTY.consentText(), 13 * s, "body", ix1 - ix0, 8)
+    -- as many lines as fit above the button: the consent must be readable in full (at 1080p it takes 9)
+    local fit = math.max(3, math.floor((y1 - 62 * s - y) / (17 * s)))
+    local lines = SKIN.wrap(PARTY.consentText(), 13 * s, "body", ix1 - ix0, fit)
     for _, ln in ipairs(lines) do
       SKIN.text(ix0, y, ln, 13 * s, C.cream)
       y = y + 17 * s
@@ -4058,7 +4064,7 @@ do
     local rx0, rx1 = x0 + 650 * s, x1 - 28 * s
     local py = players(rx0, y0 + 78 * s, rx1, s)
     local pk = PARTY.pack() or {}
-    if pk.state ~= "ready" then packBlock(rx0, math.max(py + 8 * s, y0 + 300 * s), rx1, footY - 14 * s, s) end
+    if pk.state ~= "ready" then packBlock(rx0, math.max(py + 8 * s, y0 + 270 * s), rx1, footY - 14 * s, s) end
 
     footer(lx0, footY, rx1, footY + 50 * s, s)
     W.active = true
@@ -4132,7 +4138,12 @@ do
   local function pointerOn()
     local o = {release = "click-outside"}
     local cur = SKIN.texture("cursor")
-    if cur then o.cursor = cur end
+    if cur then
+      o.cursor = cur
+      -- the arrow's tip is not the PNG's corner: Melange puts this pixel on the pointer, so clicks land at the tip
+      local a = SKIN.atlas and SKIN.atlas.cursor
+      if a and a.hot then o.hot = {x = a.hot.x, y = a.hot.y} end
+    end
     local ok, got, why = pcall(wum.input.pointer, true, o)
     if ok and got then return true end
     return false, ok and why or got

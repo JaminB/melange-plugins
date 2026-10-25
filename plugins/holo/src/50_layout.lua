@@ -11,7 +11,11 @@ do
   -- 24 + 347 = 371 and its picture at 380. The left corner uses the same offset, which also clears the radar (y 70..260).
   local WIND_OFFSET = 347
   local SETTLE_QUIET, FLIGHT_FAILSAFE = 0.6, 8         -- the flight gate (seconds)
-  local AIM_GROUPS = {WormAiming = true, WormFirstPersonAiming = true, Fire = true, UtilityFire = true}
+  -- Only first-person aiming (Q held) means "aiming": WormAiming, Fire and UtilityFire are switched on for the whole of
+  -- one's own turn whenever the worm holds a weapon (measured in game: Menu, InGame, WormAiming, WormMoving,
+  -- CameraSelect, Fire, CrateChuteRelease while just standing), so they would hide the player for every turn.
+  -- Third-person charging is covered by the fire-held gate and the shot by the flight gate.
+  local AIM_GROUPS = {WormFirstPersonAiming = true}
   LAYOUT.WIND_OFFSET = WIND_OFFSET
 
   -- "hidden" lasts for the session only: a launch starts shown, so a party joined later is never silent and unseen.

@@ -258,6 +258,7 @@ do
   check(hasText(A, "no Holo") and hasText(A, "42 ms"), "Holo state and RTT")
   check(iconDrawn(A, "crown"), "the host's crown")
   check(hasText(A, "Media pack") and hasText(A, "GitHub") and hasText(A, "Documents"), "consent text")
+  check(hasText(A, "swarm.") and not hasText(A, " ..."), "the consent text is shown in full (its last word, no ellipsis)")
   local r = regions(A)["setup.pack"]
   check(r and (r.x1 - r.x0) * (r.y1 - r.y0) < 1920 * 1080 / 4, "Download button, under a quarter of the window")
   A.ns.QUEUE.add(VID1)

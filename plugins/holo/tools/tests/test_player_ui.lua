@@ -274,6 +274,8 @@ do
   A.mock.hotkey("F7")
   check(A.mock.pointerActive() and A.mock.pointerOpts.release == "click-outside", "pointer hotkey")
   check(A.mock.pointerOpts.cursor ~= nil, "the themed cursor")
+  check(A.mock.pointerOpts.hot and A.mock.pointerOpts.hot.x == 10 and A.mock.pointerOpts.hot.y == 5,
+    "the cursor's tip is its hotspot")
   A.mock.cursorSource = "pointer"
   local px0, py0, px1, py1 = A.ns.LAYOUT.panelRect()
   A.mock.cursorPos = {(px0 + px1) / 2, (py0 + py1) / 2}
