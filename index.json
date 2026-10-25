@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 41,
+  "serial": 42,
   "plugins": [
     {
       "id": "bloodsand",
@@ -665,6 +665,26 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.0.1",
+          "released": "2026-10-25",
+          "melange": ">=0.11.0",
+          "kind": "content",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [
+            "kindjal >=1.3.1"
+          ],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/sandtide-v1.0.1/sandtide-1.0.1.zip",
+          "sha256": "c9f5453ba218c8f5abc95f98f4f07c4c2a05e481971eac87fbcd89cc7b7e9665",
+          "size": 9078652,
+          "unpackedSize": 9838715,
+          "files": 100,
+          "changelog": "Fixes the false \"desync at tick 9004\" that Wormsign reported against one player at 3:00 in every online Sandworms match. No rule or timing of the mode changes; the game itself never desynced from it.\n\n- Wormsign hashes this mod's globals and storage on every tick the sim script runs, and Melange 0.11.0 and 0.11.1 demote that hash to every 10 ticks on a machine where it measures slow. The demoted machine then folds a stale hash into the tick where the hourglass empties (phase 0 to 1) while everyone else hashes the fresh one, so the faster machines reported a desync of `mod.sandtide.env` at tick 9004 (3:00.08) with every engine value equal.\n- The sim script now keeps the hashed state small (tuning values are locals, the storage table is no longer also a global, which was walked twice), polls the round clock every 50 ticks instead of 5 and stops polling once the hourglass is empty, so the digest runs on about 2 % of ticks. That makes the false desync far less likely on Melange 0.11.0 and 0.11.1; Melange 0.11.2 removes the cause (no demotion). The hourglass is still armed within 1 s of 3:00; the curse still strikes at the next turn end.\n- When the round clock cannot be read, the hourglass now waits and the read is retried at every poll. It no longer falls back to counting sim ticks or assumes a five-minute round, which could arm the strike on a different tick on one machine."
+        },
         {
           "version": "1.0.0",
           "released": "2026-10-25",
