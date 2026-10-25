@@ -1,3 +1,18 @@
+## 1.0.1
+
+Fixes the false "desync at tick 9004" that Wormsign reported against one player at 3:00 in every online Sandworms match.
+No rule or timing of the mode changes; the game itself never desynced from it.
+
+- Wormsign hashes this mod's globals and storage on every tick the sim script runs, and Melange 0.11.0 and 0.11.1
+  demote that hash to every 10 ticks on a machine where it measures slow. The demoted machine then folds a stale hash
+  into the tick where the hourglass empties (phase 0 to 1) while everyone else hashes the fresh one, so the faster
+  machines reported a desync of `mod.sandtide.env` at tick 9004 (3:00.08) with every engine value equal.
+- The sim script now keeps the hashed state small (tuning values are locals, the storage table is no longer also a
+  global, which was walked twice) and polls the round clock every 25 ticks instead of 5, so the digest runs on under
+  5 % of ticks and is never demoted, on any machine. The hourglass is still armed within half a second of 3:00; the
+  curse still strikes at the next turn end.
+- Melange 0.11.2 fixes the same thing on its side (no demotion by default). This version works with 0.11.0 and later.
+
 ## 1.0.0
 
 Sandtide's first release. Needs Melange 0.11.0 or later and Kindjal 1.3.1 or later.

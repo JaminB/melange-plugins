@@ -13,8 +13,20 @@
 --      for INTRO + n * PER + OUTRO ticks so the clients can tour the cursed worms. It happens once per match.
 --
 -- Everything the sim decides here reads simulation state only (land bounds, the round clock, worm containers) at
--- fixed points (a 5-tick timer and the engine's own turn-end message), so every machine curses the same worms at the
--- same tick. The state lives in wum.sim.storage (aliased as the global SANDTIDE), which Wormsign hashes.
+-- fixed points (a POLL-tick timer and the engine's own turn-end message), so every machine curses the same worms at
+-- the same tick. The state lives in wum.sim.storage, which Wormsign hashes.
+--
+-- What Wormsign hashes, and why this file keeps it small and quiet: on every tick where this script ran, Wormsign
+-- digests the script's globals and wum.sim.storage (mod.sandtide.env) and measures the time it took. Melange 0.11.0
+-- and 0.11.1 demote a contributor whose 95th-percentile cost over 500 ticks is over 20 us to hashing every 10 ticks,
+-- deciding that from each machine's own speed: a demoted machine then folds a stale digest into the ticks it skips,
+-- while the others hash the fresh one, and the first state change on a skipped tick (phase 0 -> 1 at 3:00) is
+-- reported as a desync of mod.sandtide.env by every faster machine (five false "desync at tick 9004" bundles in one
+-- evening, every engine component equal; Melange 0.11.2 no longer demotes). So:
+--   - the tuning values are locals (they are in the content hash anyway) and the storage table is not aliased as a
+--     global, which halved the digest (the table was walked twice);
+--   - the script runs on 1 tick in POLL = 25, so digests are under 5 % of a 500-tick window and the 95th-percentile
+--     sample is always a cheap tick (a cached digest), on any machine; the strike is still armed within 0.5 s of 3:00.
 --
 -- Messages to the clients (both sent with wum.sim.sendString; every peer's own sim sends them to its own client):
 --
@@ -34,17 +46,16 @@
 --       after curseTick + holdTicks means "show the final state, no tour").
 
 -- ---------------------------------------------------------------- tuning (part of the content hash)
-STRIKE_MS     = 180000  -- round clock elapsed when the hourglass empties
-LINE_FRACTION = 0.25    -- the line's height above the lowest land, as a fraction of the land's height range
-INTRO         = 60      -- hold ticks before the first worm (50 ticks = 1 s)
-PER           = 175     -- hold ticks per cursed worm (3.5 s)
-OUTRO         = 50      -- hold ticks after the last worm
-HOLD_CAP      = 3000    -- wum.sim.holdTurn's hard cap (60 s)
-POLL          = 5       -- ticks between round-clock reads
+local STRIKE_MS     = 180000  -- round clock elapsed when the hourglass empties
+local LINE_FRACTION = 0.25    -- the line's height above the lowest land, as a fraction of the land's height range
+local INTRO         = 60      -- hold ticks before the first worm (50 ticks = 1 s)
+local PER           = 175     -- hold ticks per cursed worm (3.5 s)
+local OUTRO         = 50      -- hold ticks after the last worm
+local HOLD_CAP      = 3000    -- wum.sim.holdTurn's hard cap (60 s)
+local POLL          = 25      -- ticks between round-clock reads (0.5 s); see the digest note above before lowering it
 
 -- ---------------------------------------------------------------- state (hashed by Wormsign)
 local S = wum.sim.storage
-SANDTIDE = S
 S.phase = 0        -- 0 running, 1 armed, 2 struck
 S.line = nil       -- the sand line (world Y), nil until the land bounds are known
 S.minY = nil
