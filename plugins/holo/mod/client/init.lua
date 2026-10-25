@@ -616,6 +616,8 @@ do
   local HI_ACCEPT, NEED_ACCEPT = 2000, 5000   -- host: one "hi" per member per 2 s, one "need" per 5 s (N3)
   local OPEN_EVERY = 1500            -- peer: one item open per 1.5 s, coalesced to the latest item (N3)
   local NEED_EVERY = 3000            -- peer: how often it asks for a queue it is missing
+  local SCRUB_HOLD = 2000            -- host: no heartbeat this long after a keyframes (scrub) seek, unless it ends
+  local MUSIC_RETRY = 2000           -- ms between retries of a refused wum.audio.music.suppress
   local SPEEDS = {0.5, 0.75, 1, 1.25, 1.5, 2}
   local QUALITIES = {[360] = true, [480] = true, [720] = true, [1080] = true}
   PARTY.SPEEDS = SPEEDS
@@ -633,6 +635,8 @@ do
   -- host side: what each member told us
   local info = {}                    -- id -> {hiAt, needAt, holo, buf, err, loaded}
   local resume, musicOn = nil, false
+  local musicFailAt, musicWarned = nil, false
+  local scrubAt = nil                -- host: the last keyframes seek; the scrub position stays local (design 2.5)
   local applied = {}                 -- the volume and mute last sent to the player
 
   ---------------------------------------------------------------- small reads
@@ -676,8 +680,19 @@ do
     if not music then return end
     local want = role ~= "none" and CFG.get("musicOff") == true
     if want == musicOn then return end
-    musicOn = want
-    pcall(music.suppress, want, {fade = 0.4})
+    -- A refused request ("unavailable" before the audio hook is in, "disabled") is retried from the tick.
+    local now = U.now()
+    if musicFailAt and now - musicFailAt < MUSIC_RETRY then return end
+    local ok, res, why = pcall(music.suppress, want, {fade = 0.4})
+    if ok and res then
+      musicOn, musicFailAt = want, nil
+      return
+    end
+    musicFailAt = now
+    if want and ok and why == "disabled" and not musicWarned then
+      musicWarned = true
+      toast("The game music stays on: AllowMusicSuppress is off in Melange.ini")
+    end
   end
 
   local function volume() return math.floor(U.clamp(U.num(U.pref("volume", CFG.get("volume"))) or 70, 0, 100)) end
@@ -967,8 +982,10 @@ do
     t = math.max(0, t)
     if mode == "keyframes" then
       player:seek(t, "keyframes")
+      scrubAt = U.now()
       return true
     end
+    scrubAt = nil
     player:seek(t, "exact")
     ended = false
     if pendingPlayAt then
@@ -1466,7 +1483,8 @@ do
         errorAt = nil
         advance()
       end
-      if hs and hs.s == "play" and not pendingPlayAt and loaded and now - lastBeat >= HEARTBEAT then
+      if scrubAt and now - scrubAt >= SCRUB_HOLD then scrubAt = nil end
+      if hs and hs.s == "play" and not pendingPlayAt and loaded and not scrubAt and now - lastBeat >= HEARTBEAT then
         lastBeat = now
         hs.p, hs.a = curPos(), now
         broadcastState(false)
@@ -1497,6 +1515,7 @@ do
       end
     end
 
+    applyMusic()
     applyAudio()
     local ph = computePhase()
     if ph ~= phase then
@@ -1952,16 +1971,19 @@ do
   local ANIM, CTRL_FADE, FADE = 0.35, 0.25, 0.15     -- seconds
   local FADED = 0.3                                    -- alpha under a pause menu or the weapon panel
   local MARGIN, FRAME, PANEL_PAD, TAG, BAR = 24, 9, 12, 44, 64
-  -- Pixels at 1080p between the top margin and the corner player, so the wind disc stays visible. Measured from a
-  -- match screenshot in check B3; 0 until then.
-  local WIND_OFFSET = 0
+  -- Pixels at 1080p between the top margin and the corner player, so the wind disc stays visible. Measured from
+  -- match screenshots (1920x1080 and 1280x720, the HUD scales with the height): the disc spans y 81..213 at 1080p,
+  -- shadow included, so the frame starts at 24 + 198 = 222, 9 px below it. The left corner uses the same offset,
+  -- which also clears the radar (y 70..260).
+  local WIND_OFFSET = 198
   local SETTLE_QUIET, FLIGHT_FAILSAFE = 0.6, 8         -- the flight gate (seconds)
   local AIM_GROUPS = {WormAiming = true, WormFirstPersonAiming = true, Fire = true, UtilityFire = true}
   LAYOUT.WIND_OFFSET = WIND_OFFSET
 
-  local view = U.pref("view", "full")
-  if view ~= "full" and view ~= "pill" and view ~= "hidden" then view = "full" end
+  -- "hidden" lasts for the session only: a launch starts shown, so a party joined later is never silent and unseen.
   local lastShown = U.pref("lastShown", "full") == "pill" and "pill" or "full"
+  local view = U.pref("view", "full")
+  if view ~= "full" and view ~= "pill" then view = lastShown end
   local anchor = "corner"
   local cur, from, animT = nil, nil, nil     -- displayed rect {x0, y0, x1, y1}; animation start rect and time
   local winW, winH = 0, 0

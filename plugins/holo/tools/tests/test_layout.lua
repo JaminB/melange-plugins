@@ -76,6 +76,12 @@ do
   local x0, y0, x1, y1 = L.rect()
   check(near(x1 - x0, 422.4) and near(y1 - y0, 237.6), "corner 422x238: " .. (x1 - x0) .. "x" .. (y1 - y0))
   check(near(x1, 1920 - 24 - 9) and near(y0, 24 + 9 + L.WIND_OFFSET), "corner top-right with margin and frame")
+  -- the wind disc (x 1652..1782, y 81..213 at 1080p) stays visible above the frame, at 1080p and scaled at 720p
+  check(L.WIND_OFFSET > 0 and y0 - 9 >= 213, "corner frame below the wind disc: top " .. (y0 - 9))
+  local _, ty0 = L.cornerRect(1280, 720, "right")
+  check(ty0 - 9 * 720 / 1080 >= 213 * 720 / 1080, "corner below the wind disc at 720p")
+  local _, py0 = L.pillRect()
+  check(py0 >= 213, "pill below the wind disc: top " .. py0)
   local v, p = L.halfRects(1920, 1080, "right")
   check(near(v[3] - v[1], 888) and near(v[4] - v[2], 499.5), "half video 888x500")
   check(near(p[1], 984) and near(p[3], 1896) and near(p[4] - p[2], 44 + 499.5 + 64), "half panel with tag and bar")
@@ -153,6 +159,13 @@ do
   check(L.alpha() == 0 and not L.interactive(), "hidden: nothing drawn, no regions")
   L.setView("full"); mock.frames(20)
   check(L.alpha() == 1 and L.interactive(), "shown again")
+end
+-- a hidden view is not restored at the next launch: it starts on the last shown view
+do
+  local _, _, ns = loadHolo(function(_, mock) mock.storageData.prefs = {view = "hidden", lastShown = "pill"} end)
+  check(ns.LAYOUT.view() == "pill", "hidden is not restored across launches: " .. ns.LAYOUT.view())
+  local _, _, ns2 = loadHolo(function(_, mock) mock.storageData.prefs = {view = "pill", lastShown = "pill"} end)
+  check(ns2.LAYOUT.view() == "pill", "a shown view is restored")
 end
 
 -- 5. fades: pause menu anywhere, weapon panel on my turn

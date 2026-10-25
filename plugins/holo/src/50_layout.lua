@@ -5,16 +5,19 @@ do
   local ANIM, CTRL_FADE, FADE = 0.35, 0.25, 0.15     -- seconds
   local FADED = 0.3                                    -- alpha under a pause menu or the weapon panel
   local MARGIN, FRAME, PANEL_PAD, TAG, BAR = 24, 9, 12, 44, 64
-  -- Pixels at 1080p between the top margin and the corner player, so the wind disc stays visible. Measured from a
-  -- match screenshot in check B3; 0 until then.
-  local WIND_OFFSET = 0
+  -- Pixels at 1080p between the top margin and the corner player, so the wind disc stays visible. Measured from
+  -- match screenshots (1920x1080 and 1280x720, the HUD scales with the height): the disc spans y 81..213 at 1080p,
+  -- shadow included, so the frame starts at 24 + 198 = 222, 9 px below it. The left corner uses the same offset,
+  -- which also clears the radar (y 70..260).
+  local WIND_OFFSET = 198
   local SETTLE_QUIET, FLIGHT_FAILSAFE = 0.6, 8         -- the flight gate (seconds)
   local AIM_GROUPS = {WormAiming = true, WormFirstPersonAiming = true, Fire = true, UtilityFire = true}
   LAYOUT.WIND_OFFSET = WIND_OFFSET
 
-  local view = U.pref("view", "full")
-  if view ~= "full" and view ~= "pill" and view ~= "hidden" then view = "full" end
+  -- "hidden" lasts for the session only: a launch starts shown, so a party joined later is never silent and unseen.
   local lastShown = U.pref("lastShown", "full") == "pill" and "pill" or "full"
+  local view = U.pref("view", "full")
+  if view ~= "full" and view ~= "pill" then view = lastShown end
   local anchor = "corner"
   local cur, from, animT = nil, nil, nil     -- displayed rect {x0, y0, x1, y1}; animation start rect and time
   local winW, winH = 0, 0

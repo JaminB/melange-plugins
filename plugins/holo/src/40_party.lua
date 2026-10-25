@@ -9,6 +9,8 @@ do
   local HI_ACCEPT, NEED_ACCEPT = 2000, 5000   -- host: one "hi" per member per 2 s, one "need" per 5 s (N3)
   local OPEN_EVERY = 1500            -- peer: one item open per 1.5 s, coalesced to the latest item (N3)
   local NEED_EVERY = 3000            -- peer: how often it asks for a queue it is missing
+  local SCRUB_HOLD = 2000            -- host: no heartbeat this long after a keyframes (scrub) seek, unless it ends
+  local MUSIC_RETRY = 2000           -- ms between retries of a refused wum.audio.music.suppress
   local SPEEDS = {0.5, 0.75, 1, 1.25, 1.5, 2}
   local QUALITIES = {[360] = true, [480] = true, [720] = true, [1080] = true}
   PARTY.SPEEDS = SPEEDS
@@ -26,6 +28,8 @@ do
   -- host side: what each member told us
   local info = {}                    -- id -> {hiAt, needAt, holo, buf, err, loaded}
   local resume, musicOn = nil, false
+  local musicFailAt, musicWarned = nil, false
+  local scrubAt = nil                -- host: the last keyframes seek; the scrub position stays local (design 2.5)
   local applied = {}                 -- the volume and mute last sent to the player
 
   ---------------------------------------------------------------- small reads
@@ -69,8 +73,19 @@ do
     if not music then return end
     local want = role ~= "none" and CFG.get("musicOff") == true
     if want == musicOn then return end
-    musicOn = want
-    pcall(music.suppress, want, {fade = 0.4})
+    -- A refused request ("unavailable" before the audio hook is in, "disabled") is retried from the tick.
+    local now = U.now()
+    if musicFailAt and now - musicFailAt < MUSIC_RETRY then return end
+    local ok, res, why = pcall(music.suppress, want, {fade = 0.4})
+    if ok and res then
+      musicOn, musicFailAt = want, nil
+      return
+    end
+    musicFailAt = now
+    if want and ok and why == "disabled" and not musicWarned then
+      musicWarned = true
+      toast("The game music stays on: AllowMusicSuppress is off in Melange.ini")
+    end
   end
 
   local function volume() return math.floor(U.clamp(U.num(U.pref("volume", CFG.get("volume"))) or 70, 0, 100)) end
@@ -360,8 +375,10 @@ do
     t = math.max(0, t)
     if mode == "keyframes" then
       player:seek(t, "keyframes")
+      scrubAt = U.now()
       return true
     end
+    scrubAt = nil
     player:seek(t, "exact")
     ended = false
     if pendingPlayAt then
@@ -859,7 +876,8 @@ do
         errorAt = nil
         advance()
       end
-      if hs and hs.s == "play" and not pendingPlayAt and loaded and now - lastBeat >= HEARTBEAT then
+      if scrubAt and now - scrubAt >= SCRUB_HOLD then scrubAt = nil end
+      if hs and hs.s == "play" and not pendingPlayAt and loaded and not scrubAt and now - lastBeat >= HEARTBEAT then
         lastBeat = now
         hs.p, hs.a = curPos(), now
         broadcastState(false)
@@ -890,6 +908,7 @@ do
       end
     end
 
+    applyMusic()
     applyAudio()
     local ph = computePhase()
     if ph ~= phase then

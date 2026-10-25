@@ -206,6 +206,18 @@ local hb1 = 0
 for _, r in ipairs(sentOf(A, "st", "B")) do if r.opts and r.opts.reliable == false then hb1 = hb1 + 1 end end
 check(hb1 - hb0 >= 2 and hb1 - hb0 <= 4, "heartbeat ~1 Hz: " .. (hb1 - hb0))
 check(bp.following.a > A.ns.PARTY.hostState().a - 1100, "B follows the latest heartbeat")
+-- a scrub (keyframes seeks while the host drags) stays local: no heartbeat carries the scrub position
+local function beats()
+  local n = 0
+  for _, r in ipairs(sentOf(A, "st", "B")) do if r.opts and r.opts.reliable == false then n = n + 1 end end
+  return n
+end
+local hb2 = beats()
+for _ = 1, 6 do A.ns.PARTY.seek(70, "keyframes"); step(ms, 20) end
+check(beats() == hb2, "no heartbeat while scrubbing: " .. (beats() - hb2))
+A.ns.PARTY.seek(70)
+step(ms, 120)
+check(A.ns.PARTY.hostState().p >= 70 and beats() > hb2, "the exact seek ends the scrub, heartbeats resume")
 -- peers list on the host: buffering, error, ready
 B.mock.emit("melange.media", {type = "buffering", on = true}); step(ms, 2)
 local pl = A.ns.PARTY.peers()
@@ -378,6 +390,19 @@ do
     "peer opened the file")
   H.ns.PARTY.stop(); step(two, 5)
   check(J.mock.torrents[1].closed and H.mock.torrents[#H.mock.torrents].closed, "torrents closed at the end")
+end
+
+-- music: a refused suppress (the audio hook not in yet) is retried until it takes
+do
+  local M = machine("M")
+  M.mock.musicUnavailable = true
+  M.ns.QUEUE.add(VID1)
+  check(M.ns.PARTY.start() == true, "started with the music hook unavailable")
+  step({M}, 2)
+  check(M.mock.music == nil or M.mock.music.requested ~= true, "music not suppressed yet")
+  M.mock.musicUnavailable = false
+  step({M}, 200)
+  check(M.mock.music and M.mock.music.requested == true, "music suppressed once the hook is in")
 end
 
 if fails > 0 then
