@@ -9,5 +9,30 @@
   "gameBuilds": [
     "1077"
   ],
-  "screenshots": []
+  "screenshots": [
+    {
+      "file": "1.jpg",
+      "caption": "Your turn: the player sits in the corner, below the wind and the health badge"
+    },
+    {
+      "file": "2.jpg",
+      "caption": "Someone else's turn online: the player grows into a half-screen panel"
+    },
+    {
+      "file": "3.jpg",
+      "caption": "Control bar and menu: skip, speed, audio track, quality, queue"
+    },
+    {
+      "file": "4.jpg",
+      "caption": "Set up the party from the menus: paste YouTube or magnet links into the queue"
+    },
+    {
+      "file": "5.jpg",
+      "caption": "Torrents with several videos: pick the one to play"
+    },
+    {
+      "file": "6.jpg",
+      "caption": "Minimised to a pill, one key away"
+    }
+  ]
 }
