@@ -1,0 +1,38 @@
+{
+  "spiceVersion": 1,
+  "id": "holo",
+  "version": "1.0.0",
+  "name": "Holo",
+  "authors": [
+    "Melange"
+  ],
+  "description": "Client-side watch parties: the lobby host plays YouTube videos and playlists or magnet links in a themed in-game player, synced for every player with Holo. Game music pauses while the party runs. Needs Melange 0.12 and its media pack (downloaded on first use).",
+  "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/holo",
+  "kind": "client-only",
+  "melange": {
+    "range": ">=0.12.0"
+  },
+  "permissions": {
+    "unsafe": false,
+    "filesystem": "none"
+  },
+  "dependencies": [],
+  "conflicts": [],
+  "entry": {
+    "client": "client/init.lua"
+  },
+  "settings": [
+    {"key": "volume", "type": "int", "default": 70, "min": 0, "max": 100, "label": "Video volume"},
+    {"key": "quality", "type": "enum", "default": "720", "options": ["360", "480", "720", "1080"], "label": "Max video quality"},
+    {"key": "hiddenMutes", "type": "bool", "default": true, "label": "Hidden player also mutes"},
+    {"key": "autoHideAim", "type": "bool", "default": true, "label": "Hide while I aim and fire"},
+    {"key": "panelSide", "type": "enum", "default": "right", "options": ["right", "left"], "label": "Player side"},
+    {"key": "bigOnOthers", "type": "bool", "default": true, "label": "Half-screen during other players' turns (online)"},
+    {"key": "musicOff", "type": "bool", "default": true, "label": "Silence game music during a party"},
+    {"key": "uiScale", "type": "int", "default": 100, "min": 80, "max": 130, "label": "Player size (%)"},
+    {"key": "keySetup", "type": "enum", "default": "F6", "options": ["F6", "Ctrl+Shift+W", "Alt+W"], "label": "Open watch party"},
+    {"key": "keyPointer", "type": "enum", "default": "F7", "options": ["F7", "Ctrl+Shift+M", "Alt+M"], "label": "Mouse to player (in a match)"},
+    {"key": "keyHide", "type": "enum", "default": "F9", "options": ["F9", "Ctrl+Shift+H", "Alt+H"], "label": "Hide or show player"},
+    {"key": "keyPlay", "type": "enum", "default": "Ctrl+Shift+P", "options": ["Ctrl+Shift+P", "Ctrl+F9"], "label": "Play/pause (host)"}
+  ]
+}
