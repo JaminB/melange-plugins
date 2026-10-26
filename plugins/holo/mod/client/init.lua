@@ -2649,6 +2649,7 @@ end
 do
   local C = SKIN.C
   local CLICK_TTL = 500            -- ms an unconsumed click waits for its control
+  local POPOVER_AWAY = 1500        -- ms the cursor may be off all of Holo's regions before an open popover closes
   local MAX_TEXT = 4096            -- bytes in a text box (a link: classify refuses more)
 
   W.active = true
@@ -2896,6 +2897,19 @@ do
     if not p.seen then
       popover = nil
       return
+    end
+    -- Clicks on the game and Esc in the frontend never reach Holo, so a popover left open while the player went
+    -- back to the game's menus closes once the cursor has been away from Holo's controls for a moment.
+    local okH, hv = pcall(wum.input.hover)
+    if okH and hv == nil and W.mx ~= nil then
+      local n = now()
+      p.awaySince = p.awaySince or n
+      if n - p.awaySince >= POPOVER_AWAY then
+        popover = nil
+        return
+      end
+    else
+      p.awaySince = nil
     end
     local s = SKIN.s
     local rowH, padX = 34 * s, 14 * s
@@ -3506,6 +3520,13 @@ do
     shown = controlsVisible(hx0, hy0, hx1, hy1, interactive)
     ctrlA = U.clamp(ctrlA + (shown and 1 or -1) * dt / FADE, 0, 1)
     local baseA = SKIN.alpha
+    -- In match pointer mode the game gets no mouse at all, so the whole player is claimed: a click on the picture
+    -- before the bar has shown (100 ms) or after it faded would land outside every region and end pointer mode, and
+    -- the next click would then go to the game. Claimed first, so the bar's controls stay on top of it.
+    if interactive then
+      local ok, on = pcall(wum.input.pointerActive)
+      if ok and on == true then W.region("pui.area", hx0, hy0, hx1, hy1, "arrow") end
+    end
 
     if half then
       SKIN.nine("panel", px0, py0, px1, py1)

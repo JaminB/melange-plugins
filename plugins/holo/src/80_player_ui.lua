@@ -384,6 +384,13 @@ do
     shown = controlsVisible(hx0, hy0, hx1, hy1, interactive)
     ctrlA = U.clamp(ctrlA + (shown and 1 or -1) * dt / FADE, 0, 1)
     local baseA = SKIN.alpha
+    -- In match pointer mode the game gets no mouse at all, so the whole player is claimed: a click on the picture
+    -- before the bar has shown (100 ms) or after it faded would land outside every region and end pointer mode, and
+    -- the next click would then go to the game. Claimed first, so the bar's controls stay on top of it.
+    if interactive then
+      local ok, on = pcall(wum.input.pointerActive)
+      if ok and on == true then W.region("pui.area", hx0, hy0, hx1, hy1, "arrow") end
+    end
 
     if half then
       SKIN.nine("panel", px0, py0, px1, py1)

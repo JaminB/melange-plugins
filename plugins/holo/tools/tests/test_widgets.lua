@@ -257,6 +257,23 @@ do
   draw = false
   mock.frames(2)
   check(not ns.W.popoverOpen(), "closes when its owner is gone")
+  -- the cursor away from all of Holo's regions (back on the game's menus, where Esc and clicks never reach Holo)
+  draw = true
+  mock.frame()
+  mock.click(850, 820); mock.frame()
+  check(ns.W.popoverOpen(), "open for the away test")
+  mock.cursorPos = {10, 10}
+  mock.frames(10, 0.1)
+  check(ns.W.popoverOpen(), "still open 1 s after the cursor left")
+  mock.frames(8, 0.1)
+  check(not ns.W.popoverOpen(), "closed once the cursor stayed away 1.5 s")
+  mock.click(850, 820); mock.frame()
+  mock.cursorPos = {10, 10}
+  mock.frames(10, 0.1)
+  local r2 = regionIds(mock)["t.pop#2"]
+  mock.cursorPos = {(r2.x0 + r2.x1) / 2, (r2.y0 + r2.y1) / 2}
+  mock.frames(10, 0.1)
+  check(ns.W.popoverOpen(), "coming back over the popover keeps it open")
 end
 
 -- 8. wheel: delivered to its region once

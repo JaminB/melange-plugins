@@ -310,6 +310,7 @@ do
   step(ms, 8)
   local brs = regions(B)
   check(brs["pui.play"] and not brs["pui.seek"], "peer: play shown (disabled), the seek bar is not claimed")
+  check(brs["pui.area"], "pointer mode: the whole corner is claimed, so a click on the picture keeps the pointer")
   local before = A.ns.PARTY.hostState().s
   clickRegion(B, "pui.play")
   step(ms, 2)

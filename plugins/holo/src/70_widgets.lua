@@ -6,6 +6,7 @@
 do
   local C = SKIN.C
   local CLICK_TTL = 500            -- ms an unconsumed click waits for its control
+  local POPOVER_AWAY = 1500        -- ms the cursor may be off all of Holo's regions before an open popover closes
   local MAX_TEXT = 4096            -- bytes in a text box (a link: classify refuses more)
 
   W.active = true
@@ -253,6 +254,19 @@ do
     if not p.seen then
       popover = nil
       return
+    end
+    -- Clicks on the game and Esc in the frontend never reach Holo, so a popover left open while the player went
+    -- back to the game's menus closes once the cursor has been away from Holo's controls for a moment.
+    local okH, hv = pcall(wum.input.hover)
+    if okH and hv == nil and W.mx ~= nil then
+      local n = now()
+      p.awaySince = p.awaySince or n
+      if n - p.awaySince >= POPOVER_AWAY then
+        popover = nil
+        return
+      end
+    else
+      p.awaySince = nil
     end
     local s = SKIN.s
     local rowH, padX = 34 * s, 14 * s
