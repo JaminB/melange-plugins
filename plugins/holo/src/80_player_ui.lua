@@ -275,6 +275,12 @@ do
     local want = inside and now - hoverSince >= SHOW_AFTER and now - W.lastMove < HIDE_AFTER
     -- an open popover, a drag or the pointer over a control keeps them up
     want = want or (interactive and (W.popoverOpen() or W.held("pui.seek") or W.held("pui.vol")))
+    -- In match pointer mode the player brought the mouse here to use the controls: a resting pointer keeps them up,
+    -- or a click on a control after 1.5 s would land outside every region and end pointer mode instead.
+    if not want and inside and now - hoverSince >= SHOW_AFTER then
+      local ok, on = pcall(wum.input.pointerActive)
+      want = ok and on == true
+    end
     return want
   end
 

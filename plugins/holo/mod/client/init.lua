@@ -3397,6 +3397,12 @@ do
     local want = inside and now - hoverSince >= SHOW_AFTER and now - W.lastMove < HIDE_AFTER
     -- an open popover, a drag or the pointer over a control keeps them up
     want = want or (interactive and (W.popoverOpen() or W.held("pui.seek") or W.held("pui.vol")))
+    -- In match pointer mode the player brought the mouse here to use the controls: a resting pointer keeps them up,
+    -- or a click on a control after 1.5 s would land outside every region and end pointer mode instead.
+    if not want and inside and now - hoverSince >= SHOW_AFTER then
+      local ok, on = pcall(wum.input.pointerActive)
+      want = ok and on == true
+    end
     return want
   end
 
@@ -4159,16 +4165,31 @@ do
   end
 
   -- The pointer hotkey: toggles pointer mode in a match (outside a match the game's own cursor already works).
+  local function gamePaused()
+    local ok, u = pcall(wum.game.ui)
+    return ok and type(u) == "table" and u.pause == true
+  end
+
   function MAIN.togglePointer()
     if pointerActive() then
       pointerOff()
       pointerForSetup = false
       return false
     end
+    -- the pause menu needs the game's own cursor (and the faded player claims no regions): no pointer over it
+    if gamePaused() then return false end
     local ok, why = pointerOn()
     if not ok and why ~= "unavailable" then MAIN.toast("The mouse is busy (" .. tostring(why) .. ")", "warn") end
     return ok
   end
+
+  -- The pause menu opening ends pointer mode, so its own cursor works.
+  wum.events.on("melange.ui", U.guard("main.ui", function(ev)
+    if type(ev) == "table" and ev.pause == true and pointerActive() then
+      pointerOff()
+      pointerForSetup = false
+    end
+  end))
 
   U.on("hotkey", function(name)
     if name == "hide" then

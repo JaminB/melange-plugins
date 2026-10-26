@@ -114,6 +114,18 @@ do
   check(A.mock.pointerActive() and A.mock.pointerOpts.release == "click-outside", "F7: pointer on")
   A.mock.hotkey("F7")
   check(not A.mock.pointerActive(), "F7 again: off")
+  -- the pause menu owns the mouse: F7 does nothing over it, and opening it ends pointer mode (X1-NET)
+  A.mock.setUI{pause = true}
+  A.mock.hotkey("F7")
+  check(not A.mock.pointerActive(), "F7 over the pause menu: no pointer")
+  A.mock.setUI{pause = false}
+  A.mock.hotkey("F7")
+  check(A.mock.pointerActive(), "F7 after the pause menu closed: on")
+  A.mock.setUI{pause = true}
+  A.mock.frame()
+  check(not A.mock.pointerActive(), "the pause menu opening ends pointer mode")
+  A.mock.setUI{pause = false}
+  A.mock.frame()
   A.mock.pointerUnavailable = true
   A.mock.hotkey("F7")
   A.mock.frame()

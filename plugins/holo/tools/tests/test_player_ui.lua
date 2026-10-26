@@ -282,6 +282,10 @@ do
   step(ms, 8)
   local rs = regions(A)
   check(rs["pui.panel"] and rs["pui.seek"] and rs["pui.speed"] and rs["pui.queue"], "half panel claimed with its bar")
+  -- a resting pointer keeps the bar up (X1-NET: else a click on a control after 1.5 s ended pointer mode)
+  step(ms, 130)
+  rs = regions(A)
+  check(rs["pui.panel"] and rs["pui.mute"] and A.ns.PUI.controlsShown(), "pointer at rest: the bar stays up")
   local tags = 0
   for _, c in ipairs(A.mock.drawOf("hudText")) do if c.args[3] == "YouTube video" then tags = tags + 1 end end
   check(tags >= 1, "the title tag")
