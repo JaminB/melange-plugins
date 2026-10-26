@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 42,
+  "serial": 43,
   "plugins": [
     {
       "id": "bloodsand",
@@ -279,6 +279,81 @@
           "publisher": "mod.worms.pro",
           "host": "mod.worms.pro",
           "size": 153878165
+        }
+      ]
+    },
+    {
+      "id": "holo",
+      "name": "Holo",
+      "authors": [
+        "Melange"
+      ],
+      "description": "Client-side watch parties: the lobby host plays YouTube videos and playlists or magnet links in a themed in-game player, synced for every player with Holo. Game music pauses while the party runs. Needs Melange 0.12 and its media pack (downloaded on first use).",
+      "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/holo",
+      "licence": "MIT",
+      "categories": [
+        "interface",
+        "audio"
+      ],
+      "gameBuilds": [
+        "1077"
+      ],
+      "screenshots": [
+        {
+          "path": "plugins/holo/screenshots/1.jpg",
+          "sha256": "2b5ddf030895f4dc42139284b54bff508bc21659bb5f54407c864d3e66b49ad3",
+          "size": 253638,
+          "caption": "Your turn: the player sits in the corner, below the wind and the health badge"
+        },
+        {
+          "path": "plugins/holo/screenshots/2.jpg",
+          "sha256": "50ad2912c33fc1c9d3e364c9095c95b927ee9c8d187948451269cbcf7caee2eb",
+          "size": 146646,
+          "caption": "Someone else's turn online: the player grows into a half-screen panel"
+        },
+        {
+          "path": "plugins/holo/screenshots/3.jpg",
+          "sha256": "2e10f372ec6f36aba38f47e403c3301fa2917d80af986933b896bcd90afe433e",
+          "size": 515018,
+          "caption": "Control bar and menu: skip, speed, audio track, quality, queue"
+        },
+        {
+          "path": "plugins/holo/screenshots/4.jpg",
+          "sha256": "2bdfc06e60831134cb868d95d9e5064ca065ec92e60771bee23d7b779a7aa635",
+          "size": 267022,
+          "caption": "Set up the party from the menus: paste YouTube or magnet links into the queue"
+        },
+        {
+          "path": "plugins/holo/screenshots/5.jpg",
+          "sha256": "4719eb0c59a4fb6ff8816168216c9ecb39519f95f9abb8d0e53b1d2e918fc4eb",
+          "size": 270833,
+          "caption": "Torrents with several videos: pick the one to play"
+        },
+        {
+          "path": "plugins/holo/screenshots/6.jpg",
+          "sha256": "bd479079d726a28eef6dc16787ef7b0d181fa292dccd82bf2ecc973647473492",
+          "size": 304297,
+          "caption": "Minimised to a pill, one key away"
+        }
+      ],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "released": "2026-10-26",
+          "melange": ">=0.12.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/holo-v1.0.0/holo-1.0.0.zip",
+          "sha256": "bc3607b61a7ecb138af645e08af84d6f3b34b1aa10b041c51b401624156c31fe",
+          "size": 1350963,
+          "unpackedSize": 1568134,
+          "files": 15,
+          "changelog": "First release. Needs Melange 0.12.0 or later.\n\n- Watch parties: the lobby host plays YouTube videos, playlists or magnet links in a themed in-game player, synced for every player who has Holo.\n- Corner player while you play, half-screen player during other players' turns (online), pill when minimised.\n- Setup panel (F6): add links, queue with reorder and remove, torrent file picker, player list with pack and ping status.\n- Game music is silenced during a party (setting).\n- Media pack and yt-dlp download once, only after you click Download.\n- Torrents share your IP address with the swarm."
         }
       ]
     },
