@@ -179,7 +179,8 @@ do
     if e.error or not e.files then
       picks[token] = nil
       QUEUE.closeTorrent(p.url)
-      U.emit("party.toast", "This torrent could not be read", "error")
+      U.emit("party.toast", e.error == "helper" and "The video player could not start (see Melange.log)" or
+        "This torrent could not be read", "error")
       return
     end
     local vids = QUEUE.videoFiles(e.files)
@@ -213,11 +214,19 @@ do
     end
   end
 
+  -- True once Melange has installed yt-dlp, which every YouTube link needs (it arrives a moment after the pack).
+  function QUEUE.haveYtdlp()
+    local ok, pk = pcall(wum.media.pack)
+    return ok and type(pk) == "table" and type(pk.ytdlp) == "string" and pk.ytdlp ~= ""
+  end
+
   local function addPlaylist(res)
     if type(res) ~= "table" then return end
     if res.error then
-      U.emit("party.toast", res.error == "private" and "That playlist is private" or "Could not list that playlist",
-        "error")
+      local msg = "Could not list that playlist"
+      if res.error == "private" then msg = "That playlist is private"
+      elseif not QUEUE.haveYtdlp() then msg = "YouTube needs yt-dlp, which Melange has not downloaded yet; try again soon" end
+      U.emit("party.toast", msg, "error")
       return
     end
     local n = 0

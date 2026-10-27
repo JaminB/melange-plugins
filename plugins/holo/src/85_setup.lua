@@ -82,6 +82,7 @@ do
       local c = lastClass
       if c and c.kind == "magnet" then say("Reading the torrent's file list...", "info")
       elseif c and c.playlist and not c.id then say("Listing the playlist...", "info")
+      elseif not QUEUE.haveYtdlp() then say("Added; YouTube plays once Melange has downloaded yt-dlp", "warn")
       else say("Added to the queue", "info") end
     else
       say(ADD_WHY[why] or ("Could not add that link (" .. tostring(why) .. ")"), "error")
