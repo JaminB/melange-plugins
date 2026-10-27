@@ -2,7 +2,7 @@
 -- src/*.lua (name order); edit the fragments, not this file. Every fragment is one do ... end block that fills one
 -- of the namespace tables below, so the chunk keeps far fewer than 200 top-level locals.
 local U, CFG, NET, PARTY, QUEUE, LAYOUT, SKIN, W, PUI, SETUP, MAIN = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 
 if not (wum and wum.media and wum.peer and wum.input and wum.draw and wum.draw.hudNine) then
   wum.log.warn("Holo needs Melange 0.12.0 or later (wum.media, wum.peer, wum.input and wum.draw.hudNine); not started")
