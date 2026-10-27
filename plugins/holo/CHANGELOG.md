@@ -1,3 +1,7 @@
+## 1.0.2
+
+- While a magnet link's file list is being fetched, the setup panel says so and shows how many peers were found, and warns when none turn up after a minute. A magnet carries no file list; it comes from peers, which can take a minute or more.
+
 ## 1.0.1
 
 - Adding a link now always says what happened: a torrent tells you when the video player could not start, and a YouTube link tells you when Melange has not downloaded yt-dlp yet.

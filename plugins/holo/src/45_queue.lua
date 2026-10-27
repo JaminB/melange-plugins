@@ -163,6 +163,24 @@ do
     return nil, "file"
   end
 
+  -- Magnets still waiting for their file list, oldest first: {{name, peers, secs}}. A magnet carries no file list; it
+  -- comes from peers, which can take a minute or more.
+  function QUEUE.reading()
+    local out = {}
+    for _, p in pairs(picks) do
+      if #p.files == 0 then
+        local e, peers = torrents[p.url], 0
+        if e and e.t then
+          local ok, st = pcall(e.t.status, e.t)
+          if ok and type(st) == "table" then peers = U.num(st.peers) or 0 end
+        end
+        out[#out + 1] = {name = p.name, peers = peers, secs = (U.now() - (p.since or U.now())) / 1000}
+      end
+    end
+    table.sort(out, function(a, b) return a.secs > b.secs end)
+    return out
+  end
+
   function QUEUE.cancelPick(token)
     local p = picks[token]
     if not p then return false end
@@ -258,7 +276,7 @@ do
       if not e then return nil, why end
       local token = nextToken
       nextToken = nextToken + 1
-      picks[token] = {url = c.url, name = c.name or "Torrent", files = {}}
+      picks[token] = {url = c.url, name = c.name or "Torrent", files = {}, since = U.now()}
       if e.files or e.error then
         onTorrentFiles(token, e)
       else

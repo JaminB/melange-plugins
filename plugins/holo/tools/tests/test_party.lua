@@ -172,7 +172,7 @@ lobby(ms, "A")
 step(ms)
 connect(ms)
 step(ms, 2)
-check(#sentOf(B, "hi", "A") == 1 and sentOf(B, "hi")[1].tbl.v == 1 and sentOf(B, "hi")[1].tbl.holo == "1.0.1",
+check(#sentOf(B, "hi", "A") == 1 and sentOf(B, "hi")[1].tbl.v == 1 and sentOf(B, "hi")[1].tbl.holo == "1.0.2",
   "B says hi to the host")
 check(#sentOf(A, "ack", "B") == 1 and sentOf(A, "ack")[1].tbl.party == false, "A acks: no party yet")
 step(ms, 60 * 11)

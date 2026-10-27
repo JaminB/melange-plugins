@@ -356,6 +356,19 @@ do
     if not text and PARTY.canControl() and role == "none" and pk.state ~= "ready" then
       text, kind = "Download the media pack to start", "warn"
     end
+    if not text then
+      local reading = QUEUE.reading()
+      local r = reading[1]
+      if r then
+        local more = #reading > 1 and (" (+" .. (#reading - 1) .. " more)") or ""
+        if r.peers == 0 and r.secs > 60 then
+          text, kind = "No peers for " .. U.trim(r.name, 40) .. " yet; the torrent may be dead" .. more, "warn"
+        else
+          text, kind = string.format("Reading the file list of %s... %d peer%s%s", U.trim(r.name, 40), r.peers,
+            r.peers == 1 and "" or "s", more), "info"
+        end
+      end
+    end
     if text then
       SKIN.text(x0, y0, text, 15 * s, kind == "error" and C.error or (kind == "warn" and C.warn or C.cream),
         {vcenter = bh, maxWidth = x - x0 - 8 * s})
