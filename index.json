@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 46,
+  "serial": 47,
   "plugins": [
     {
       "id": "bloodsand",
@@ -337,6 +337,24 @@
         }
       ],
       "versions": [
+        {
+          "version": "1.0.2",
+          "released": "2026-10-27",
+          "melange": ">=0.12.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/holo-v1.0.2/holo-1.0.2.zip",
+          "sha256": "fd8908dc807de3185ef0236f19049562c0f514a873911048c89c5d202b21bbe8",
+          "size": 1351545,
+          "unpackedSize": 1570028,
+          "files": 15,
+          "changelog": "- While a magnet link's file list is being fetched, the setup panel says so and shows how many peers were found, and warns when none turn up after a minute. A magnet carries no file list; it comes from peers, which can take a minute or more."
+        },
         {
           "version": "1.0.1",
           "released": "2026-10-27",
