@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 45,
+  "serial": 46,
   "plugins": [
     {
       "id": "bloodsand",
@@ -337,6 +337,24 @@
         }
       ],
       "versions": [
+        {
+          "version": "1.0.1",
+          "released": "2026-10-27",
+          "melange": ">=0.12.0",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/holo-v1.0.1/holo-1.0.1.zip",
+          "sha256": "a1717fead10ec3c08f7489004b2c7b3126c659a930a5c63ba1c03134265f7af1",
+          "size": 1351151,
+          "unpackedSize": 1568766,
+          "files": 15,
+          "changelog": "- Adding a link now always says what happened: a torrent tells you when the video player could not start, and a YouTube link tells you when Melange has not downloaded yt-dlp yet."
+        },
         {
           "version": "1.0.0",
           "released": "2026-10-26",
