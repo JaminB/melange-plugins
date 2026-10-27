@@ -3,7 +3,7 @@
 -- src/*.lua (name order); edit the fragments, not this file. Every fragment is one do ... end block that fills one
 -- of the namespace tables below, so the chunk keeps far fewer than 200 top-level locals.
 local U, CFG, NET, PARTY, QUEUE, LAYOUT, SKIN, W, PUI, SETUP, MAIN = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 
 if not (wum and wum.media and wum.peer and wum.input and wum.draw and wum.draw.hudNine) then
   wum.log.warn("Holo needs Melange 0.12.0 or later (wum.media, wum.peer, wum.input and wum.draw.hudNine); not started")
@@ -1694,6 +1694,24 @@ do
     return nil, "file"
   end
 
+  -- Magnets still waiting for their file list, oldest first: {{name, peers, secs}}. A magnet carries no file list; it
+  -- comes from peers, which can take a minute or more.
+  function QUEUE.reading()
+    local out = {}
+    for _, p in pairs(picks) do
+      if #p.files == 0 then
+        local e, peers = torrents[p.url], 0
+        if e and e.t then
+          local ok, st = pcall(e.t.status, e.t)
+          if ok and type(st) == "table" then peers = U.num(st.peers) or 0 end
+        end
+        out[#out + 1] = {name = p.name, peers = peers, secs = (U.now() - (p.since or U.now())) / 1000}
+      end
+    end
+    table.sort(out, function(a, b) return a.secs > b.secs end)
+    return out
+  end
+
   function QUEUE.cancelPick(token)
     local p = picks[token]
     if not p then return false end
@@ -1789,7 +1807,7 @@ do
       if not e then return nil, why end
       local token = nextToken
       nextToken = nextToken + 1
-      picks[token] = {url = c.url, name = c.name or "Torrent", files = {}}
+      picks[token] = {url = c.url, name = c.name or "Torrent", files = {}, since = U.now()}
       if e.files or e.error then
         onTorrentFiles(token, e)
       else
@@ -4028,6 +4046,19 @@ do
     end
     if not text and PARTY.canControl() and role == "none" and pk.state ~= "ready" then
       text, kind = "Download the media pack to start", "warn"
+    end
+    if not text then
+      local reading = QUEUE.reading()
+      local r = reading[1]
+      if r then
+        local more = #reading > 1 and (" (+" .. (#reading - 1) .. " more)") or ""
+        if r.peers == 0 and r.secs > 60 then
+          text, kind = "No peers for " .. U.trim(r.name, 40) .. " yet; the torrent may be dead" .. more, "warn"
+        else
+          text, kind = string.format("Reading the file list of %s... %d peer%s%s", U.trim(r.name, 40), r.peers,
+            r.peers == 1 and "" or "s", more), "info"
+        end
+      end
     end
     if text then
       SKIN.text(x0, y0, text, 15 * s, kind == "error" and C.error or (kind == "warn" and C.warn or C.cream),

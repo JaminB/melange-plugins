@@ -68,12 +68,15 @@ do
   local picks = {}
   U.on("queue.pick", function(token, files, name) picks[#picks + 1] = {token, files, name} end)
   check(Q.add(magnet(1, "&dn=Show")) == true and #mock.torrents == 1, "torrent started for the file list")
+  local r = Q.reading()
+  check(#r == 1 and r[1].name == "Show" and r[1].peers == 0, "reading: the magnet waits for its file list")
   mock.torrentFiles({{index = 0, path = "Show/readme.txt", size = 5, video = false},
     {index = 1, path = "Show/ep1.mkv", size = 700, video = true},
     {index = 2, path = "Show/ep2.mkv", size = 900, video = true},
     {index = 3, path = "Show/list.m3u", size = 1, video = false}})
   check(#picks == 1 and #picks[1][2] == 2 and picks[1][2][1].index == 2 and picks[1][2][2].index == 1,
     "picker: videos only, largest first")
+  check(#Q.reading() == 0, "reading: not once the file list arrived")
   check(Q.count() == 0, "nothing added before the pick")
   check(Q.pickFile(picks[1][1], 3) == nil, "a non-video index is refused")
   check(Q.pickFile(picks[1][1], 1) == true and Q.count() == 1, "picked")
@@ -91,6 +94,12 @@ do
   local t3 = mock.torrents[#mock.torrents]
   mock.torrentFiles({{index = 0, path = "a.txt", size = 1, video = false}})
   check(toasts[1] == "No video file in this torrent" and t3.closed and Q.count() == 2, "no video")
+  -- the media helper could not start (Melange 0.12.1 answers the file-list callback with error "helper")
+  Q.add(magnet(5))
+  local t5 = mock.torrents[#mock.torrents]
+  t5.fn({error = "helper"})
+  check(toasts[2] == "The video player could not start (see Melange.log)" and t5.closed and #Q.reading() == 0,
+    "helper error toast")
   -- cancel closes an unused torrent
   Q.add(magnet(4))
   local t4 = mock.torrents[#mock.torrents]
