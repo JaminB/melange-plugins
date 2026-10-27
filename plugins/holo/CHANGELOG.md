@@ -1,3 +1,7 @@
+## 1.0.1
+
+- Adding a link now always says what happened: a torrent tells you when the video player could not start, and a YouTube link tells you when Melange has not downloaded yt-dlp yet.
+
 ## 1.0.0
 
 First release. Needs Melange 0.12.0 or later.
