@@ -79,8 +79,13 @@ const vec2 PROBE_B = vec2(0.9609375, 0.4609375);
 const vec2 PROBE_C = vec2(0.6484375, 0.1953125);
 const float FP_TOL = 0.03;
 const int FP_N = 59;
+// The tables are uniforms with initializers, not consts: AMD's GL driver keeps a large const array that is indexed
+// at run time in per-fragment scratch memory and fills it in every fragment, which cost about 21 ms a frame at
+// Ultra on a full-width matte band of the front end; a uniform array is read from the constant buffer. Melange only
+// writes uniforms a Cg program or params.ini names, so keep them out of params.ini: the initializers stand (Melange
+// logs that each table 'stays 0'; it does not).
 // probe A colour, class * 16 + hair colour (sorted by red, see Fingerprint)
-const vec4 FP_A[FP_N] = vec4[FP_N](
+uniform vec4 FP_A[FP_N] = vec4[FP_N](
     vec4(0.043, 0.314, 0.475, 48.0),
     vec4(0.043, 0.412, 0.188, 48.0),
     vec4(0.125, 0.137, 0.129, 49.0),
@@ -142,7 +147,7 @@ const vec4 FP_A[FP_N] = vec4[FP_N](
     vec4(1.0, 0.851, 0.407, 65.0)
 );
 // probe B colour, mean luminance of the hair
-const vec4 FP_B[FP_N] = vec4[FP_N](
+uniform vec4 FP_B[FP_N] = vec4[FP_N](
     vec4(0.165, 0.451, 0.608, 0.339),
     vec4(0.165, 0.561, 0.29, 0.365),
     vec4(0.132, 0.142, 0.134, 0.2),
@@ -204,7 +209,7 @@ const vec4 FP_B[FP_N] = vec4[FP_N](
     vec4(0.0, 0.0, 0.0, 0.197)
 );
 // probe C colour, hair cutoff (class 4) or the glove skin's minimum red
-const vec4 FP_C[FP_N] = vec4[FP_N](
+uniform vec4 FP_C[FP_N] = vec4[FP_N](
     vec4(0.204, 0.263, 0.298, 0.0),
     vec4(0.204, 0.29, 0.212, 0.0),
     vec4(0.293, 0.248, 0.236, 0.0),

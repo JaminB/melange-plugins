@@ -1,3 +1,9 @@
+## 2.3.1
+
+- **Fixes the heavy lag with realistic Worm skin or Worm hair on** (a tone, Natural or Mixed), menus included. The
+  lookup that finds moustaches, hair hats and gloves now sits where the graphics driver reads it cheaply: at Ultra the
+  main menu went from about 28 ms to 7 ms a frame on an AMD card, the same as Game. Nothing looks different.
+
 ## 2.3.0
 
 - **Material detail on every lit texture.** Props, weapons, worm gear, crates, trees and the level's own ground and

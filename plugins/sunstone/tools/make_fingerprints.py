@@ -218,11 +218,16 @@ def glsl(entries):
     out.append(f"const vec2 PROBE_C = vec2({PROBES[2][0]!r}, {PROBES[2][1]!r});")
     out.append(f"const float FP_TOL = {fmt(TOLERANCE)};")
     out.append(f"const int FP_N = {n};")
+    out.append("// The tables are uniforms with initializers, not consts: AMD's GL driver keeps a large const array that is indexed")
+    out.append("// at run time in per-fragment scratch memory and fills it in every fragment, which cost about 21 ms a frame at")
+    out.append("// Ultra on a full-width matte band of the front end; a uniform array is read from the constant buffer. Melange only")
+    out.append("// writes uniforms a Cg program or params.ini names, so keep them out of params.ini: the initializers stand (Melange")
+    out.append("// logs that each table 'stays 0'; it does not).")
     for name, rows, what in (("FP_A", rows_a, "probe A colour, class * 16 + hair colour (sorted by red, see Fingerprint)"),
                              ("FP_B", rows_b, "probe B colour, mean luminance of the hair"),
                              ("FP_C", rows_c, "probe C colour, hair cutoff (class 4) or the glove skin's minimum red")):
         out.append(f"// {what}")
-        out.append(f"const vec4 {name}[FP_N] = vec4[FP_N](")
+        out.append(f"uniform vec4 {name}[FP_N] = vec4[FP_N](")
         out.append(",\n".join("    " + r for r in rows))
         out.append(");")
     out.append("// END FINGERPRINTS")
