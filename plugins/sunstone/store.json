@@ -11,6 +11,24 @@
   "screenshots": [],
   "versions": [
     {
+      "version": "2.3.1",
+      "released": "2026-10-31",
+      "melange": ">=0.10.0",
+      "kind": "client-only",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "none"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/sunstone-v2.3.1/sunstone-2.3.1.zip",
+      "sha256": "e79d7cba4ddbef3bd21965778477ffa13760a0fc7319b3a7952b620c579dd4f9",
+      "size": 1792168,
+      "unpackedSize": 2343342,
+      "files": 83,
+      "changelog": "- **Fixes the heavy lag with realistic Worm skin or Worm hair on** (a tone, Natural or Mixed), menus included. The lookup that finds moustaches, hair hats and gloves now sits where the graphics driver reads it cheaply: at Ultra the main menu went from about 28 ms to 7 ms a frame on an AMD card, the same as Game. Nothing looks different."
+    },
+    {
       "version": "2.2.0",
       "released": "2026-10-17",
       "melange": ">=0.3.0",
