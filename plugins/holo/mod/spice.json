@@ -1,12 +1,12 @@
 {
   "spiceVersion": 1,
   "id": "holo",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "name": "Holo",
   "authors": [
     "Melange"
   ],
-  "description": "Client-side watch parties: the lobby host plays YouTube videos and playlists or magnet links in a themed in-game player, synced for every player with Holo. Game music pauses while the party runs. Needs Melange 0.12 and its media pack (downloaded on first use).",
+  "description": "Client-side watch parties: the lobby host plays YouTube videos, playlists or magnet links in a themed in-game player, synced for every player with Holo, and anyone in the party can add to the queue. With Melange 0.13, link Spotify to play songs from your library for the party, each listener on their own Premium account. Game music pauses meanwhile. Needs Melange 0.12 and its media pack.",
   "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/holo",
   "kind": "client-only",
   "melange": {
@@ -29,6 +29,10 @@
     {"key": "panelSide", "type": "enum", "default": "right", "options": ["right", "left"], "label": "Player side"},
     {"key": "bigOnOthers", "type": "bool", "default": true, "label": "Half-screen during other players' turns (online)"},
     {"key": "musicOff", "type": "bool", "default": true, "label": "Silence game music during a party"},
+    {"key": "whoAdds", "type": "enum", "default": "anyone", "options": ["anyone", "host"], "label": "Who can add to the queue when you host"},
+    {"key": "musicDuringVideo", "type": "enum", "default": "pause", "options": ["pause", "play"], "label": "Spotify music while a video plays (when you host)"},
+    {"key": "musicFollow", "type": "bool", "default": true, "label": "Play the party's music on my Spotify"},
+    {"key": "musicChip", "type": "bool", "default": true, "label": "Show the now-playing music chip"},
     {"key": "uiScale", "type": "int", "default": 100, "min": 80, "max": 130, "label": "Player size (%)"},
     {"key": "keySetup", "type": "enum", "default": "F6", "options": ["F6", "Ctrl+Shift+W", "Alt+W"], "label": "Open watch party"},
     {"key": "keyPointer", "type": "enum", "default": "F7", "options": ["F7", "Ctrl+Shift+M", "Alt+M"], "label": "Mouse to player (in a match)"},

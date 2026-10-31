@@ -1,7 +1,10 @@
 -- party (P2): role and phase, the host's authoritative state and the sync protocol of design 2.5 over NET.
 -- Star topology: the party host is always the lobby owner; peers talk to the owner only and the owner fans out.
 -- Bus events: "party.changed", "party.toast" (text, kind), "party.joinPrompt" (hostName, autoJoined),
--- "party.continuePrompt" (hostName).
+-- "party.continuePrompt" (hostName), "party.memberHi" (id; host: a member said "hi"), "party.addResult" (ok, why,
+-- count, title; peer: the host answered an add), "party.addSent" (title; peer: a pick went to the host).
+-- Members add to the queue with "add" -> the host checks it (QUEUE.addFor) and answers "addr"; "cap" tells a member
+-- what the host accepts, "rm" removes an item the member added. All are ignored by Holo 1.0.x.
 do
   local PLAY_LEAD = 300              -- ms: play and resume are scheduled this far ahead so peers start together
   local HEARTBEAT = 1000             -- ms between unreliable "st" while playing
@@ -11,6 +14,9 @@ do
   local NEED_EVERY = 3000            -- peer: how often it asks for a queue it is missing
   local SCRUB_HOLD = 2000            -- host: no heartbeat this long after a keyframes (scrub) seek, unless it ends
   local MUSIC_RETRY = 2000           -- ms between retries of a refused wum.audio.music.suppress
+  local ADD_ACCEPT, RM_ACCEPT = 1500, 500   -- host: one "add" per member per 1.5 s, one "rm" per 0.5 s
+  local ADD_EVERY = 1000             -- peer: one add request per second
+  local ADD_WAIT = 45000             -- peer: how long it waits for the host's "addr" before giving up
   local SPEEDS = {0.5, 0.75, 1, 1.25, 1.5, 2}
   local QUALITIES = {[360] = true, [480] = true, [720] = true, [1080] = true}
   PARTY.SPEEDS = SPEEDS
@@ -25,6 +31,8 @@ do
   -- peer side
   local hostParty, declined, prompted, acked = false, false, false, false
   local lastHi, lastOpen, lastNeed, wantOpen = -1e9, -1e9, -1e9, nil
+  local hostCaps = nil               -- the host's last "cap" {add, music, madd}; nil from a host without Holo 1.1
+  local pendingAdds, nextAddN, lastAddAt = {}, 1, -1e9   -- n -> {at}: adds the host has not answered yet
   -- host side: what each member told us
   local info = {}                    -- id -> {hiAt, needAt, holo, buf, err, loaded}
   local resume, musicOn = nil, false
@@ -57,6 +65,29 @@ do
     return role == "none" and NET.isHost()
   end
 
+  function PARTY.hostCaps() return hostCaps end
+  -- True once the lobby owner's Holo answered this machine's "hi" (any version).
+  function PARTY.hostAcked() return acked end
+
+  -- True if this machine may add to the video queue now: it controls the party, or the lobby owner runs a 1.1 party
+  -- that accepts adds.
+  function PARTY.canAdd()
+    if PARTY.canControl() then return true end
+    if not NET.inSession() or NET.isHost() then return false end
+    return hostCaps ~= nil and hostCaps.add == true and (role == "peer" or PARTY.partyRunning())
+  end
+
+  -- Why a member cannot add: "not-running" | "old-host" | "host-only" | "no-host" | nil (it can, or no lobby).
+  function PARTY.addWhyNot()
+    if PARTY.canAdd() then return nil end
+    if not NET.inSession() then return nil end
+    if not (PARTY.partyRunning() or role == "peer") then return "not-running" end
+    if not NET.reachable(NET.hostId()) then return "no-host" end
+    if acked and not hostCaps then return "old-host" end
+    if hostCaps and hostCaps.add == false then return "host-only" end
+    return "no-host"
+  end
+
   function PARTY.hostName()
     if not NET.inSession() or NET.isHost() then return "you" end
     return NET.name(NET.hostId())
@@ -71,7 +102,9 @@ do
   local function applyMusic()
     local music = wum.audio and wum.audio.music
     if not music then return end
-    local want = role ~= "none" and CFG.get("musicOff") == true
+    -- Game music stays silent for a party and while the music lane (MUSIC, Part B) is audible. Always a boolean.
+    local want = (role ~= "none" or (MUSIC ~= nil and MUSIC.audible ~= nil and MUSIC.audible() == true))
+      and CFG.get("musicOff") == true
     if want == musicOn then return end
     -- A refused request ("unavailable" before the audio hook is in, "disabled") is retried from the tick.
     local now = U.now()
@@ -234,6 +267,17 @@ do
     end
   end
 
+  -- What the host tells members it accepts: video adds (a running party with whoAdds "anyone"), the music lane, and
+  -- music adds (whoAdds "anyone", with or without a video party).
+  local function capMsg()
+    local anyone = CFG.get("whoAdds") == "anyone"
+    return {t = "cap", add = role == "host" and anyone, music = true, madd = anyone}
+  end
+
+  local function broadcastCaps()
+    if inSession() and NET.isHost() then NET.postAll(capMsg(), "cap") end
+  end
+
   local function sendQueue(id)
     if id then NET.drop(id, "^q%d") else for _, p in ipairs(NET.peers()) do NET.drop(p, "^q%d") end end
     for _, page in ipairs(QUEUE.pages()) do
@@ -299,6 +343,7 @@ do
     applyMusic()
     if inSession() then
       NET.postAll({t = "ack", party = true, qv = QUEUE.version()}, "ack")
+      broadcastCaps()
       sendQueue()
     end
     playItem(it, start or 0)
@@ -315,11 +360,13 @@ do
   end
 
   local function endLocal()
+    local wasHost = role == "host"
     closePlayer()
     openedId, openedUrl = nil, nil
     QUEUE.closeAllTorrents()
     role, hs, ended, needsPack, pendingPlayAt, autoplay, wantOpen, errorAt = "none", nil, false, false, nil, false,
       nil, nil
+    if wasHost then broadcastCaps() end          -- add = false now
     applyMusic()
     presence()
     U.emit("party.changed")
@@ -436,6 +483,33 @@ do
     local host = NET.hostId()
     if not host then return false end
     NET.post(host, m)
+    return true
+  end
+
+  -- Peer: asks the host to add a link. f = {u, f?, ti?}: u the canonical link, f the torrent file index, ti its title.
+  -- Returns true, "sent" (the answer comes as "party.addResult"), or nil and "rate" | "no-host".
+  function PARTY.requestAdd(f)
+    local now = U.now()
+    if now - lastAddAt < ADD_EVERY then return nil, "rate" end
+    local host = NET.hostId()
+    if not host or not NET.reachable(host) then return nil, "no-host" end
+    local n = nextAddN
+    nextAddN = nextAddN + 1
+    pendingAdds[n] = {at = now}
+    lastAddAt = now
+    NET.post(host, {t = "add", n = n, u = f.u, f = f.f, ti = f.ti and U.trim(f.ti, 120)}, "add" .. n)
+    return true, "sent"
+  end
+
+  -- Peer: asks the host to remove an item this machine added. true, or nil and a reason.
+  function PARTY.requestRemove(id)
+    local me = NET.me()
+    local it = QUEUE.find(id)
+    if not it or me == nil or it.byId ~= me then return nil, "not-yours" end
+    local host = NET.hostId()
+    if not host or not NET.reachable(host) then return nil, "no-host" end
+    if not hostCaps then return nil, "old-host" end
+    NET.post(host, {t = "rm", id = id})
     return true
   end
 
@@ -600,6 +674,15 @@ do
       local it = QUEUE.find(m.id)
       local c = it and wum.media.classify(it.url)
       if c and c.infohash == m.ih then QUEUE.setFile(m.id, m.f) end
+    elseif t == "cap" then
+      hostCaps = {add = m.add == true, music = m.music == true, madd = m.madd == true}
+      U.emit("party.changed")
+    elseif t == "addr" then
+      local p = pendingAdds[m.n]
+      if not p then return end
+      pendingAdds[m.n] = nil
+      U.emit("party.addResult", m.ok == true, type(m.why) == "string" and U.trim(m.why, 24) or nil,
+        math.type(m.c) == "integer" and m.c or nil, type(m.ti) == "string" and U.trim(m.ti, 60) or nil)
     elseif t == "end" then
       local was = role == "peer"
       hostParty, declined, prompted = false, false, false
@@ -624,11 +707,40 @@ do
       mi.hiAt = now
       mi.holo = U.trim(m.holo, 16)
       NET.post(from, {t = "ack", party = role == "host", qv = QUEUE.version()}, "ack")
+      NET.post(from, capMsg(), "cap")
       if role == "host" then
         sendQueue(from)
         if hs then NET.post(from, stMsg(hs), "st") end
         sendTorrentInfo(from)
       end
+      U.emit("party.memberHi", from)
+    elseif t == "add" then
+      local n = m.n
+      if math.type(n) ~= "integer" or n < 1 or n > 2147483647 then return end
+      local function reply(ok, why, c, ti)
+        NET.post(from, {t = "addr", n = n, ok = ok, why = why, c = c, ti = ti and U.trim(ti, 60)})
+      end
+      if role ~= "host" then return reply(false, "not-running") end
+      if CFG.get("whoAdds") ~= "anyone" then return reply(false, "host-only") end
+      if now - (mi.addAt or -1e9) < ADD_ACCEPT then return reply(false, "rate") end
+      mi.addAt = now
+      if type(m.u) ~= "string" or #m.u > 4096 then return reply(false, "unsupported-url") end
+      local c = wum.media.classify(m.u)
+      if not c then return reply(false, "unsupported-url") end
+      local f = m.f
+      if math.type(f) ~= "integer" or f < 0 or f > 100000 then f = nil end
+      local name = U.trim(NET.name(from), 32)
+      QUEUE.addFor(c, {by = name, byId = from, f = f, ti = m.ti}, function(ok, why, count, title)
+        reply(ok, why, count, title)
+        if ok and U.now() - (mi.toastAt or -1e9) >= 3000 then
+          mi.toastAt = U.now()
+          toast(name .. " added " .. (count and count > 1 and (count .. " videos") or U.trim(title or "a video", 60)))
+        end
+      end)
+    elseif t == "rm" then
+      if role ~= "host" or math.type(m.id) ~= "integer" or now - (mi.rmAt or -1e9) < RM_ACCEPT then return end
+      mi.rmAt = now
+      QUEUE.removeFor(m.id, from)
     elseif t == "need" then
       if role ~= "host" or now - mi.needAt < NEED_ACCEPT then return end
       mi.needAt = now
@@ -664,6 +776,7 @@ do
   local function resetPeerSide()
     hostParty, declined, prompted, acked = false, false, false, false
     lastHi, wantOpen = -1e9, nil
+    hostCaps, pendingAdds = nil, {}
     info = {}
     if role == "none" then hs = nil end
     -- A peer forgets the host's queue version, so the next host's pages are taken whatever their number. An owner
@@ -734,6 +847,8 @@ do
   U.on("cfg.changed", function(key, v)
     if key == "musicOff" then
       applyMusic()
+    elseif key == "whoAdds" then
+      broadcastCaps()
     elseif key == "volume" then
       U.setPref("volume", v)
       applyAudio()
@@ -892,6 +1007,12 @@ do
       if not acked and now - lastHi >= HI_EVERY and NET.reachable(host) then
         lastHi = now
         NET.send(host, {t = "hi", v = 1, pack = NET.myPresence().pack or "missing", holo = VERSION})
+      end
+      for n, p in pairs(pendingAdds) do
+        if now - p.at >= ADD_WAIT then
+          pendingAdds[n] = nil
+          U.emit("party.addResult", false, "no-answer")
+        end
       end
       if role == "peer" then
         if needsPack and now - lastPackPoll >= 500 then

@@ -135,8 +135,12 @@ do
   mock.setLobby{lobby = "L", me = "B", owner = "A", isHost = false,
     members = {{id = "A", name = "A", host = true}, {id = "B", name = "B", me = true}}}
   mock.frame()
-  check(select(2, ns.QUEUE.add(yt(1))) == "not-host", "a peer cannot add")
+  local why = select(2, ns.QUEUE.add(yt(1)))
+  check(why == "not-running" or why == "old-host", "a peer without the host's cap cannot add: " .. tostring(why))
+  check(ns.QUEUE.count() == 0, "nothing was added")
   check(select(2, ns.QUEUE.remove(1)) == "not-host", "a peer cannot remove")
+  check(select(2, ns.QUEUE.move(1, 1)) == "not-host", "a peer cannot move")
+  check(select(2, ns.QUEUE.add("http://evil.example/")) == "unsupported-url", "a bad link is still named first")
 end
 
 -- 6. pages: a big queue of long magnets splits under the reliable cap and round-trips through a peer's mirror
@@ -225,6 +229,75 @@ do
   local cur = ns2.QUEUE.load(snap)
   check(ns2.QUEUE.count() == 2, "load re-checks the items")
   check(cur and ns2.QUEUE.find(cur).url == Q.items()[2].url and ns2.QUEUE.current().id == cur, "current kept")
+end
+
+-- 9. members' adds on the host: QUEUE.addFor, countBy, has, removeFor, and the attribution on the wire
+do
+  local wum, mock, ns = loadHolo()
+  local Q = ns.QUEUE
+  local function classify(u) return wum.media.classify(u) end
+  local function addFor(u, attrib)
+    local out
+    local calls = 0
+    Q.addFor(classify(u), attrib, function(...) calls = calls + 1; out = table.pack(...) end)
+    return out, calls
+  end
+  local by = {by = "Bob", byId = "76561198000000001"}
+  local r, calls = addFor(yt(1), by)
+  check(calls == 1 and r[1] == true and r[3] == 1 and r[4] == "YouTube video", "addFor: a video")
+  check(Q.count() == 1 and Q.items()[1].by == "Bob" and Q.items()[1].byId == by.byId, "attributed")
+  check(Q.countBy(by.byId) == 1 and Q.countBy("other") == 0 and Q.countBy(nil) == 0, "countBy")
+  check(Q.has(Q.items()[1].url, nil) and not Q.has(yt(2), nil), "has")
+  r = addFor(yt(1), by)
+  check(r[1] == false and r[2] == "dup" and Q.count() == 1, "addFor: duplicate")
+  mock.resolveDone({items = {{url = Q.items()[1].url, title = "Real title", duration = 30}}})
+  check(Q.items()[1].title == "Real title" and Q.items()[1].by == "Bob", "the title is filled, the adder kept")
+  -- a magnet with a file needs no torrent; the same magnet with another file is not a duplicate
+  r = addFor(magnet(1), {by = "Bob", byId = by.byId, f = 3, ti = "Episode 1"})
+  check(r[1] == true and Q.items()[2].kind == "bt" and Q.items()[2].file == 3 and Q.items()[2].title == "Episode 1"
+    and #mock.torrents == 0, "addFor: magnet with a file")
+  r = addFor(magnet(1), {by = "Bob", byId = by.byId, f = 3})
+  check(r[2] == "dup", "same magnet, same file: dup")
+  r = addFor(magnet(1), {by = "Bob", byId = by.byId, f = 4, ti = ""})
+  check(r[1] == true and Q.items()[3].file == 4 and Q.items()[3].title == "Torrent", "same magnet, another file; default title")
+  -- a magnet without a file: the host reads the list and takes the largest video
+  local out, n = nil, 0
+  Q.addFor(classify(magnet(2)), by, function(...) n = n + 1; out = table.pack(...) end)
+  check(n == 0 and #mock.torrents == 1, "the host opens the torrent and waits")
+  mock.torrentFiles({{index = 0, path = "x/small.mkv", size = 1, video = true},
+    {index = 7, path = "x/large.mkv", size = 50, video = true}})
+  check(n == 1 and out[1] == true and Q.items()[4].file == 7 and Q.items()[4].title == "large", "largest video taken")
+  -- removeFor: only the adder's own items
+  local id = Q.items()[1].id
+  check(select(2, Q.removeFor(id, "somebody else")) == "not-yours" and Q.count() == 4, "removeFor: not yours")
+  check(select(2, Q.removeFor(id, nil)) == "not-yours", "removeFor: nil owner")
+  check(select(2, Q.removeFor(9999, by.byId)) == "unknown", "removeFor: unknown")
+  check(Q.removeFor(id, by.byId) == true and Q.count() == 3 and Q.find(id) == nil, "removeFor: own item")
+  -- the wire carries the adder and survives the round trip, load and snapshot
+  local page = Q.pages()[1]
+  check(page.items[1].b == "Bob" and page.items[1].bi == by.byId, "toWire carries b and bi")
+  local w2, m2, ns2 = loadHolo()
+  m2.setLobby{lobby = "L", me = "B", owner = "A", isHost = false,
+    members = {{id = "A", name = "A", host = true}, {id = "B", name = "B", me = true}}}
+  check(ns2.QUEUE.acceptPage(page) == true and ns2.QUEUE.items()[1].by == "Bob" and ns2.QUEUE.items()[1].byId == by.byId,
+    "the mirror keeps the adder")
+  local snap = Q.snapshot()
+  local w3, m3, ns3 = loadHolo()
+  ns3.QUEUE.load(snap)
+  check(ns3.QUEUE.items()[1].by == "Bob" and ns3.QUEUE.items()[1].byId == by.byId, "load keeps the adder")
+  -- bad adder fields are dropped
+  local it = Q.checkWire({id = 1, k = "yt", u = yt(5), b = 42, bi = string.rep("9", 40)})
+  check(it and it.by == nil and it.byId == nil, "non-string b and over-long bi dropped")
+  it = Q.checkWire({id = 1, k = "yt", u = yt(5), b = string.rep("n", 80), bi = "123"})
+  check(it and utf8.len(it.by) == 32 and it.byId == "123", "b is trimmed to 32")
+  -- the member limit
+  local w4, m4, ns4 = loadHolo()
+  for i = 1, 50 do ns4.QUEUE.addFor(w4.media.classify(yt(i)), {by = "Bob", byId = "7"}, function() end) end
+  local res
+  ns4.QUEUE.addFor(w4.media.classify(yt(99)), {by = "Bob", byId = "7"}, function(...) res = table.pack(...) end)
+  check(res[1] == false and res[2] == "member-full" and ns4.QUEUE.MEMBER_MAX == 50, "51st item of one member")
+  ns4.QUEUE.addFor(w4.media.classify(yt(99)), {by = "Eve", byId = "8"}, function(...) res = table.pack(...) end)
+  check(res[1] == true, "another member is not limited by it")
 end
 
 if fails > 0 then
