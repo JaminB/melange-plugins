@@ -289,6 +289,58 @@ do
   check(A.ns.PARTY.role() == "none", "ended")
 end
 
+-- 6. a member's panel while the host's party runs: it can add, sees who added what, removes only its own items
+do
+  local A, B = machine("A"), machine("B")
+  local ms = {A, B}
+  lobby(ms, "A")
+  step(ms)
+  connect(ms)
+  step(ms, 6)
+  A.ns.PARTY.setSetup(true)
+  B.ns.PARTY.setSetup(true)
+  step(ms, 2)
+  check(hasText(B, "Adding opens when they start the party"), "before the party: adding opens when the host starts")
+  check(not regions(B)["setup.link"], "before the party: the link box is disabled")
+  A.ns.QUEUE.add(VID1)
+  check(A.ns.PARTY.start() == true, "party started")
+  A.ns.PARTY.setSetup(true)
+  step(ms, 10)
+  check(B.ns.PARTY.role() == "peer" and B.ns.PARTY.canAdd(), "B joined and may add")
+  check(hasText(B, "NA hosts this party. You can add videos") and not hasText(B, "Only the host"), "member header")
+  check(hasText(B, "Paste a link to add it to NA's queue"), "placeholder names the host")
+  check(regions(B)["setup.link"] ~= nil, "the link box is enabled")
+  -- type a link and press Add
+  B.ns.SETUP.linkState().text = "https://youtu.be/vid00000002"
+  step(ms, 2)
+  check(regions(B)["setup.add"] ~= nil, "Add is enabled for a valid link")
+  local adds0 = 0
+  for _, r in ipairs(B.mock.peerSent) do if r.tbl.t == "add" then adds0 = adds0 + 1 end end
+  clickRegion(B, "setup.add")
+  step(ms, 2)
+  local adds1 = 0
+  for _, r in ipairs(B.mock.peerSent) do if r.tbl.t == "add" then adds1 = adds1 + 1 end end
+  check(adds1 == adds0 + 1 and B.ns.SETUP.linkState().text == "", "Add sends the link to the host and clears the box")
+  step(ms, 60)
+  check(select(1, B.ns.SETUP.status()) == "Added YouTube video", "status after the host's answer: " ..
+    tostring(B.ns.SETUP.status()))
+  check(A.ns.QUEUE.count() == 2 and B.ns.QUEUE.count() == 2, "both queues have the item")
+  step(ms, 2)
+  check(hasText(B, "by NB") and hasText(A, "by NB"), "the row shows who added it")
+  local items = B.ns.QUEUE.items()
+  check(items[2].byId == "B", "item 2 is B's")
+  check(regions(B)["setup.rm." .. items[2].id] ~= nil, "B gets a remove button on its own item")
+  check(regions(B)["setup.rm." .. items[1].id] == nil, "no remove button on the host's item")
+  check(regions(B)["setup.up." .. items[2].id] == nil and regions(B)["setup.dn." .. items[2].id] == nil,
+    "no reorder buttons for a member")
+  check(regions(A)["setup.rm." .. items[1].id] ~= nil and regions(A)["setup.up." .. items[2].id] ~= nil,
+    "the host keeps all its buttons")
+  clickRegion(B, "setup.rm." .. items[2].id)
+  step(ms, 60)
+  check(A.ns.QUEUE.count() == 1 and B.ns.QUEUE.count() == 1, "the member's remove button removes its item")
+  check(#A.mock.logsOf("error") == 0 and #B.mock.logsOf("error") == 0, "no errors")
+end
+
 -- 5. in a match: the panel brings the pointer, and closes when the pointer goes
 do
   local A = machine("A")
@@ -308,6 +360,107 @@ do
   A.mock.hotkey("F6")
   A.mock.frame()
   check(not A.ns.PARTY.setupOpen() and not A.mock.pointerActive(), "closing the panel releases the pointer")
+end
+
+-- 7. the Videos / Music tabs, the Music tab, and the library modal over the panel (Holo 1.1, with wum.spotify)
+do
+  local FS = require("fake_spotify")
+  local function machineFS(id)
+    local wum, mock = MW.new()
+    local fs = FS.install(wum, mock)
+    fs.account = {user = "U" .. id, premium = true}
+    fs.status = {state = "connected", linked = true, user = "U" .. id, premium = true}
+    fs.library.tracks = {FS.song(1), FS.song(2), FS.song(3, {playable = false})}
+    fs.library.playlists = {{id = string.rep("p", 22), uri = "spotify:playlist:" .. string.rep("p", 22),
+      name = "Road trip", owner = "Bee", tracks = 60}}
+    local list = {}
+    for n = 1, 60 do list[n] = FS.song(100 + n) end
+    fs.library["playlist:" .. string.rep("p", 22)] = list
+    wum._holoTest = {}
+    local _, ok, err = MW.load("mod/client/init.lua", wum)
+    check(ok, id .. ": init.lua runs: " .. tostring(err))
+    mock.cursorSource = "frontend"
+    mock.cursorPos = {2, 2}
+    return {id = id, wum = wum, mock = mock, ns = wum._holoTest.ns, sent = 0, fs = fs}
+  end
+
+  local A = machineFS("A")
+  A.ns.PARTY.setSetup(true)
+  step({A}, 2)
+  check(regions(A)["setup.tab.videos"] ~= nil and regions(A)["setup.tab.music"] ~= nil, "two tab buttons")
+  check(A.ns.SETUP.tab() == "videos" and regions(A)["setup.link"] ~= nil, "Videos first: the link box")
+  clickRegion(A, "setup.tab.music")
+  step({A}, 2)
+  check(A.ns.SETUP.tab() == "music", "Music tab")
+  check(regions(A)["setup.link"] == nil and regions(A)["setup.list"] == nil, "no link box or video queue")
+  check(hasText(A, "Music queue (0)") and hasText(A, "Nothing playing"), "the Music tab draws")
+  check(regions(A)["music.browse"] ~= nil and regions(A)["music.play"] ~= nil, "browse and the host's buttons")
+  check(regions(A)["setup.close"] ~= nil, "the footer is still there")
+  -- the library modal
+  clickRegion(A, "music.browse")
+  check(A.ns.MUI.libOpen(), "the library opens")
+  step({A}, 10)
+  check(#A.fs.callsOf("library") == 1 and A.fs.callsOf("library")[1].args[1].kind == "tracks", "liked songs asked")
+  check(regions(A)["music.lib.add.1"] ~= nil and regions(A)["music.lib.add.3"] ~= nil, "song rows")
+  check(regions(A)["music.browse"] == nil and regions(A)["setup.tab.videos"] == nil and regions(A)["setup.close"] == nil,
+    "the base panel takes no clicks under the modal (W.active false)")
+  check(regions(A)["setup.panel"] ~= nil, "the panel still covers the game")
+  clickRegion(A, "music.lib.add.1")
+  check(A.ns.MUSIC.count() == 1 and A.ns.MUSIC.items()[1].uri == FS.uri(1), "music.lib.add.1 adds the song")
+  clickRegion(A, "music.lib.add.3")
+  check(A.ns.MUSIC.count() == 1, "an unplayable song is not added")
+  -- playlists, a playlist, paging, "Add all loaded"
+  clickRegion(A, "music.lib.lists")
+  step({A}, 10)
+  check(hasText(A, "Road trip") and regions(A)["music.lib.open.1"] ~= nil, "playlists")
+  clickRegion(A, "music.lib.open.1")
+  step({A}, 10)
+  local lib = A.ns.MUI.library()
+  check(lib.view == "playlist" and #lib.rows == 50 and lib.next == true, "first page of 50")
+  check(regions(A)["music.lib.more"] ~= nil and regions(A)["music.lib.back"] ~= nil, "Load more and Back")
+  clickRegion(A, "music.lib.more")
+  step({A}, 10)
+  check(#lib.rows == 60 and lib.next == false, "second page")
+  local calls = A.fs.callsOf("library")
+  check(calls[#calls].args[1].offset == 50 and calls[#calls].args[1].id == string.rep("p", 22), "offset 50")
+  clickRegion(A, "music.lib.all")
+  check(A.ns.MUSIC.count() == 61, "Add all loaded: " .. A.ns.MUSIC.count())
+  -- a playlist Spotify does not let apps read
+  A.fs.library["playlist:" .. string.rep("p", 22)] = nil
+  clickRegion(A, "music.lib.back")
+  step({A}, 10)
+  clickRegion(A, "music.lib.open.1")
+  step({A}, 10)
+  check(hasText(A, "Spotify does not let apps read this playlist"), "not-found explained")
+  -- closing the panel closes the library
+  A.ns.PARTY.setSetup(false)
+  step({A}, 2)
+  check(not A.ns.MUI.libOpen(), "a closed panel closes the library")
+  A.ns.SETUP.setTab("videos")
+  check(#A.mock.logsOf("error") == 0, "no errors: " .. table.concat(A.mock.logsOf("error"), "; "))
+  -- a member adds through the library: it goes to the host
+  local H, B = machineFS("H"), machineFS("B")
+  H.fs.status = {state = "disconnected", linked = false}
+  lobby({H, B}, "H")
+  connect({H, B})
+  step({H, B}, 10)
+  B.ns.PARTY.setSetup(true)
+  B.ns.SETUP.setTab("music")
+  step({H, B}, 2)
+  check(hasText(B, "NH hosts the music. You can add songs"), "member header on the Music tab")
+  check(regions(B)["music.play"] == nil and regions(B)["music.listen"] ~= nil, "a member: Listen, no transport")
+  clickRegion(B, "music.browse")
+  step({H, B}, 10)
+  clickRegion(B, "music.lib.add.2")
+  step({H, B}, 60)
+  check(H.ns.MUSIC.count() == 1 and H.ns.MUSIC.items()[1].by == "NB", "the host got B's song")
+  check(B.ns.MUSIC.count() == 1, "B's mirror")
+  B.ns.MUI.closeLibrary()
+  step({H, B}, 2)
+  local id = B.ns.MUSIC.items()[1].id
+  check(regions(B)["music.rm." .. id] ~= nil and regions(B)["music.up." .. id] == nil, "B removes only its own")
+  check(H.ns.SETUP.tab() == "videos", "tabs are per machine")
+  check(#B.mock.logsOf("error") == 0 and #H.mock.logsOf("error") == 0, "no errors")
 end
 
 if fails > 0 then

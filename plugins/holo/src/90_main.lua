@@ -1,6 +1,6 @@
--- main (P3): the "screen" draw callback that runs every surface (player, setup panel, toasts, popovers) each under
--- its own guard, the four hotkeys of the bus ("hotkey", name from CFG), pointer mode for a match, the toasts and the
--- join / continue prompts. The pointer is Melange's: Holo asks for it with its themed cursor and the default
+-- main (P3): the "screen" draw callback that runs every surface (player, setup panel, music chip, toasts, popovers) each
+-- under its own guard, the four hotkeys of the bus ("hotkey", name from CFG), pointer mode for a match, the toasts and
+-- the join / continue prompts. The pointer is Melange's: Holo asks for it with its themed cursor and the default
 -- release on a click outside its regions; Esc, the hotkey again or a turn of this machine's player also end it.
 do
   local C = SKIN.C
@@ -41,6 +41,12 @@ do
         keep = function() return PARTY.partyRunning() end,
         actions = {{"Join", function() PARTY.join() end}, {"Not now", function() end}}}
     end
+  end)
+
+  -- The user took over the music in Spotify: Holo stopped following and offers to follow again.
+  U.on("music.detached", function()
+    toast{id = "music", text = "You changed the music in Spotify; Holo stopped following", kind = "info", life = 10000,
+      actions = {{"Follow again", function() MUSIC.followAgain() end}}}
   end)
 
   U.on("party.continuePrompt", function()
@@ -200,6 +206,7 @@ do
   local pieces = {
     {"draw.player", function() PUI.draw() end},
     {"draw.setup", function() SETUP.draw() end},
+    {"draw.chip", function() MUI.drawChip() end},
     {"draw.toasts", drawToasts},
     {"draw.popover", function() W.drawPopover() end},
   }

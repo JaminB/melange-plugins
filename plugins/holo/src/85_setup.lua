@@ -2,7 +2,8 @@
 -- or the queue button: a link box (focus on click, caret, selection, Ctrl+V, Enter adds, a live classify tick or
 -- cross), the queue (52 px rows, only the visible ones drawn, under a clip, wheel scrolling), the torrent file picker
 -- (a modal over the panel), the players list (Holo, pack, RTT), the pack consent block and the footer. Peers see the
--- same panel read-only.
+-- same panel; they can add links while the host's party runs (and remove what they added), nothing else. Two tabs:
+-- "Videos" (all of the above) and "Music" (MUI: the party's Spotify music lane and the library modal).
 do
   local C = SKIN.C
   local ROW = 52
@@ -13,6 +14,15 @@ do
   local scroll = 0                       -- queue scroll in pixels at scale 1
   local status, statusKind, statusAt = nil, nil, 0
   local picks = {}                       -- pending torrent pickers {token, files, name, sel, scroll}
+  local tab = "videos"                   -- "videos" | "music"
+
+  function SETUP.tab() return tab end
+  function SETUP.setTab(t)
+    if t ~= "videos" and t ~= "music" then return false end
+    tab = t
+    if t ~= "music" then MUI.closeLibrary() end
+    return true
+  end
 
   local ADD_WHY = {
     ["unsupported-url"] = "That is not a YouTube or magnet link",
@@ -21,6 +31,22 @@ do
     busy = "Too many torrents are open; remove one first",
     ["first-use-in-match"] = "Add the first torrent in the menus or the lobby",
     pack = "Download the media pack first",
+    dup = "That is already in the queue",
+    rate = "Wait a moment before adding again",
+    ["member-full"] = "You already have 50 items in the queue",
+    ["host-only"] = "The host adds the videos in this party",
+    ["not-running"] = "Adding opens when the host starts the party",
+    ["no-answer"] = "The host did not answer",
+    ["no-host"] = "The host is not reachable",
+    ["old-host"] = "The host's Holo is older than 1.1; ask them to update",
+    ["no-video"] = "No video file in this torrent",
+    torrent = "The host could not read this torrent",
+    ["torrent-slow"] = "The host found no file list for this torrent in time",
+    ["host-busy"] = "The host is reading other torrents; try again in a minute",
+    private = "That playlist is private",
+    ytdlp = "The host has not got yt-dlp yet; try again soon",
+    playlist = "Could not list that playlist",
+    helper = "The host's video player could not start",
   }
 
   local function say(text, kind)
@@ -49,6 +75,19 @@ do
 
   U.on("queue.picked", function(it)
     say("Added " .. U.trim(it.title, 60), "info")
+  end)
+
+  -- A member's add: the host answered ("party.addResult") or the pick went out ("party.addSent").
+  U.on("party.addResult", function(ok, why, c, ti)
+    if ok then
+      say(c and c > 1 and ("Added " .. c .. " videos") or ("Added " .. (ti or "it")), "info")
+    else
+      say(ADD_WHY[why] or "The host could not add that", "error")
+    end
+  end)
+
+  U.on("party.addSent", function(title)
+    say("Sent " .. U.trim(title, 50) .. " to the host", "info")
   end)
 
   local function classify(text)
@@ -80,7 +119,8 @@ do
     if ok then
       link.text, link.caret, link.anchor, link.scroll = "", 0, nil, 0
       local c = lastClass
-      if c and c.kind == "magnet" then say("Reading the torrent's file list...", "info")
+      if why == "sent" then say("Sent to " .. PARTY.hostName() .. "...", "info")
+      elseif c and c.kind == "magnet" then say("Reading the torrent's file list...", "info")
       elseif c and c.playlist and not c.id then say("Listing the playlist...", "info")
       elseif not QUEUE.haveYtdlp() then say("Added; YouTube plays once Melange has downloaded yt-dlp", "warn")
       else say("Added to the queue", "info") end
@@ -98,8 +138,9 @@ do
 
   ---------------------------------------------------------------- the queue list
 
-  local function queueList(x0, y0, x1, y1, s, canEdit)
+  local function queueList(x0, y0, x1, y1, s, canEdit, canAdd)
     local items = QUEUE.items()
+    local me = NET.me()
     local rowH = ROW * s
     W.region("setup.list", x0, y0, x1, y1, "arrow")
     SKIN.nine("well", x0, y0, x1, y1)
@@ -110,7 +151,8 @@ do
     scroll = U.clamp(scroll - W.wheel("setup.list") * ROW * 1.5, 0, maxScroll)
     if #items == 0 then
       SKIN.text((x0 + x1) / 2, iy0 + 20 * s, canEdit and "The queue is empty: add a link above" or
-        "The host has not queued anything yet", 16 * s, C.offText, {align = "center"})
+        (canAdd and "The queue is empty. Paste a link above to add one" or "The host has not queued anything yet"),
+        16 * s, C.offText, {align = "center"})
       return
     end
     local scrollbar = maxScroll > 0
@@ -145,12 +187,30 @@ do
         if W.iconButton("setup.up." .. it.id, "up", right, by, bs, i > 1) then QUEUE.move(it.id, -1) end
         W.active = was
         right = right - 8 * s
+      elseif it.byId ~= nil and it.byId == me then
+        -- a member removes what they added; the host does the removal
+        local bs = 28 * s
+        local vis = ry0 >= iy0 - 1 and ry1 <= iy1 + 1
+        local was = W.active
+        W.active = was and vis
+        right = right - bs
+        if W.iconButton("setup.rm." .. it.id, "cross", right, ry0 + (rowH - bs) / 2, bs) then
+          local ok, why = PARTY.requestRemove(it.id)
+          if not ok then say(ADD_WHY[why] or "Could not remove that", "error") end
+        end
+        W.active = was
+        right = right - 8 * s
       end
       local d = U.num(it.duration) or 0
       local dur = it.live and "LIVE" or (d > 0 and U.fmtTime(d) or "")
       if dur ~= "" then
         SKIN.text(right, ry0, dur, 14 * s, C.cream, {align = "right", vcenter = rowH})
         right = right - SKIN.measure(dur, 14 * s, "body") - 10 * s
+      end
+      if it.by and it.by ~= "" then
+        local by = "by " .. U.trim(it.by, 24)
+        SKIN.text(right, ry0, by, 13 * s, C.offText, {align = "right", vcenter = rowH})
+        right = right - SKIN.measure(by, 13 * s, "body") - 12 * s
       end
       SKIN.text(x, ry0, it.title ~= "" and it.title or it.url, 17 * s, isCur and C.title or C.cream,
         {vcenter = rowH, maxWidth = right - x})
@@ -382,25 +442,61 @@ do
     end
     local s = SKIN.s
     local x0, y0, x1, y1 = SETUP.rect()
-    local modal = picks[1] ~= nil
+    local modal = picks[1] ~= nil or MUI.libOpen()
     W.region("setup.panel", x0, y0, x1, y1, "arrow")
     W.active = not modal
     SKIN.nine("panel", x0, y0, x1, y1)
     local canEdit = PARTY.canControl()
+    local canAdd = PARTY.canAdd()
+    local why = PARTY.addWhyNot()
 
     -- title tag, the host line and the close button
     local tagW = SKIN.measure("Watch party", 26 * s, "tag") + 56 * s
     SKIN.nine("tag", x0 + 22 * s, y0 + 14 * s, x0 + 22 * s + tagW, y0 + 60 * s)
     SKIN.text(x0 + 22 * s + 28 * s, y0 + 14 * s, "Watch party", 26 * s, C.ink, {kind = "tag", vcenter = 46 * s})
+    -- the tabs, tag-style, right after the title; the current one is drawn pressed
+    local tx = x0 + 34 * s + tagW
+    if W.button("setup.tab.videos", tx, y0 + 18 * s, tx + 96 * s, y0 + 56 * s, "Videos",
+      {size = 16 * s, on = tab == "videos"}) then SETUP.setTab("videos") end
+    tx = tx + 102 * s
+    if W.button("setup.tab.music", tx, y0 + 18 * s, tx + 96 * s, y0 + 56 * s, "Music",
+      {size = 16 * s, on = tab == "music", icon = "audio"}) then SETUP.setTab("music") end
+    tagW = tx + 96 * s - (x0 + 22 * s)
     if W.iconButton("setup.x", "close", x1 - 58 * s, y0 + 16 * s, 40 * s) then PARTY.setSetup(false) end
     local who
-    if canEdit then
+    if tab == "music" then
+      local mwhy = MUSIC.addWhyNot()
+      if NET.isHost() then
+        who = NET.inSession() and "You host the music" or "Music on this machine only (no lobby)"
+      elseif mwhy == "old-host" then
+        who = PARTY.hostName() .. "'s Holo has no music lane"
+      elseif mwhy == "host-only" then
+        who = PARTY.hostName() .. " hosts the music and adds the songs"
+      else
+        who = PARTY.hostName() .. " hosts the music. You can add songs"
+      end
+    elseif canEdit then
       who = NET.inSession() and "You host this party" or "Playing on this machine only (no lobby)"
+    elseif canAdd then
+      who = PARTY.hostName() .. " hosts this party. You can add videos"
     else
       who = "Only the host (" .. PARTY.hostName() .. ") controls the party"
+      if why == "old-host" then who = who .. " (their Holo is older than 1.1)"
+      elseif why == "host-only" then who = who .. " and adds the videos"
+      elseif why == "not-running" then who = who .. ". Adding opens when they start the party" end
     end
     SKIN.text(x0 + 40 * s + tagW, y0 + 14 * s, who, 15 * s, C.gold,
       {vcenter = 46 * s, maxWidth = x1 - 70 * s - (x0 + 40 * s + tagW)})
+
+    local footY = y1 - 74 * s
+    if tab == "music" then
+      MUI.drawSetup(x0, y0 + 78 * s, x1, footY - 14 * s, s)
+      footer(x0 + 28 * s, footY, x1 - 28 * s, footY + 50 * s, s)
+      W.active = true
+      if picks[1] then picker(x0, y0, x1, y1, s)
+      elseif MUI.libOpen() then MUI.drawLibrary(x0, y0, x1, y1, s) end
+      return
+    end
 
     -- left column: the link box and the queue
     local lx0, lx1 = x0 + 28 * s, x0 + 620 * s
@@ -409,13 +505,16 @@ do
     local addW = 110 * s
     local tick = 34 * s
     local bx1 = lx1 - addW - tick - 16 * s
-    local r = W.textbox(link, lx0, ly, bx1, ly + boxH, {enabled = canEdit, size = 18 * s,
-      placeholder = canEdit and "Paste a YouTube or magnet link" or "The host adds the videos"})
+    local mayAdd = canEdit or canAdd
+    local placeholder = "The host adds the videos"
+    if canEdit then placeholder = "Paste a YouTube or magnet link"
+    elseif canAdd then placeholder = "Paste a link to add it to " .. U.trim(PARTY.hostName(), 24) .. "'s queue" end
+    local r = W.textbox(link, lx0, ly, bx1, ly + boxH, {enabled = mayAdd, size = 18 * s, placeholder = placeholder})
     local c = classify(link.text)
     if c ~= nil then SKIN.icon(c and "check" or "cross", bx1 + 8 * s, ly + (boxH - tick) / 2, tick) end
     local addHit = W.button("setup.add", lx1 - addW, ly, lx1, ly + boxH, "Add",
-      {enabled = canEdit and c ~= nil and c ~= false, icon = "add", size = 19 * s})
-    if canEdit and (r == "submit" or addHit) then submit() end
+      {enabled = mayAdd and c ~= nil and c ~= false, icon = "add", size = 19 * s})
+    if mayAdd and (r == "submit" or addHit) then submit() end
     local hint, hc = classText(c)
     SKIN.text(lx0 + 6 * s, ly + boxH + 4 * s, hint, 13 * s, hc, {maxWidth = lx1 - lx0})
 
@@ -434,8 +533,7 @@ do
         end
       end
     end
-    local footY = y1 - 74 * s
-    queueList(lx0, qy + 34 * s, lx1, footY - 14 * s, s, canEdit)
+    queueList(lx0, qy + 34 * s, lx1, footY - 14 * s, s, canEdit, canAdd)
 
     -- right column: players and the pack
     local rx0, rx1 = x0 + 650 * s, x1 - 28 * s
@@ -445,7 +543,8 @@ do
 
     footer(lx0, footY, rx1, footY + 50 * s, s)
     W.active = true
-    if modal then picker(x0, y0, x1, y1, s) end
+    if picks[1] then picker(x0, y0, x1, y1, s)
+    elseif MUI.libOpen() then MUI.drawLibrary(x0, y0, x1, y1, s) end
   end
 
   -- A closed panel cancels its open pickers, so their torrents do not stay open.
