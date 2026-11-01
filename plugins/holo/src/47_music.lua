@@ -427,6 +427,15 @@ do
     changed()
   end
 
+  -- The user moved the music to another Spotify device (the device picker). The move's brief pause must not count
+  -- as a takeover (OVERRIDE_GRACE runs from lastAction), and when nothing played here the song plays on the new one.
+  function MUSIC.deviceChanged()
+    lastAction = U.now()
+    if lastError == "no-device" then lastError = nil end
+    if following() and ms.s == "play" and owned == nil then issued = nil end
+    changed()
+  end
+
   -- Listen / Mute here: this machine plays the party's music on its Spotify, or not (off pauses what Holo started).
   function MUSIC.setListen(on)
     on = on == true
@@ -449,7 +458,8 @@ do
     lastPb = {active = res.active == true, playing = res.playing == true, uri = res.uri, at = at,
       positionMs = U.num(res.positionMs) or 0, durationMs = U.num(res.durationMs),
       linkedFrom = MUSIC.validUri(res.linkedFrom) and res.linkedFrom or nil,
-      device = type(res.device) == "table" and {name = U.trim(res.device.name, 40)} or nil}
+      device = type(res.device) == "table" and {name = U.trim(res.device.name, 40),
+        type = type(res.device.type) == "string" and U.trim(res.device.type, 32) or nil} or nil}
     if not following() or not owned or ms.s ~= "play" then return end
     if lastPb.at < owned.at then return end
     local now = U.now()

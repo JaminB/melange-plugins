@@ -3,7 +3,7 @@
 -- cross), the queue (52 px rows, only the visible ones drawn, under a clip, wheel scrolling), the torrent file picker
 -- (a modal over the panel), the players list (Holo, pack, RTT), the pack consent block and the footer. Peers see the
 -- same panel; they can add links while the host's party runs (and remove what they added), nothing else. Two tabs:
--- "Videos" (all of the above) and "Music" (MUI: the party's Spotify music lane and the library modal).
+-- "Videos" (all of the above) and "Music" (MUI: the party's Spotify music lane, the Spotify card and its modals: library, setup guide, devices).
 do
   local C = SKIN.C
   local ROW = 52
@@ -20,7 +20,7 @@ do
   function SETUP.setTab(t)
     if t ~= "videos" and t ~= "music" then return false end
     tab = t
-    if t ~= "music" then MUI.closeLibrary() end
+    if t ~= "music" then MUI.closeModals() end
     return true
   end
 
@@ -461,7 +461,7 @@ do
     end
     local s = SKIN.s
     local x0, y0, x1, y1 = SETUP.rect()
-    local modal = picks[1] ~= nil or MUI.libOpen()
+    local modal = picks[1] ~= nil or MUI.modalOpen()
     W.region("setup.panel", x0, y0, x1, y1, "arrow")
     W.active = not modal
     SKIN.nine("panel", x0, y0, x1, y1)
@@ -516,7 +516,7 @@ do
       footer(x0 + 28 * s, footY, x1 - 28 * s, footY + 50 * s, s)
       W.active = true
       if picks[1] then picker(x0, y0, x1, y1, s)
-      elseif MUI.libOpen() then MUI.drawLibrary(x0, y0, x1, y1, s) end
+      elseif MUI.modalOpen() then MUI.drawModal(x0, y0, x1, y1, s) end
       return
     end
 
@@ -566,7 +566,7 @@ do
     footer(lx0, footY, rx1, footY + 50 * s, s)
     W.active = true
     if picks[1] then picker(x0, y0, x1, y1, s)
-    elseif MUI.libOpen() then MUI.drawLibrary(x0, y0, x1, y1, s) end
+    elseif MUI.modalOpen() then MUI.drawModal(x0, y0, x1, y1, s) end
   end
 
   -- The panel opens on the Videos tab (F6, "Queue and players"); the Music chip and menu entry switch to Music right

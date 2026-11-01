@@ -1040,7 +1040,7 @@ do
   local t = {}
   for _, c in ipairs(B.mock.drawOf("hudText")) do t[#t + 1] = tostring(c.args[3]) end
   t = table.concat(t, " ")
-  check(t:find("Free account", 1, true) == nil and t:find("first song played", 1, true) ~= nil,
+  check(t:find("Free account", 1, true) == nil and t:find("Plan not known yet", 1, true) ~= nil,
     "the panel does not call an unknown account Free")
   B.ns.PARTY.setSetup(false)
   A.ns.MUSIC.addLocal(songs(1, 2))
