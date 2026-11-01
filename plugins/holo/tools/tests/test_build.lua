@@ -23,9 +23,28 @@ do
   local wum, mock, ns, ok, err = loadHolo()
   check(ok, "init.lua runs: " .. tostring(err))
   check(ns ~= nil, "header exposes namespaces to tests")
-  for _, k in ipairs{"U", "CFG", "NET", "PARTY", "QUEUE", "LAYOUT", "SKIN", "W", "PUI", "SETUP", "MAIN"} do
+  for _, k in ipairs{"U", "CFG", "NET", "PARTY", "QUEUE", "SPOT", "MUSIC", "LAYOUT", "SKIN", "W", "PUI", "SETUP", "MUI",
+    "MAIN"} do
     check(ns and type(ns[k]) == "table", "namespace " .. k)
   end
+end
+
+-- 1b. Holo loads with and without wum.spotify (Melange 0.13 and 0.12): the gate stays at 0.12.
+do
+  local FS = require("fake_spotify")
+  local wum, mock, ns, ok, err = loadHolo(function(w, m) FS.install(w, m) end)
+  check(ok and ns ~= nil and ns.SPOT.has() == true, "loads with wum.spotify: " .. tostring(err))
+  mock.frames(130)
+  check(#mock.logsOf("error") == 0 and #mock.logsOf("warn") == 0, "no errors or warnings with wum.spotify")
+  local wum2, mock2, ns2, ok2 = loadHolo()
+  check(ok2 and ns2 ~= nil and ns2.SPOT.has() == false, "loads without wum.spotify")
+  mock2.frames(130)
+  check(#mock2.logsOf("error") == 0 and #mock2.logsOf("warn") == 0, "no errors or warnings without it")
+  local f = assert(io.open("mod/spice.json", "rb"))
+  local spice = f:read("a")
+  f:close()
+  check(spice:find('"range": ">=0.12.0"', 1, true) ~= nil, "melange.range stays >=0.12.0")
+  check(not spice:find('"network"', 1, true), "no network permission")
 end
 
 -- 2. The bus: synchronous, subscription order, off(), a raising listener does not stop the others.

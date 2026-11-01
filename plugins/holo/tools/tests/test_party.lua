@@ -172,7 +172,7 @@ lobby(ms, "A")
 step(ms)
 connect(ms)
 step(ms, 2)
-check(#sentOf(B, "hi", "A") == 1 and sentOf(B, "hi")[1].tbl.v == 1 and sentOf(B, "hi")[1].tbl.holo == "1.0.2",
+check(#sentOf(B, "hi", "A") == 1 and sentOf(B, "hi")[1].tbl.v == 1 and sentOf(B, "hi")[1].tbl.holo == "1.1.0",
   "B says hi to the host")
 check(#sentOf(A, "ack", "B") == 1 and sentOf(A, "ack")[1].tbl.party == false, "A acks: no party yet")
 step(ms, 60 * 11)
@@ -227,7 +227,8 @@ check(A.ns.PARTY.peers()[1].state == "ready", "B ready again")
 -- peers cannot control
 check(select(2, B.ns.PARTY.togglePlay()) == "not-host" and select(2, B.ns.PARTY.seek(3)) == "not-host",
   "peer controls refused")
-check(select(2, B.ns.QUEUE.add(VID3)) == "not-host", "peer cannot add")
+check(select(2, B.ns.QUEUE.remove(1)) == "not-host" and select(2, B.ns.QUEUE.move(1, 1)) == "not-host",
+  "peer cannot remove or reorder")
 check(B.ns.PARTY.hostName() == "NA" and A.ns.PARTY.hostName() == "you", "host names")
 -- host pause reaches B
 A.ns.PARTY.togglePlay(); step(ms, 2)
@@ -390,6 +391,746 @@ do
     "peer opened the file")
   H.ns.PARTY.stop(); step(two, 5)
   check(J.mock.torrents[1].closed and H.mock.torrents[#H.mock.torrents].closed, "torrents closed at the end")
+end
+
+-- Members adding to the queue (Holo 1.1). A runs the party; B (and C) are members. The names are "NA", "NB", ...
+local function runLobby(ids, filter)
+  local ms = {}
+  for _, id in ipairs(ids) do ms[#ms + 1] = machine(id) end
+  lobby(ms, ids[1]); step(ms, 1, filter); connect(ms); step(ms, 6, filter)
+  return ms
+end
+
+-- A starts a party with VID1 and B joins it.
+local function runParty(ids, filter)
+  local ms = runLobby(ids, filter)
+  ms[1].ns.QUEUE.add(VID1)
+  check(ms[1].ns.PARTY.start() == true, "party started")
+  step(ms, 8, filter)
+  return ms
+end
+
+local function addrOf(m, to, n)
+  local out
+  for _, r in ipairs(sentOf(m, "addr", to)) do
+    if r.tbl.n == n then out = r.tbl end
+  end
+  return out
+end
+
+local function recordResults(m)
+  local res = {}
+  m.ns.U.on("party.addResult", function(ok, why, c, ti) res[#res + 1] = {ok = ok, why = why, c = c, ti = ti} end)
+  return res
+end
+
+-- 11. before the party starts: cap add = false, adding is "not-running", a raw add is refused
+do
+  local ms = runLobby{"A", "B"}
+  local A, B = ms[1], ms[2]
+  local caps = sentOf(A, "cap", "B")
+  check(#caps >= 1 and caps[#caps].tbl.add == false and caps[#caps].tbl.music == true, "cap add=false before the party")
+  check(B.ns.PARTY.hostCaps() ~= nil and B.ns.PARTY.hostCaps().add == false and not B.ns.PARTY.canAdd(),
+    "B cannot add before the party")
+  check(B.ns.PARTY.addWhyNot() == "not-running" and select(2, B.ns.QUEUE.add(VID2)) == "not-running",
+    "B: not-running")
+  A.mock.peerDeliver("B", {t = "add", n = 1, u = VID2})
+  step(ms, 5)
+  local r = addrOf(A, "B", 1)
+  check(r and r.ok == false and r.why == "not-running" and A.ns.QUEUE.count() == 0, "a raw add before the party is refused")
+end
+
+-- 1. a member adds a video while the party runs: attribution, mirror, the answer
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  local caps = sentOf(A, "cap", "B")
+  check(caps[#caps].tbl.add == true and caps[#caps].tbl.music == true, "cap add=true once the party runs")
+  check(B.ns.PARTY.hostCaps().add == true and B.ns.PARTY.canAdd() and B.ns.PARTY.addWhyNot() == nil, "B can add")
+  local res = recordResults(B)
+  local ok, why = B.ns.QUEUE.add("https://youtu.be/vid00000002")
+  check(ok == true and why == "sent", "add is sent to the host")
+  step(ms, 60)
+  local q = A.ns.QUEUE.items()
+  check(#q == 2 and q[2].url == "https://www.youtube.com/watch?v=vid00000002" and q[2].by == "NB" and q[2].byId == "B"
+    and q[1].by == nil, "A queued it, attributed to B")
+  check(B.ns.QUEUE.count() == 2 and B.ns.QUEUE.items()[2].by == "NB" and B.ns.QUEUE.items()[2].byId == "B"
+    and B.ns.QUEUE.items()[2].id == q[2].id, "B's mirror shows it with the adder")
+  check(#res == 1 and res[1].ok == true and res[1].c == 1 and res[1].ti == "YouTube video", "B got party.addResult(true)")
+  check(#A.mock.resolves >= 1 and A.mock.resolves[#A.mock.resolves].url == q[2].url, "the host resolved the title")
+  local t = lastEvent(A, "party.toast")
+  check(t and t[2]:find("NB added", 1, true), "the host sees who added: " .. tostring(t and t[2]))
+  check(B.ns.QUEUE.count() == 2 and select(2, B.ns.QUEUE.add("https://youtu.be/vid00000002")) == "dup",
+    "B sees a duplicate locally")
+  check(#B.mock.logsOf("error") == 0 and #A.mock.logsOf("error") == 0, "no errors")
+end
+
+-- 2. whoAdds = host: cap add=false, B is refused, a raw add is refused
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  A.wum.config.set("whoAdds", "host")
+  step(ms, 60)
+  local caps = sentOf(A, "cap", "B")
+  check(caps[#caps].tbl.add == false, "whoAdds=host broadcasts cap add=false")
+  check(B.ns.PARTY.hostCaps().add == false and not B.ns.PARTY.canAdd(), "B can no longer add")
+  check(select(2, B.ns.QUEUE.add(VID2)) == "host-only", "B: host-only")
+  A.mock.peerDeliver("B", {t = "add", n = 1, u = VID2})
+  step(ms, 5)
+  local r = addrOf(A, "B", 1)
+  check(r and r.ok == false and r.why == "host-only" and A.ns.QUEUE.count() == 1, "a raw add gets host-only")
+  A.wum.config.set("whoAdds", "anyone")
+  step(ms, 60)
+  check(B.ns.PARTY.canAdd(), "back to anyone: B can add again")
+end
+
+-- 3. rate limit: one add per member per 1.5 s
+do
+  local ms = runParty{"A", "B"}
+  local A = ms[1]
+  A.mock.peerDeliver("B", {t = "add", n = 1, u = VID2})
+  A.mock.peerDeliver("B", {t = "add", n = 2, u = VID3})
+  step(ms, 5)
+  local r1, r2 = addrOf(A, "B", 1), addrOf(A, "B", 2)
+  check(r1 and r1.ok == true and r2 and r2.ok == false and r2.why == "rate", "the second add within 1.5 s is rate limited")
+  check(A.ns.QUEUE.count() == 2, "only one was queued")
+  step(ms, 100)
+  A.mock.peerDeliver("B", {t = "add", n = 3, u = VID3})
+  step(ms, 5)
+  check(addrOf(A, "B", 3).ok == true and A.ns.QUEUE.count() == 3, "accepted again after 1.5 s")
+  -- malformed nonces are ignored without an answer
+  local n0 = #sentOf(A, "addr", "B")
+  step(ms, 100)
+  A.mock.peerDeliver("B", {t = "add", n = 0, u = VID2})
+  A.mock.peerDeliver("B", {t = "add", n = 1.5, u = VID2})
+  A.mock.peerDeliver("B", {t = "add", n = 2 ^ 31, u = VID2})
+  A.mock.peerDeliver("B", {t = "add", u = VID2})
+  step(ms, 5)
+  check(#sentOf(A, "addr", "B") == n0, "bad nonces get no answer")
+end
+
+-- 4. bad and duplicate urls, the per-member limit, a full queue
+do
+  local ms = runParty{"A", "B"}
+  local A = ms[1]
+  local function raw(n, tbl)
+    tbl.t, tbl.n = "add", n
+    A.mock.peerDeliver("B", tbl)
+    step(ms, 100)
+    return addrOf(A, "B", n)
+  end
+  check(raw(1, {u = "http://evil.example/x"}).why == "unsupported-url", "unsupported url")
+  check(raw(2, {u = 42}).why == "unsupported-url", "non-string url")
+  check(raw(3, {u = "https://youtu.be/" .. string.rep("a", 5000)}).why == "unsupported-url", "over-long url")
+  check(raw(4, {u = VID2}).ok == true, "a good url")
+  check(raw(5, {u = VID2}).why == "dup", "a duplicate")
+  check(raw(6, {u = VID1}).why == "dup", "a duplicate of the host's item")
+  check(A.ns.QUEUE.count() == 2, "only the good one was added")
+  local classify = A.wum.media.classify
+  for i = 1, 49 do
+    A.ns.QUEUE.addFor(classify(string.format("https://youtu.be/vid%08d", 100 + i)), {by = "NB", byId = "B"},
+      function() end)
+  end
+  check(A.ns.QUEUE.countBy("B") == 50, "B has 50 items")
+  local r = raw(7, {u = VID3})
+  check(r.ok == false and r.why == "member-full", "51st item of one member: member-full")
+  for i = 1, 200 do
+    if A.ns.QUEUE.count() >= 200 then break end
+    A.ns.QUEUE.add(string.format("https://youtu.be/vid%08d", 500 + i))
+  end
+  check(A.ns.QUEUE.count() == 200, "queue filled to 200")
+  r = raw(8, {u = "https://youtu.be/vid00000999"})
+  check(r.ok == false and r.why == "full", "full queue: full")
+end
+
+-- 5. a playlist is resolved by the host, every item attributed, c = items added
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  local res = recordResults(B)
+  local ok, why = B.ns.QUEUE.add("https://www.youtube.com/playlist?list=PL123")
+  check(ok == true and why == "sent", "playlist request sent")
+  step(ms, 5)
+  local n0 = #A.mock.resolves
+  check(n0 >= 1 and A.mock.resolves[n0].url == "https://www.youtube.com/playlist?list=PL123", "the host resolves it")
+  check(A.ns.QUEUE.count() == 1 and #res == 0, "nothing queued until the resolve is done")
+  A.mock.resolveDone({title = "Mix", items = {
+    {url = "https://youtu.be/vid00000011", title = "One", duration = 10},
+    {url = "https://youtu.be/vid00000012", title = "Two", duration = 20},
+    {url = "https://youtu.be/vid00000013", title = "Three", duration = 30}}})
+  step(ms, 60)
+  local q = A.ns.QUEUE.items()
+  check(#q == 4 and q[2].by == "NB" and q[3].by == "NB" and q[4].byId == "B" and q[3].title == "Two",
+    "three items, all attributed to B")
+  check(#res == 1 and res[1].ok == true and res[1].c == 3, "addr c == 3")
+  check(B.ns.QUEUE.count() == 4, "mirrored")
+  -- a private playlist
+  step(ms, 100)
+  B.ns.QUEUE.add("https://www.youtube.com/playlist?list=PLprivate")
+  step(ms, 5)
+  A.mock.resolveDone({error = "private"})
+  step(ms, 10)
+  check(#res == 2 and res[2].ok == false and res[2].why == "private", "private playlist reported")
+  -- the per-member limit trims a playlist
+  for i = 1, 45 do
+    A.ns.QUEUE.addFor(A.wum.media.classify(string.format("https://youtu.be/vid%08d", 100 + i)), {by = "NB", byId = "B"},
+      function() end)
+  end
+  check(A.ns.QUEUE.countBy("B") == 48, "B has 48 items")
+  step(ms, 100)
+  B.ns.QUEUE.add("https://www.youtube.com/playlist?list=PLbig")
+  step(ms, 5)
+  local items = {}
+  for i = 1, 6 do items[i] = {url = string.format("https://youtu.be/vid%08d", 700 + i), title = "T" .. i} end
+  A.mock.resolveDone({items = items})
+  step(ms, 10)
+  check(A.ns.QUEUE.countBy("B") == 50 and res[3].ok == true and res[3].c == 2 and res[3].why == "member-full",
+    "a playlist is trimmed to the member limit")
+end
+
+-- 6. a magnet with a file: the member reads the file list locally and sends {u, f, ti}
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  local res = recordResults(B)
+  local pick, sent
+  B.ns.U.on("queue.pick", function(token) pick = token end)
+  B.ns.U.on("party.addSent", function(title) sent = title end)
+  check(B.ns.QUEUE.add(MAGNET) == true, "magnet accepted locally")
+  check(#B.mock.torrents == 1, "B opened the torrent for its file list")
+  B.mock.torrentFiles({{index = 0, path = "a.mkv", size = 5, video = true},
+    {index = 1, path = "dir/b.mkv", size = 9, video = true}, {index = 2, path = "n.txt", size = 99, video = false}})
+  check(pick ~= nil, "queue.pick on B")
+  local before = #sentOf(B, "add", "A")
+  local ok = B.ns.QUEUE.pickFile(pick, 0)
+  check(ok == true and sent == "a", "pickFile sends it to the host")
+  step(ms, 5)
+  local adds = sentOf(B, "add", "A")
+  check(#adds == before + 1 and adds[#adds].tbl.u == "magnet:?xt=urn:btih:" .. string.rep("ab", 20) and adds[#adds].tbl.f == 0
+    and adds[#adds].tbl.ti == "a", "add{u, f, ti}")
+  step(ms, 60)
+  local it = A.ns.QUEUE.items()[2]
+  check(it and it.kind == "bt" and it.file == 0 and it.by == "NB" and it.title == "a", "A appended a bt item with that file")
+  check(#A.mock.torrents == 0, "the host opened no torrent for it")
+  check(B.mock.torrents[1].closed, "B closed its local torrent")
+  check(#res == 1 and res[1].ok == true, "B got the answer")
+  check(B.ns.QUEUE.count() == 2 and B.ns.QUEUE.items()[2].kind == "bt", "mirrored")
+end
+
+-- 7. a magnet without a file (the member has no media pack): the host opens it and takes the largest video
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  B.mock.pack.state = "missing"
+  local res = recordResults(B)
+  local picked
+  A.ns.U.on("queue.pick", function() picked = true end)
+  B.ns.U.on("queue.pick", function() picked = true end)
+  local ok, why = B.ns.QUEUE.add(MAGNET)
+  check(ok == true and why == "sent" and #B.mock.torrents == 0, "B sends the bare link")
+  step(ms, 5)
+  local adds = sentOf(B, "add", "A")
+  check(#adds >= 1 and adds[#adds].tbl.f == nil, "no file in the add")
+  check(#A.mock.torrents == 1 and A.ns.QUEUE.count() == 1, "the host opened the torrent and waits")
+  A.mock.torrentFiles({{index = 0, path = "a.mkv", size = 5, video = true},
+    {index = 1, path = "big.mkv", size = 9, video = true}, {index = 2, path = "n.txt", size = 99, video = false}})
+  step(ms, 60)
+  local it = A.ns.QUEUE.items()[2]
+  check(it and it.kind == "bt" and it.file == 1 and it.title == "big" and it.byId == "B", "the largest video was picked")
+  check(not picked, "no picker anywhere")
+  check(#res == 1 and res[1].ok == true and res[1].ti == "big", "B got the title")
+  -- a torrent without a video file
+  step(ms, 100)
+  B.ns.QUEUE.add("magnet:?xt=urn:btih:" .. string.rep("cd", 20))
+  step(ms, 5)
+  A.mock.torrentFiles({{index = 0, path = "n.txt", size = 99, video = false}})
+  step(ms, 10)
+  check(#res == 2 and res[2].ok == false and res[2].why == "no-video", "no-video reported")
+  check(A.mock.torrents[#A.mock.torrents].closed, "the host closed the useless torrent")
+end
+
+-- 7b. members' magnets without a file hold at most 2 torrents on the host ("host-busy" beyond), and one whose file
+-- list does not come within 40 s is refused ("torrent-slow") and closed: dead magnets cannot take the host's slots.
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  B.mock.pack.state = "missing"
+  local res = recordResults(B)
+  local function mag(n) return "magnet:?xt=urn:btih:" .. string.rep(string.format("%02x", n), 20) end
+  B.ns.QUEUE.add(mag(1))
+  step(ms, 100)
+  B.ns.QUEUE.add(mag(2))
+  step(ms, 100)
+  check(#A.mock.torrents == 2 and #res == 0, "two members' magnets wait on the host")
+  B.ns.QUEUE.add(mag(3))
+  step(ms, 10)
+  check(#res == 1 and res[1].ok == false and res[1].why == "host-busy" and #A.mock.torrents == 2, "a third: host-busy")
+  check(A.ns.QUEUE.add(mag(9)) == true and #A.mock.torrents == 3, "the host still opens its own magnet")
+  step(ms, 37 * 60)
+  check(#res == 1, "still waiting before 40 s")
+  step(ms, 3 * 60)
+  check(#res == 3 and res[2].why == "torrent-slow" and res[3].why == "torrent-slow", "refused after 40 s: "
+    .. tostring(res[2] and res[2].why))
+  check(A.mock.torrents[1].closed and A.mock.torrents[2].closed, "their torrents are closed")
+  check(not A.mock.torrents[3].closed, "the host's own pick keeps its torrent")
+  -- a file list that comes late adds nothing and answers nothing
+  A.mock.torrentFiles({{index = 0, path = "late.mkv", size = 5, video = true}}, 1)
+  step(ms, 10)
+  check(#res == 3 and A.ns.QUEUE.count() == 1, "a late file list is ignored")
+  check(#A.mock.logsOf("error") == 0, "no errors")
+end
+
+-- 8. rm: a member removes what it added, nothing else
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  B.ns.QUEUE.add(VID2)
+  step(ms, 60)
+  local mine = B.ns.QUEUE.items()[2]
+  local hosts = B.ns.QUEUE.items()[1]
+  check(mine and mine.byId == "B" and hosts.byId == nil, "B sees which item is its own")
+  check(select(2, B.ns.PARTY.requestRemove(hosts.id)) == "not-yours", "B cannot ask to remove the host's item")
+  A.mock.peerDeliver("B", {t = "rm", id = hosts.id})
+  step(ms, 5)
+  check(A.ns.QUEUE.count() == 2, "a raw rm of the host's item is ignored")
+  -- the item that plays is B's: removing it plays the next
+  step(ms, 40)
+  A.ns.PARTY.next()
+  step(ms, 5)
+  check(A.ns.PARTY.currentId() == mine.id, "B's item is playing")
+  check(B.ns.PARTY.requestRemove(mine.id) == true, "B asks to remove its own item")
+  step(ms, 60)
+  check(A.ns.QUEUE.count() == 1 and A.ns.QUEUE.find(mine.id) == nil, "the host removed it")
+  check(A.ns.PARTY.currentId() == hosts.id and A.ns.PARTY.role() == "host", "the next item plays")
+  check(B.ns.QUEUE.count() == 1, "B's mirror is updated")
+  -- a bad id is ignored
+  step(ms, 40)
+  A.mock.peerDeliver("B", {t = "rm", id = "x"})
+  A.mock.peerDeliver("B", {t = "rm"})
+  step(ms, 5)
+  check(A.ns.QUEUE.count() == 1 and #A.mock.logsOf("error") == 0, "malformed rm ignored")
+end
+
+-- 9. a 1.0 host: no cap arrives, so the member never sends an add
+do
+  local function noCap(_, _, tbl) return tbl.t ~= "cap" end
+  local ms = runParty({"A", "B"}, noCap)
+  local A, B = ms[1], ms[2]
+  step(ms, 5, noCap)
+  check(B.ns.PARTY.role() == "peer" and B.ns.PARTY.hostCaps() == nil, "joined, no caps")
+  check(not B.ns.PARTY.canAdd() and B.ns.PARTY.addWhyNot() == "old-host", "old-host")
+  check(select(2, B.ns.QUEUE.add(VID2)) == "old-host" and #sentOf(B, "add") == 0, "no add is sent")
+  check(select(2, B.ns.PARTY.requestRemove(1)) == "not-yours", "nothing to remove")
+  check(A.ns.QUEUE.count() == 1, "the host's queue is untouched")
+end
+
+-- 10. no answer from the host for 45 s
+do
+  local ms = runParty{"A", "B"}
+  local B = ms[2]
+  local res = recordResults(B)
+  check(B.ns.QUEUE.add(VID2) == true, "sent")
+  -- the host never answers: advance only B's clock
+  for _ = 1, 44 do B.mock.frame(1) end
+  check(#res == 0, "still waiting at 44 s")
+  for _ = 1, 3 do B.mock.frame(1) end
+  check(#res == 1 and res[1].ok == false and res[1].why == "no-answer", "party.addResult(false, no-answer)")
+  -- a late or unknown answer is ignored
+  B.mock.peerDeliver("A", {t = "addr", n = 1, ok = true})
+  B.mock.peerDeliver("A", {t = "addr", n = 99, ok = true})
+  B.mock.frame()
+  check(#res == 1, "answers for unknown requests are ignored")
+  -- and a second add inside a second is rate limited on the peer
+  local ok1 = B.ns.PARTY.requestAdd{u = VID3}
+  local ok2, why2 = B.ns.PARTY.requestAdd{u = VID3}
+  check(ok1 == true and ok2 == nil and why2 == "rate", "peer side rate limit")
+end
+
+-- 12. Steady queue edits do not freeze a member's mirror: "q" pages already going out are not replaced, so each
+-- version arrives whole; a pause ("st") overtakes the pages.
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  for k = 1, 150 do A.ns.QUEUE.add(string.format("https://youtu.be/v%010d", k)) end
+  step(ms, 600)
+  check(#A.ns.QUEUE.pages() >= 2 and B.ns.QUEUE.version() == A.ns.QUEUE.version(), "B has the multi-page queue")
+  local v0 = B.ns.QUEUE.version()
+  local extra
+  for k = 1, 24 do                        -- a change every 0.5 s for 12 s
+    if extra then
+      A.ns.QUEUE.remove(extra)
+      extra = nil
+    else
+      A.ns.QUEUE.add(string.format("https://youtu.be/w%010d", k))
+      extra = A.ns.QUEUE.items()[#A.ns.QUEUE.items()].id
+    end
+    step(ms, 30)
+  end
+  check(B.ns.QUEUE.version() > v0, "B's mirror took newer versions during the edits")
+  -- an edit, then a pause while its pages go out: the st does not wait behind them
+  A.mock.emit("melange.media", {type = "loaded", duration = 3000})
+  step(ms, 40)
+  A.ns.QUEUE.add("https://youtu.be/x0000000001")
+  step(ms, 25)                            -- the pages are queued (0.3 s debounce)
+  local e = A.ns.PARTY.hostState().e
+  A.ns.PARTY.togglePlay()
+  check(A.ns.PARTY.hostState().e > e, "the host paused")
+  local frames = 0
+  repeat
+    step(ms, 1)
+    frames = frames + 1
+  until B.ns.PARTY.hostState().e == A.ns.PARTY.hostState().e or frames > 300
+  check(frames <= 70 and A.ns.NET.holds("B", "^q%d"), "B has the pause within a second, before the pages: " .. frames)
+  step(ms, 600)
+  check(B.ns.QUEUE.version() == A.ns.QUEUE.version() and B.ns.QUEUE.count() == A.ns.QUEUE.count(), "caught up")
+  check(#B.mock.logsOf("error") == 0 and #A.mock.logsOf("error") == 0, "no errors")
+end
+
+-- 13. A member flooding "add" cannot grow the host's outbox: the answers stop while 16 wait, and "not-running" is
+-- rate limited like the rest.
+do
+  local ms = runLobby{"A", "B"}
+  local A = ms[1]
+  local worst, n = 0, 0
+  for _ = 1, 10 do                         -- 20 a second for 10 s
+    for _ = 1, 20 do
+      n = n + 1
+      A.mock.peerDeliver("B", {t = "add", n = n, u = VID2})
+    end
+    for _ = 1, 60 do
+      A.mock.frame()
+      worst = math.max(worst, A.ns.NET.pending("B", true))
+    end
+  end
+  check(worst <= 16, "the unkeyed backlog stays bounded: " .. worst)
+  local notRunning = 0
+  for _, r in ipairs(sentOf(A, "addr", "B")) do if r.tbl.why == "not-running" then notRunning = notRunning + 1 end end
+  check(notRunning >= 1 and notRunning <= 15, "not-running answers are rate limited: " .. notRunning)
+end
+
+-- 14. A member's adds a second apart are all accepted (the host's limit is below the member's pace), and one the host
+-- still refuses for the rate goes again once and is queued, not lost.
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  local res = recordResults(B)
+  B.ns.QUEUE.add(VID2)
+  step(ms, 62)                              -- 1.03 s: what the member's own pacing allows
+  B.ns.QUEUE.add(VID3)
+  step(ms, 30)
+  check(A.ns.QUEUE.count() == 3 and #res == 2 and res[1].ok == true and res[2].ok == true,
+    "two adds 1 s apart are both queued: " .. A.ns.QUEUE.count())
+  -- the host took another add of B's a moment before: this one is refused for the rate, sent again, and queued
+  step(ms, 100)
+  A.mock.peerDeliver("B", {t = "add", n = 900, u = "https://youtu.be/vid00000004"})
+  B.ns.QUEUE.add("https://youtu.be/vid00000005")
+  step(ms, 20)
+  check(#res == 2 and A.ns.QUEUE.count() == 4, "a rate refusal is not shown at once: " .. #res)
+  step(ms, 100)
+  check(A.ns.QUEUE.count() == 5 and #res == 3 and res[3].ok == true, "it was sent again and queued: " .. A.ns.QUEUE.count())
+  check(#sentOf(B, "add", "A") == 4, "one resend, no more")
+  -- a host that keeps answering "rate": one resend, then it is reported
+  local pend = #res
+  step(ms, 100)
+  check(B.ns.PARTY.requestAdd{u = "https://youtu.be/vid00000006"} == true, "sent")
+  for _ = 1, 3 do B.mock.frame() end
+  local n = #sentOf(B, "add", "A")
+  local nonce = sentOf(B, "add", "A")[n].tbl.n
+  check(n == 5 and nonce == 4, "the new add is out: " .. n .. " " .. tostring(nonce))
+  for _ = 1, 2 do
+    B.mock.peerDeliver("A", {t = "addr", n = nonce, ok = false, why = "rate"})
+    for _ = 1, 70 do B.mock.frame() end
+  end
+  check(#sentOf(B, "add", "A") == n + 1, "it went out once more")
+  check(#res == pend + 1 and res[#res].ok == false and res[#res].why == "rate", "the second refusal is reported")
+  check(#B.mock.logsOf("error") == 0 and #A.mock.logsOf("error") == 0, "no errors")
+end
+
+-- 15. A picked torrent file is not lost to the pause between adds, and a single-file torrent that cannot be sent
+-- says so.
+do
+  local ms = runParty{"A", "B"}
+  local B = ms[2]
+  local res = recordResults(B)
+  local pick
+  B.ns.U.on("queue.pick", function(token) pick = token end)
+  check(B.ns.QUEUE.add(MAGNET) == true, "magnet accepted locally")
+  B.mock.torrentFiles({{index = 0, path = "a.mkv", size = 5, video = true},
+    {index = 1, path = "dir/b.mkv", size = 9, video = true}})
+  check(pick ~= nil, "two videos: the picker")
+  check(B.ns.PARTY.requestAdd{u = VID2} == true, "an add just went out")
+  local ok, why = B.ns.QUEUE.pickFile(pick, 1)
+  check(ok == true and why == "sent", "the pick inside the pause is accepted: " .. tostring(why))
+  step(ms, 90)
+  check(ms[1].ns.QUEUE.count() == 3 and #res == 2 and res[2].ok == true, "and it reached the queue: " .. ms[1].ns.QUEUE.count())
+  -- a single-file torrent when the host cannot be reached
+  local ms2 = runParty{"A", "B"}
+  local B2 = ms2[2]
+  local res2 = recordResults(B2)
+  B2.ns.QUEUE.add(MAGNET)
+  B2.mock.setPeers({})                    -- the host goes away while the file list is read
+  B2.mock.torrentFiles({{index = 0, path = "only.mkv", size = 5, video = true}})
+  step(ms2, 5)
+  check(#res2 == 1 and res2[1].ok == false and res2[1].why == "no-host", "the failed single-file add is reported: " .. #res2)
+end
+
+-- 16. A member's removes: a burst goes in, a pace shows "rate", and nothing is asked of a host whose party ended.
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  for k = 2, 5 do B.ns.QUEUE.add("https://youtu.be/vid0000000" .. k); step(ms, 70) end
+  check(A.ns.QUEUE.count() == 5, "B added four")
+  local mine = {}
+  for _, it in ipairs(B.ns.QUEUE.items()) do if it.byId == "B" then mine[#mine + 1] = it.id end end
+  -- three removes reach the host together (a stalled frame): all three go in
+  for k = 1, 3 do A.mock.peerDeliver("B", {t = "rm", id = mine[k]}) end
+  step(ms, 5)
+  check(A.ns.QUEUE.count() == 2, "three removes at once: " .. A.ns.QUEUE.count())
+  step(ms, 120)
+  -- the member's own pace: a second remove inside 0.5 s says so
+  for k = 6, 7 do B.ns.QUEUE.add("https://youtu.be/vid0000000" .. k); step(ms, 70) end
+  local left = {}
+  for _, it in ipairs(B.ns.QUEUE.items()) do if it.byId == "B" then left[#left + 1] = it.id end end
+  check(#left == 3 and B.ns.PARTY.requestRemove(left[1]) == true, "first remove")
+  local ok, why = B.ns.PARTY.requestRemove(left[2])
+  check(ok == nil and why == "rate", "second remove inside 0.5 s: rate")
+  step(ms, 40)
+  check(B.ns.PARTY.requestRemove(left[2]) == true, "after the pause it goes in")
+  step(ms, 40)
+  check(A.ns.QUEUE.count() == 2, "both were removed: " .. A.ns.QUEUE.count())
+  -- the host's party ends: the item stays, and a remove says why instead of going nowhere
+  A.ns.QUEUE.add("https://youtu.be/vid00000009")
+  step(ms, 70)
+  B.ns.QUEUE.add("https://youtu.be/vid00000008")
+  step(ms, 70)
+  local before = #sentOf(B, "rm", "A")
+  A.ns.PARTY.stop()
+  step(ms, 70)
+  local item
+  for _, it in ipairs(B.ns.QUEUE.items()) do if it.byId == "B" then item = it end end
+  check(item ~= nil, "B still sees its item")
+  local ok2, why2 = B.ns.PARTY.requestRemove(item.id)
+  check(ok2 == nil and why2 == "not-running" and #sentOf(B, "rm", "A") == before, "no remove after the party: " .. tostring(why2))
+end
+
+-- 17. Members cannot keep the host's wum.media.resolve slots busy: two in flight for members, a playlist each, one
+-- video title at a time; the others wait (titles) or hear "host-busy" (playlists).
+do
+  local ms = runParty{"A", "B", "C"}
+  local A, B, C = ms[1], ms[2], ms[3]
+  local resB, resC = recordResults(B), recordResults(C)
+  local base = #A.mock.resolves
+  for k = 2, 7 do A.ns.QUEUE.addFor(A.wum.media.classify("https://youtu.be/vid0000000" .. k), {by = "NB", byId = "B"},
+    function() end) end
+  check(#A.mock.resolves - base == 1, "six videos: one title lookup at a time: " .. (#A.mock.resolves - base))
+  B.ns.QUEUE.add("https://www.youtube.com/playlist?list=PLb")
+  step(ms, 70)
+  check(#A.mock.resolves - base == 2, "a playlist takes the second member slot")
+  C.ns.QUEUE.add("https://www.youtube.com/playlist?list=PLc")
+  step(ms, 70)
+  check(#A.mock.resolves - base == 2 and #resC == 1 and resC[1].why == "host-busy",
+    "a third lookup is refused, leaving two of four slots to the host: " .. (#A.mock.resolves - base))
+  check(select(1, A.ns.QUEUE.add("https://www.youtube.com/playlist?list=PLhost")) == true
+    and #A.mock.resolves - base == 3, "the host's own lookup still goes")
+  -- the title lookups go on as slots free up
+  A.mock.resolveDone({items = {{url = "https://youtu.be/vid00000002", title = "Two", duration = 1}}}, base + 1)
+  step(ms, 70)
+  check(#A.mock.resolves - base >= 4, "the next title is looked up when one finishes")
+end
+
+-- 17b. The core refusing a member's playlist lookup ("busy": the host's own four lookups are running) is the host's
+-- busy state, not "too many torrents open"
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  local resB = recordResults(B)
+  local real = A.wum.media.resolve
+  A.wum.media.resolve = function() return nil, "busy" end
+  B.ns.QUEUE.add("https://www.youtube.com/playlist?list=PLb")
+  step(ms, 70)
+  A.wum.media.resolve = real
+  check(#resB == 1 and resB[1].ok == false and resB[1].why == "host-busy",
+    "the core's busy is host-busy: " .. tostring(resB[1] and resB[1].why))
+  B.ns.QUEUE.add("https://www.youtube.com/playlist?list=PLb2")
+  step(ms, 70)
+  check(#resB == 1, "the refused lookup freed its member slot: the next one goes")
+end
+
+-- 18. The stored last queue does not keep who added what: the next party's members are not these ones.
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  B.ns.QUEUE.add(VID2)
+  step(ms, 70)
+  check(A.ns.QUEUE.items()[2].byId == "B", "the live queue is attributed")
+  local last = A.ns.U.pref("lastQueue")
+  check(type(last) == "table" and #last.items == 2 and last.items[2].by == nil and last.items[2].byId == nil,
+    "the stored queue is not")
+  -- an older store that still has names is cleaned when it is restored
+  A.ns.PARTY.stop()
+  A.ns.QUEUE.clear()
+  A.ns.U.setPref("lastQueue", {items = {{kind = "yt", url = VID2, title = "x", duration = 0, by = "NB", byId = "B", id = 7}}})
+  check(A.ns.PARTY.restoreLastQueue() == true and A.ns.QUEUE.count() == 1, "restored")
+  local it = A.ns.QUEUE.items()[1]
+  check(it.by == nil and it.byId == nil, "without the old attribution")
+end
+
+local function hudTexts(m)
+  local out = {}
+  for _, c in ipairs(m.mock.drawOf("hudText")) do out[#out + 1] = tostring(c.args[3]) end
+  return table.concat(out, " ")
+end
+
+-- 19. A host that cannot be reached: the member cannot add (the panel and the Music header say so, instead of
+-- offering adds that fail).
+do
+  local ms = runParty{"A", "B"}
+  local B = ms[2]
+  check(B.ns.PARTY.canAdd(), "B can add")
+  B.mock.setPeers({})
+  check(not B.ns.PARTY.canAdd() and B.ns.PARTY.addWhyNot() == "no-host", "unreachable host: no-host")
+  check(select(2, B.ns.QUEUE.add(VID2)) == "no-host", "QUEUE.add says no-host")
+  B.mock.cursorSource = "frontend"
+  B.ns.PARTY.setSetup(true)
+  B.mock.frames(3)
+  local t = hudTexts(B)
+  check(t:find("cannot be reached now", 1, true) ~= nil and t:find("You can add videos", 1, true) == nil,
+    "the Videos header does not offer adding")
+  B.ns.SETUP.setTab("music")
+  B.mock.frames(3)
+  t = hudTexts(B)
+  check(t:find("hosts the music and cannot be reached now", 1, true) ~= nil and t:find("You can add songs", 1, true) == nil,
+    "the Music header does not offer adding")
+end
+
+-- 20. An add still waiting when this machine leaves the lobby is answered at once ("no-host"), not after 45 s.
+do
+  local ms = runParty{"A", "B"}
+  local B = ms[2]
+  local res = recordResults(B)
+  local function noAdds(_, _, tbl) return tbl.t ~= "add" end
+  check(B.ns.QUEUE.add(VID2) == true, "sent")
+  step(ms, 5, noAdds)
+  check(#res == 0, "no answer yet")
+  B.mock.setLobby(nil)
+  B.mock.frames(2)
+  check(#res == 1 and res[1].ok == false and res[1].why == "no-host", "answered when leaving: " .. tostring(res[1] and res[1].why))
+end
+
+-- 21. An add that could not leave the member's outbox for 45 s is reported "no-answer" and never sent after that.
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  local res = recordResults(B)
+  local real = B.mock.channel.send
+  B.mock.channel.send = function(self, id, tbl, so)
+    if tbl.t == "add" then return false, "rate" end
+    return real(self, id, tbl, so)
+  end
+  check(B.ns.QUEUE.add(VID2) == true, "sent")
+  step(ms, 46 * 60)
+  check(#res == 1 and res[1].why == "no-answer", "no-answer after 45 s")
+  B.mock.channel.send = real
+  step(ms, 120)
+  check(A.ns.QUEUE.count() == 1 and #sentOf(B, "add", "A") == 0, "the expired add never reached the host")
+end
+
+-- 22. A member's add the host still works on when the party ends, or when members' adds are turned off, is
+-- answered at once and adds nothing: a magnet waiting for its file list, a playlist being looked up.
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  B.mock.pack.state = "missing"
+  local res = recordResults(B)
+  B.ns.QUEUE.add(MAGNET)
+  step(ms, 5)
+  check(#A.mock.torrents == 1, "the host waits for the file list")
+  A.ns.PARTY.stop()
+  step(ms, 10)
+  check(#res == 1 and res[1].ok == false and res[1].why == "not-running", "the party ended: not-running at once: "
+    .. tostring(res[1] and res[1].why))
+  -- members' adds turned off while the file list comes
+  local ms2 = runParty{"A", "B"}
+  local A2, B2 = ms2[1], ms2[2]
+  B2.mock.pack.state = "missing"
+  local res2 = recordResults(B2)
+  B2.ns.QUEUE.add(MAGNET)
+  step(ms2, 5)
+  A2.wum.config.set("whoAdds", "host")
+  step(ms2, 40)
+  A2.mock.torrentFiles({{index = 0, path = "a.mkv", size = 5, video = true}})
+  step(ms2, 10)
+  check(#res2 == 1 and res2[1].why == "host-only" and A2.ns.QUEUE.count() == 1, "whoAdds host: refused, nothing added")
+  -- a playlist that resolves after the party ended
+  local ms3 = runParty{"A", "B"}
+  local A3, B3 = ms3[1], ms3[2]
+  local res3 = recordResults(B3)
+  B3.ns.QUEUE.add("https://www.youtube.com/playlist?list=PL123")
+  step(ms3, 5)
+  A3.ns.PARTY.stop()
+  step(ms3, 5)
+  A3.mock.resolveDone({items = {{url = "https://youtu.be/vid00000011", title = "One", duration = 10}}})
+  step(ms3, 10)
+  check(#res3 == 1 and res3[1].why == "not-running" and A3.ns.QUEUE.count() == 1, "a late playlist adds nothing: "
+    .. A3.ns.QUEUE.count())
+end
+
+-- 23. A member's playlist skips videos already in the queue (and repeats inside it).
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  local res = recordResults(B)
+  B.ns.QUEUE.add("https://www.youtube.com/playlist?list=PL123")
+  step(ms, 5)
+  A.mock.resolveDone({items = {{url = VID1, title = "Queued"}, {url = VID2, title = "New"},
+    {url = VID2, title = "New again"}}})
+  step(ms, 60)
+  check(A.ns.QUEUE.count() == 2 and A.ns.QUEUE.items()[2].title == "New", "only the new video: " .. A.ns.QUEUE.count())
+  check(#res == 1 and res[1].ok == true and res[1].c == 1, "c = 1")
+  B.ns.QUEUE.add("https://www.youtube.com/playlist?list=PL456")
+  step(ms, 70)
+  A.mock.resolveDone({items = {{url = VID1}, {url = VID2}}})
+  step(ms, 10)
+  check(#res == 2 and res[2].ok == false and res[2].why == "dup" and A.ns.QUEUE.count() == 2, "all queued: dup")
+end
+
+-- 24. The host answers an accepted add even while 16 refusals wait for the member (its item is in the queue).
+do
+  local ms = runParty{"A", "B"}
+  local A = ms[1]
+  local real = A.mock.channel.send
+  A.mock.channel.send = function(self, id, tbl, so)
+    if id == "B" then return false, "rate" end
+    return real(self, id, tbl, so)
+  end
+  for n = 1, 20 do A.mock.peerDeliver("B", {t = "add", n = n, u = VID2}) end
+  check(A.ns.NET.pending("B", true) == 16, "16 answers wait: " .. A.ns.NET.pending("B", true))
+  A.mock.frames(120)
+  A.mock.peerDeliver("B", {t = "add", n = 100, u = VID3})
+  check(A.ns.QUEUE.count() == 3, "the add went in")
+  A.mock.channel.send = real
+  step(ms, 300)
+  local r = addrOf(A, "B", 100)
+  check(r and r.ok == true, "and was answered")
+end
+
+-- 25. A member's picked torrent file that cannot be sent (the host not reachable) keeps the pick: it can go later.
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  local pick
+  B.ns.U.on("queue.pick", function(token) pick = token end)
+  check(B.ns.QUEUE.add(MAGNET) == true, "magnet accepted locally")
+  B.mock.torrentFiles({{index = 0, path = "a.mkv", size = 5, video = true},
+    {index = 1, path = "b.mkv", size = 9, video = true}})
+  B.mock.setPeers({})
+  local ok, why = B.ns.QUEUE.pickFile(pick, 1)
+  check(ok == nil and why == "no-host", "refused: no-host")
+  check(B.ns.QUEUE.pickOpen(pick) and not B.mock.torrents[1].closed, "the pick and its torrent stay")
+  B.mock.setPeers({"A"})
+  check(B.ns.QUEUE.pickFile(pick, 1) == true and not B.ns.QUEUE.pickOpen(pick), "sent once the host is back")
+  step(ms, 60)
+  check(A.ns.QUEUE.count() == 2 and A.ns.QUEUE.items()[2].file == 1, "and added")
 end
 
 -- music: a refused suppress (the audio hook not in yet) is retried until it takes

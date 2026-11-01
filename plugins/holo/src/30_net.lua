@@ -168,8 +168,13 @@ do
     return r, why
   end
 
+  -- Queue pages ("q1".., "mq1"..) are bulk: about one leaves per second. Every other message goes out before them.
+  local BULK = "^m?q%d"
+  local function bulk(key) return key ~= nil and key:find(BULK) ~= nil end
+
   -- Queues a reliable message to one member, paced per destination. A message with a key replaces a queued one with
-  -- the same key (a newer state supersedes an older one that has not left yet).
+  -- the same key (a newer state supersedes an older one that has not left yet). A message that is not a queue page
+  -- goes in before the queued pages, so a pause or a state never waits seconds behind a long queue.
   function NET.post(id, tbl, key)
     local box = outbox[id]
     if not box then
@@ -184,7 +189,26 @@ do
         end
       end
     end
-    box.list[#box.list + 1] = {tbl = tbl, key = key, bytes = sizeOf(tbl)}
+    local at = #box.list + 1
+    if not bulk(key) then
+      for i, m in ipairs(box.list) do
+        if bulk(m.key) then
+          at = i
+          break
+        end
+      end
+    end
+    table.insert(box.list, at, {tbl = tbl, key = key, bytes = sizeOf(tbl)})
+  end
+
+  -- True while a queued message to `id` has a key matching a Lua pattern (pages of a queue still going out).
+  function NET.holds(id, pattern)
+    local box = outbox[id]
+    if not box then return false end
+    for _, m in ipairs(box.list) do
+      if m.key and m.key:find(pattern) then return true end
+    end
+    return false
   end
 
   -- Drops the queued messages to `id` whose key matches a Lua pattern (an older queue's pages).
@@ -204,9 +228,16 @@ do
     return #peers
   end
 
-  function NET.pending(id)
+  -- How many messages wait for `id`; with unkeyed, only those without a key (replies, which nothing replaces).
+  function NET.pending(id, unkeyed)
     local box = outbox[id]
-    return box and #box.list or 0
+    if not box then return 0 end
+    if not unkeyed then return #box.list end
+    local n = 0
+    for _, m in ipairs(box.list) do
+      if m.key == nil then n = n + 1 end
+    end
+    return n
   end
 
   local function drain()

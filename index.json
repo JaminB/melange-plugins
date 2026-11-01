@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 48,
+  "serial": 49,
   "plugins": [
     {
       "id": "bloodsand",
@@ -288,7 +288,7 @@
       "authors": [
         "Melange"
       ],
-      "description": "Client-side watch parties: the lobby host plays YouTube videos and playlists or magnet links in a themed in-game player, synced for every player with Holo. Game music pauses while the party runs. Needs Melange 0.12 and its media pack (downloaded on first use).",
+      "description": "Client-side watch parties: the lobby host plays YouTube videos, playlists or magnet links in a themed in-game player, synced for every player with Holo, and anyone in the party can add to the queue. With Melange 0.13, link Spotify to play songs from your library for the party, each listener on their own Premium account. Game music pauses meanwhile. Needs Melange 0.12 and its media pack.",
       "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/holo",
       "licence": "MIT",
       "categories": [

@@ -240,6 +240,17 @@ do
   check(regions(A)["pui.speed#5"], "speed list")
   clickRegion(A, "pui.speed#5")
   check(A.ns.PARTY.hostState().r == 1.5 and p._st.speed == 1.5, "speed 1.5 for everyone")
+  -- "Music" in the "..." list opens the panel on the Music tab (Holo 1.1)
+  A.mock.cursorPos = {(vx0 + vx1) / 2, (vy0 + vy1) / 2 + 1}
+  A.mock.frames(6, 0.03)
+  clickRegion(A, "pui.more")
+  A.mock.frame()
+  check(regions(A)["pui.more#7"], "more popover has a seventh item")
+  clickRegion(A, "pui.more#7")
+  A.mock.frame()
+  check(A.ns.PARTY.setupOpen() and A.ns.SETUP.tab() == "music", "Music opens the Music tab")
+  A.ns.PARTY.setSetup(false)
+  A.ns.SETUP.setTab("videos")
   local ok, e = errorsOf(A)
   check(ok, "no errors: " .. tostring(e))
 end

@@ -130,6 +130,7 @@ do
       {label = "Audio track", value = "audio"},
       {label = "Quality: " .. PARTY.quality() .. "p", value = "quality"},
       {label = "Queue and players", value = "setup"},
+      {label = "Music", value = "music"},
       {label = "Minimise", value = "pill"},
       {label = "Hide", value = "hide"},
     }
@@ -137,6 +138,9 @@ do
       if v == "prev" then PARTY.prev()
       elseif v == "next" then PARTY.next()
       elseif v == "setup" then PARTY.setSetup(true)
+      elseif v == "music" then
+        PARTY.setSetup(true)
+        SETUP.setTab("music")
       elseif v == "pill" then LAYOUT.setView("pill")
       elseif v == "hide" then LAYOUT.setView("hidden")
       elseif openers[v] then openers[v](x0, y0, x1, y1, "pui.more") end
