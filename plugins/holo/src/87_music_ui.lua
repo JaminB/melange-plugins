@@ -310,16 +310,18 @@ do
       elseif st.state == "connected" then
         SKIN.text(ix0, y, "Spotify: " .. (st.user ~= "" and st.user or "linked"), 16 * s, C.cream, {maxWidth = iw})
         y = y + 22 * s
-        local free = not st.premium or MUSIC.notPremium()
-        y = lines(free and "Free account: you see what plays but cannot play it here" or "Premium", ix0, y, 13 * s,
-          free and C.warn or C.offText, iw, 2)
+        local free = st.premium == false or MUSIC.notPremium()
+        local kind = free and "Free account: you see what plays but cannot play it here"
+          or (st.premium == true and "Premium" or "Premium or Free: Spotify tells at the first song played")
+        y = lines(kind, ix0, y, 13 * s, free and C.warn or C.offText, iw, 2)
         local pb = MUSIC.playback()
         local dev = pb and pb.active and pb.device and pb.device.name
         local devText = (dev and dev ~= "") and ("Device: " .. dev) or "No device: open Spotify on this PC or your phone"
         if MUSIC.lastError() == "no-device" then devText = "No device: open Spotify on this PC or your phone" end
         y = lines(devText, ix0, y + 2 * s, 13 * s, C.offText, iw, 2)
         if MUSIC.detached() then
-          y = lines("You changed the music in Spotify; Holo stopped following.", ix0, y + 2 * s, 13 * s, C.warn, iw, 2)
+          y = lines("You changed the music in Spotify; Holo stopped following until the host's next song. "
+            .. "To keep your own music, use Mute here.", ix0, y + 2 * s, 13 * s, C.warn, iw, 3)
           if W.button("music.follow", ix0, y + 2 * s, ix0 + 160 * s, y + 38 * s, "Follow again", {size = 14 * s}) then
             MUSIC.followAgain()
           end
@@ -528,9 +530,9 @@ do
       if dev and dev ~= "" then return (it.artists ~= "" and (it.artists .. " · ") or "") .. "on " .. dev end
       return it.artists
     end
-    if not SPOT.premium() or MUSIC.notPremium() then return "Free account: playing needs Premium" end
+    if SPOT.free() or MUSIC.notPremium() then return "Free account: playing needs Premium" end
     if not MUSIC.listening() then return "Muted here" end
-    if MUSIC.detached() then return "Not following: you changed the music in Spotify" end
+    if MUSIC.detached() then return "Not following until the next song: you changed the music in Spotify" end
     if MUSIC.lastError() == "no-device" then return "No device: open Spotify on this PC or your phone" end
     return "Not following"
   end

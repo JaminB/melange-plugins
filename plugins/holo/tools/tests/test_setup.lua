@@ -341,6 +341,70 @@ do
   check(#A.mock.logsOf("error") == 0 and #B.mock.logsOf("error") == 0, "no errors")
 end
 
+-- 6b. The panel opens on Videos whatever tab it was closed on; a member's remove after the host's party ended says
+-- so; the host's failures read as the host's.
+do
+  local A, B = machine("A"), machine("B")
+  local ms = {A, B}
+  lobby(ms, "A")
+  step(ms)
+  connect(ms)
+  step(ms, 6)
+  A.ns.QUEUE.add(VID1)
+  check(A.ns.PARTY.start() == true, "party started")
+  step(ms, 10)
+  -- the Music chip / menu opens the Music tab; F6 afterwards must show the queue again
+  B.ns.PARTY.setSetup(true)
+  B.ns.SETUP.setTab("music")
+  B.ns.PARTY.setSetup(false)
+  step(ms, 2)
+  B.mock.hotkey("F6")
+  step(ms, 2)
+  check(B.ns.PARTY.setupOpen() and B.ns.SETUP.tab() == "videos" and regions(B)["setup.link"] ~= nil,
+    "F6 shows Videos after a visit to Music: " .. B.ns.SETUP.tab())
+  B.ns.PARTY.setSetup(false)
+  B.ns.PARTY.setSetup(true)
+  B.ns.SETUP.setTab("music")
+  step(ms, 2)
+  check(B.ns.SETUP.tab() == "music" and regions(B)["setup.link"] == nil, "the Music entry still opens Music")
+  B.ns.SETUP.setTab("videos")
+  -- host-side reasons are worded for the host's machine
+  for _, why in ipairs{"busy", "first-use-in-match", "pack"} do
+    B.ns.U.emit("party.addResult", false, why)
+    local msg = B.ns.SETUP.status()
+    check(msg:find("host", 1, true) ~= nil and not msg:find("^Download") and not msg:find("^Add the first")
+      and not msg:find("^Too many"), why .. " is the host's to fix: " .. msg)
+  end
+  -- a member's item; the host's party ends; the remove button says why
+  B.ns.SETUP.linkState().text = "https://youtu.be/vid00000002"
+  step(ms, 2)
+  clickRegion(B, "setup.add")
+  step(ms, 60)
+  local mine = B.ns.QUEUE.items()[2]
+  check(mine and mine.byId == "B", "B has an item")
+  -- an add that fails before QUEUE.add returns (a cached single-file torrent) keeps its own message
+  local realAdd = B.ns.QUEUE.add
+  B.ns.QUEUE.add = function() B.ns.U.emit("party.addResult", false, "no-host"); return true end
+  B.ns.SETUP.linkState().text = MAGNET
+  B.ns.SETUP.submit()
+  B.ns.QUEUE.add = realAdd
+  check(select(1, B.ns.SETUP.status()) == "The host is not reachable", "the failure is not overwritten: "
+    .. tostring(B.ns.SETUP.status()))
+  A.ns.PARTY.stop()
+  step(ms, 70)
+  B.ns.PARTY.setSetup(true)
+  step(ms, 2)
+  local rm0 = 0
+  for _, r in ipairs(B.mock.peerSent) do if r.tbl.t == "rm" then rm0 = rm0 + 1 end end
+  clickRegion(B, "setup.rm." .. mine.id)
+  step(ms, 5)
+  local rm1 = 0
+  for _, r in ipairs(B.mock.peerSent) do if r.tbl.t == "rm" then rm1 = rm1 + 1 end end
+  local msg, kind = B.ns.SETUP.status()
+  check(rm1 == rm0 and kind == "error" and msg:find("ended", 1, true), "the remove explains itself: " .. tostring(msg))
+  check(#A.mock.logsOf("error") == 0 and #B.mock.logsOf("error") == 0, "no errors")
+end
+
 -- 5. in a match: the panel brings the pointer, and closes when the pointer goes
 do
   local A = machine("A")

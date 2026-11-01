@@ -7,8 +7,8 @@ or later the party can also play Spotify music: each listener hears it on their 
 
 ## Using it
 
-- **F6** opens the watch party panel: paste a link and press Enter, reorder or remove queue items, then Start. Peers see
-  the panel read-only.
+- **F6** opens the watch party panel on its **Videos** tab: paste a link and press Enter, reorder or remove queue items,
+  then Start. Peers see the panel read-only.
 - Between your turns the player is a small corner window. During other players' turns (online) it grows to half the
   screen. It hides while you aim and fire (setting), and **F9** hides or shows it.
 - The mouse is the game's in a match. Press **F7** (or open the panel) to move the mouse to the player; Esc or a click
@@ -17,8 +17,10 @@ or later the party can also play Spotify music: each listener hears it on their 
 - The host controls play, pause, seek and speed for everyone; **Ctrl+Shift+P** plays or pauses. Everyone controls their
   own volume, mute, subtitles and audio track.
 - While the host's party is running, any member can paste a YouTube link, playlist or magnet link in the setup panel to
-  add it to the queue (it shows who added it) and can remove the items they added; the host can turn this off with the
-  "Who can add to the queue" setting.
+  add it to the queue (it shows who added it) and can remove the items they added while the party runs; the host can
+  turn this off with the "Who can add to the queue" setting. An add the host's Holo asks to slow down is sent again once,
+  and when the host's Holo cannot add a link (too many torrents open, no media pack) the panel says it is the host's to fix.
+  The queue stored for "Restore last queue" does not keep who added what.
 - Hotkeys, side, size, quality, volume and music silencing are in the plugin's settings.
 
 ## Spotify music (optional, Melange 0.13+)
@@ -45,8 +47,10 @@ Then click **Link Spotify** in the Music tab and allow access in your browser.
 The music keeps playing when you hide (F9) or minimise the player, close the panel, a video ends or the video party
 ends. It stops when the host presses Stop music, when the music queue ends, when you leave the lobby or when the host
 leaves. **Mute here** (or the "Play the party's music on my Spotify" setting) stops it on your Spotify only. If you pick
-something else in Spotify, Holo stops following until you press **Follow again**. While a party video plays the host's
-music pauses (setting "Spotify music while a video plays"), and the game music stays silent while party music plays.
+something else in Spotify (or pause it there), Holo stops following until you press **Follow again** or the host's next
+song starts, which plays on your Spotify again. To keep your own music for longer, use **Mute here**. While a party
+video plays the host's music pauses (setting "Spotify music while a video plays"), and the game music stays silent while
+party music plays.
 
 ## What gets downloaded, and from where
 

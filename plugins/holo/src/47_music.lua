@@ -16,14 +16,18 @@ do
   local ADD_CHUNK = 20
   local HEARTBEAT = 5000             -- host: unreliable "ms" while playing
   local MQ_DEBOUNCE = 300
-  local MADD_ACCEPT, MRM_ACCEPT, MNEED_ACCEPT = 500, 500, 5000   -- host, per member
+  local MADD_EVERY, MADD_BURST = 400, 3   -- host, per member: a "madd" token per 0.4 s, at most 3 saved
+  local MRM_ACCEPT, MNEED_ACCEPT = 500, 5000                       -- host, per member
+  local REPLY_BACKLOG = 16           -- host: no more "maddr" to a member while this many unkeyed messages wait for it
+  local RATE_TRIES = 5               -- peer: a chunk the host refused for the rate is sent again this many times
   local ADD_TOAST_EVERY = 3000
   local NEED_EVERY = 3000            -- peer: "mneed" at most this often
   local ADD_EVERY = 1000             -- peer: one MUSIC.add per second
-  local CHUNK_EVERY = 600            -- peer: one "madd" chunk per 0.6 s (the host takes one per 0.5 s)
+  local CHUNK_EVERY = 600            -- peer: one "madd" chunk per 0.6 s (the host takes one per 0.4 s, 3 at once)
   local ADD_WAIT = 45000
   local POLL_PLAY, POLL_PAUSE = 3000, 10000
   local DRIFT_MAX, SEEK_HOLD = 1500, 8000
+  local RELINK_DURATION = 2000       -- ms: a relinked song (another id, in step) is this close in length
   local OVERRIDE_GRACE = 4000        -- ms after Holo's own action before a different playback counts as the user's
   local END_SLACK = 250
   local RESUME_AFTER = 1000          -- host: the video must be off this long before auto-paused music resumes
@@ -92,16 +96,19 @@ do
     return st.p
   end
 
+  -- This machine's clock to the host's (ms), or nil before the peer bus has a clock sample of the host: the two
+  -- clocks are unrelated until then, so nothing plays or seeks by them.
   local function hostOffset()
     if NET.isHost() then return 0 end
     local c = NET.clock(NET.hostId())
-    return c and U.num(c.offset) or 0
+    return c and U.num(c.offset) or nil
   end
 
-  -- The current position in ms, inside the current item.
+  -- The current position in ms, inside the current item (the state's own position until the host's clock is known).
   function MUSIC.position()
     local it = MUSIC.current()
-    local p = MUSIC.pos(ms, hostOffset())
+    local off = hostOffset()
+    local p = off and MUSIC.pos(ms, off) or ms.p
     if it then p = math.min(p, it.durationMs) end
     return math.max(0, p)
   end
@@ -231,11 +238,30 @@ do
     return a.a >= b.a
   end
 
+  -- A member whose Holo has the music lane (it said hi as 1.1 or later, or sent a music message); Holo 1.0.x
+  -- ignores "mq", so it never gets the pages.
+  local function musicPeer(id)
+    local m = members[id]
+    return m ~= nil and m.music == true
+  end
+
+  -- Posts the queue pages to `id` (asked: mneed, hi) or to every music member whose copy is older. A member whose
+  -- outbox still holds pages gets them first: replacing them with a newer version would restart its download, and
+  -- steady edits would then never let one finish. The queue stays dirty and goes out once those pages left.
   local function sendQueue(id)
-    if id then NET.drop(id, "^mq%d") else for _, p in ipairs(NET.peers()) do NET.drop(p, "^mq%d") end end
-    for _, page in ipairs(MUSIC.pages()) do
-      if id then NET.post(id, page, "mq" .. page.page) else NET.postAll(page, "mq" .. page.page) end
+    local pages, wait = nil, false
+    for _, p in ipairs(id and {id} or NET.peers()) do
+      if musicPeer(p) and (id or members[p].mv ~= mv) then
+        if NET.holds(p, "^mq%d") then
+          if members[p].mv ~= mv then wait = true end
+        else
+          pages = pages or MUSIC.pages()
+          for _, page in ipairs(pages) do NET.post(p, page, "mq" .. page.page) end
+          members[p].mv = mv
+        end
+      end
     end
+    if wait then dirtyAt = dirtyAt or U.now() end
   end
 
   local function sendAll(id)
@@ -254,8 +280,9 @@ do
   function MUSIC.playback() return lastPb end
   function MUSIC.owned() return owned end
 
+  -- An account not known as Free (Premium, or not known yet: Melange learns it from the first play) follows.
   local function following()
-    return SPOT.premium() and not notPremium and listenPref() and not detached and MUSIC.current() ~= nil
+    return SPOT.mayPlay() and not notPremium and listenPref() and not detached and MUSIC.current() ~= nil
   end
   MUSIC.following = following
 
@@ -302,15 +329,30 @@ do
   end
 
   local function playNow(it)
-    local target = MUSIC.pos(ms, hostOffset()) + SPOT.latency()
+    local off = hostOffset()
+    if not off then                                               -- no clock sample yet: the tick tries again
+      issued = nil
+      return
+    end
+    local target = MUSIC.pos(ms, off) + SPOT.latency()
     if target >= it.durationMs - END_SLACK then return end      -- it is about to end: the next state plays the next
     local e, uri, now = ms.e, it.uri, U.now()
     issued = {e = e, uri = uri}
     owned = {uri = uri, e = e, at = now, playing = true}
     wantPause = nil                                               -- playing again: an older pause is moot
     lastSeek, lastAction = now, now
+    -- still the play this machine wants: Stop, Mute, leaving, a new song or a takeover cancel it
+    local function wanted() return issued ~= nil and issued.e == e and issued.uri == uri and following() end
     local rid, why = SPOT.playTrack(uri, math.max(0, math.floor(target)), function(res)
+      if res.error == "cancelled" then return end
       if not res.error then
+        if not wanted() then
+          -- stopped while the play was on its way (Stop, Mute, leaving): pause it unless something newer plays
+          if owned == nil and not detached then SPOT.pause() end
+          return
+        end
+        -- Holo's track: owned again in case a poll in between (no device yet) dropped it
+        owned = {uri = uri, e = e, at = U.now(), playing = true}
         lastError = nil
         if playTry and playTry.e == e then playTry = nil end
         changed()
@@ -333,7 +375,7 @@ do
       end
       lastError = res.error
       changed()
-    end)
+    end, wanted)
     if not rid then
       owned = nil
       lastError = why
@@ -343,6 +385,12 @@ do
 
   -- React to the state: a new epoch plays, pauses or stops this machine's device.
   local function onState()
+    -- no song (Clear, or the playing song removed): what Holo started stops, followed or not
+    if MUSIC.current() == nil and ms.s ~= "play" and owned then
+      issued = {e = ms.e}
+      release()
+      return
+    end
     if not following() then return end
     local it = MUSIC.current()
     if ms.s == "play" and it then
@@ -392,27 +440,38 @@ do
     end
     local at = U.num(res.at) or U.now()
     lastPb = {active = res.active == true, playing = res.playing == true, uri = res.uri, at = at,
-      positionMs = U.num(res.positionMs) or 0,
+      positionMs = U.num(res.positionMs) or 0, durationMs = U.num(res.durationMs),
+      linkedFrom = MUSIC.validUri(res.linkedFrom) and res.linkedFrom or nil,
       device = type(res.device) == "table" and {name = U.trim(res.device.name, 40)} or nil}
     if not following() or not owned or ms.s ~= "play" then return end
     if lastPb.at < owned.at then return end
     local now = U.now()
     if not lastPb.active then
+      -- Holo's own play may still be on its way (a device being woken or picked): not yet
+      if now - lastAction <= OVERRIDE_GRACE then return end
       -- the device went away: show the device hint; the next epoch (or Listen) tries again
       owned, lastError = nil, "no-device"
       changed()
       return
     end
-    local want = MUSIC.pos(ms, hostOffset())
+    local off = hostOffset()
     local it = MUSIC.current()
+    if not off or not it then return end
+    local want = MUSIC.pos(ms, off)
     -- around the end of a song the device stops (or moves on) before the host's next state arrives: not the user
-    if not it or want >= it.durationMs - 5000 then return end
+    if want >= it.durationMs - 5000 then return end
+    local drift = (lastPb.positionMs + (now - lastPb.at)) - want
+    -- Spotify relinked the song for this account's country: the same song under another id. Melange reports what
+    -- was asked for (linkedFrom); without it (an older Melange), a song in step and of the same length is taken.
+    if lastPb.uri ~= owned.uri and lastPb.playing and MUSIC.validUri(lastPb.uri) then
+      local sameLength = lastPb.durationMs and math.abs(lastPb.durationMs - it.durationMs) <= RELINK_DURATION
+      if lastPb.linkedFrom == owned.uri or (sameLength and math.abs(drift) <= DRIFT_MAX) then owned.uri = lastPb.uri end
+    end
     if lastPb.uri ~= owned.uri or not lastPb.playing then
       if now - lastAction > OVERRIDE_GRACE then setDetached() end
       return
     end
     lastError = nil
-    local drift = (lastPb.positionMs + (now - lastPb.at)) - want
     if math.abs(drift) > DRIFT_MAX and now - lastSeek > SEEK_HOLD then
       lastSeek, lastAction = now, now
       SPOT.seek(math.floor(want + SPOT.latency()))
@@ -574,10 +633,12 @@ do
   end
 
   local function removeAt(i)
-    local it = table.remove(items, i)
+    local it, nxt = items[i], items[i + 1]
+    -- the playing song goes and none follows: stop it while every listener still knows it
+    if it.id == ms.i and ms.s ~= "stop" and not nxt then setMs("stop", ms.i, 0) end
+    table.remove(items, i)
     queueChanged()
     if it.id == ms.i then
-      local nxt = items[i]
       if nxt and ms.s ~= "stop" then
         setMs(ms.s == "pause" and "pause" or "play", nxt.id, 0)
       else
@@ -611,9 +672,10 @@ do
     local ok, why = hostOnly()
     if not ok then return nil, why end
     if #items == 0 then return true end
+    if ms.s ~= "stop" then setMs("stop", ms.i, 0) end            -- stopped while every listener still knows the song
     items = {}
     queueChanged()
-    if ms.s ~= "stop" or ms.i ~= 0 then setMs("stop", 0, 0) end
+    if ms.i ~= 0 then setMs("stop", 0, 0) end
     return true
   end
 
@@ -659,7 +721,7 @@ do
     for i = 1, #wire, ADD_CHUNK do
       local chunk = {}
       for j = i, math.min(#wire, i + ADD_CHUNK - 1) do chunk[#chunk + 1] = wire[j] end
-      chunks[#chunks + 1] = chunk
+      chunks[#chunks + 1] = {items = chunk, tries = 0}
     end
     return true, "sent"
   end
@@ -677,23 +739,37 @@ do
   local function member(id)
     local m = members[id]
     if not m then
-      m = {addAt = -1e9, rmAt = -1e9, needAt = -1e9, toastAt = -1e9}
+      m = {addAt = U.now(), addTokens = MADD_BURST, rmAt = -1e9, needAt = -1e9, toastAt = -1e9}
       members[id] = m
     end
     return m
   end
 
+  -- Host: one "madd" token per MADD_EVERY, up to MADD_BURST saved, so chunks that arrive together (a resent packet,
+  -- a slow frame) still go in. false: refused for the rate.
+  local function takeAdd(mi, now)
+    mi.addTokens = math.min(MADD_BURST, mi.addTokens + (now - mi.addAt) / MADD_EVERY)
+    mi.addAt = now
+    if mi.addTokens < 1 then return false end
+    mi.addTokens = mi.addTokens - 1
+    return true
+  end
+
   local function fromMember(from, m)
     local t = m.t
     local now = U.now()
+    if t == "madd" or t == "mrm" or t == "mneed" then member(from).music = true end   -- it runs the music lane
     if t == "madd" then
       local n = m.n
       if math.type(n) ~= "integer" or n < 1 or n > 2147483647 then return end
-      local function reply(ok, why, c) NET.post(from, {t = "maddr", n = n, ok = ok, why = why, c = c}) end
+      -- answers carry no key, so nothing replaces them: a member that floods gets no more once some wait for it
+      local function reply(ok, why, c)
+        if NET.pending(from, true) >= REPLY_BACKLOG then return end
+        NET.post(from, {t = "maddr", n = n, ok = ok, why = why, c = c})
+      end
       local mi = member(from)
+      if not takeAdd(mi, now) then return reply(false, "rate") end
       if CFG.get("whoAdds") ~= "anyone" then return reply(false, "host-only") end
-      if now - mi.addAt < MADD_ACCEPT then return reply(false, "rate") end
-      mi.addAt = now
       if type(m.items) ~= "table" or #m.items < 1 then return reply(false, "invalid") end
       if #m.items > ADD_CHUNK then return reply(false, "too-many") end
       local clean, bad = {}, 0
@@ -753,6 +829,13 @@ do
       local p = pendingAdds[m.n]
       if not p then return end
       pendingAdds[m.n] = nil
+      if m.ok ~= true and m.why == "rate" and p.chunk and p.chunk.tries < RATE_TRIES then
+        -- the host took chunks too close together: this one goes again, first, after the usual wait
+        p.chunk.tries = p.chunk.tries + 1
+        table.insert(chunks, 1, p.chunk)
+        lastChunk = U.now()
+        return
+      end
       U.emit("music.addResult", m.ok == true, type(m.why) == "string" and U.trim(m.why, 24) or nil,
         math.type(m.c) == "integer" and m.c or nil)
     end
@@ -771,8 +854,19 @@ do
     if not (NET.isHost() and NET.inSession()) then return end
     if #items > 0 or ms.s ~= "stop" then sendAll(id) end
   end
-  U.on("party.memberHi", greet)
+  -- True for a Holo version string of 1.1 or later (the music lane).
+  function MUSIC.hasLane(holo)
+    local a, b = tostring(holo):match("^(%d+)%.(%d+)")
+    a, b = tonumber(a), tonumber(b)
+    return a ~= nil and (a > 1 or (a == 1 and b >= 1))
+  end
+  U.on("party.memberHi", function(id, holo)
+    if not (NET.isHost() and NET.inSession()) then return end
+    member(id).music = MUSIC.hasLane(holo)
+    greet(id)
+  end)
   U.on("net.peer", function(id, up)
+    if not up and members[id] then members[id].mv = nil end   -- its outbox is gone: the next send is in full
     if up and NET.isHost() then greet(id) end
   end)
 
@@ -850,7 +944,7 @@ do
   end)
 
   U.on("spot.status", function()
-    if not SPOT.connected() then notPremium = false end
+    if not SPOT.connected() or SPOT.premium() then notPremium = false end
     changed()
   end)
 
@@ -910,8 +1004,9 @@ do
       lastChunk = now
       local n = nextAddN
       nextAddN = nextAddN + 1
-      pendingAdds[n] = {at = now}
-      NET.post(host, {t = "madd", n = n, items = table.remove(chunks, 1)}, "madd" .. n)
+      local chunk = table.remove(chunks, 1)
+      pendingAdds[n] = {at = now, chunk = chunk}
+      NET.post(host, {t = "madd", n = n, items = chunk.items}, "madd" .. n)
     end
     for n, p in pairs(pendingAdds) do
       if now - p.at >= ADD_WAIT then

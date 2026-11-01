@@ -270,6 +270,57 @@ do
   check(WHY["old-melange"]:find("0.13.0", 1, true) ~= nil, "old-melange names the version")
 end
 
+-- 7. premium is true (Premium), false (Free) or nil (not known: Melange learns it from a play and says so).
+do
+  local m = machine(true)
+  local SPOT = m.ns.SPOT
+  m.fs.premiumUnknown = true
+  m.fs.link(true, "Bee")
+  m.mock.frame()
+  local st = SPOT.status()
+  check(st.state == "connected" and st.premium == nil, "not known: nil, not false")
+  check(not SPOT.premium() and not SPOT.free() and SPOT.mayPlay(), "not Premium, not Free, may play")
+  local seen = 0
+  m.ns.U.on("spot.status", function() seen = seen + 1 end)
+  local res
+  SPOT.playTrack(FS.uri(3), 0, function(r) res = r end)
+  m.mock.frames(10)
+  check(res and res.ok == true and SPOT.premium() and seen == 1, "a play went through: Premium (one status event)")
+  m.fs.setStatus{premium = false}
+  m.mock.frame()
+  check(SPOT.free() and not SPOT.mayPlay() and SPOT.status().premium == false, "known Free")
+  m.fs.setStatus{state = "disconnected", linked = false}
+  m.mock.frame()
+  check(not SPOT.free() and not SPOT.mayPlay() and not SPOT.premium(), "disconnected: none of them")
+end
+
+-- 8. playTrack's fallback is cancelled when wanted() turns false: no device listing, or no second play.
+do
+  local m = machine(true)
+  local SPOT = m.ns.SPOT
+  m.fs.link(true)
+  m.mock.frame()
+  m.fs.devices = {{id = "pc", name = "PC", type = "Computer", active = false, restricted = false}}
+  local want, res = true, nil
+  m.fs.manual = true
+  SPOT.playTrack(FS.uri(4), 0, function(r) res = r end, function() return want end)
+  m.fs.answerNow(1)                        -- no-device: the devices are listed
+  check(#m.fs.callsOf("devices") == 1, "the devices are being listed")
+  want = false                             -- Stop, Mute or leaving in between
+  m.fs.answerNow(2)
+  check(res and res.error == "cancelled" and #m.fs.callsOf("play") == 1, "cancelled: no second play")
+  -- cancelled before the listing
+  res = nil
+  SPOT.playTrack(FS.uri(4), 0, function(r) res = r end, function() return false end)
+  m.fs.answerNow(3)
+  check(res and res.error == "cancelled" and #m.fs.callsOf("devices") == 1, "cancelled: no device listing")
+  -- still wanted: the fallback plays
+  res = nil
+  SPOT.playTrack(FS.uri(4), 0, function(r) res = r end, function() return true end)
+  for i = 4, 6 do if m.fs.calls[i] then m.fs.answerNow(i) end end
+  check(res and res.ok == true and #m.fs.callsOf("play") == 4, "wanted: played on the listed device")
+end
+
 if fails > 0 then
   io.stderr:write(fails .. " check(s) failed\n")
   os.exit(1)

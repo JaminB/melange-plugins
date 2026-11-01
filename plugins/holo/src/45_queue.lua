@@ -15,11 +15,16 @@ do
   local HOST_WAITS = 2               -- host: members' magnets waiting for a file list at once (one torrent slot stays)
   QUEUE.MEMBER_MAX = MEMBER_MAX
 
+  local MEMBER_RESOLVES = 2          -- host: members' wum.media.resolve calls in flight at once (the core allows 4)
+  local MEMBER_WAIT_MAX = 50         -- host: video titles waiting for a free resolve
+
   local items, cur, qv, nextId = {}, nil, 0, 1
   local picks, nextToken = {}, 1
   local torrents = {}                -- canonical magnet -> {t = handle, files = list|nil, waiting = {fn...}}
   local partial = nil                -- the peer's pages being assembled: {qv, pages, got = {page -> items}, n, cur}
   local hostWaits = {}               -- host: magnet url -> {at, fns} while members' adds wait for the file list
+  local resolving, resolvingN, titleBusy = {}, 0, false   -- host: byId -> playlist lookups, their total, a title
+  local titleWait = {}               -- host: {url, byId} of members' videos waiting for a title lookup
 
   local function changed()
     qv = qv + 1
@@ -188,7 +193,7 @@ do
         if p.forHost then
           -- A member's pick: the host adds it. The local torrent was only for the file list.
           local title = baseName(f.path)
-          local ok, why = PARTY.requestAdd{u = p.url, f = index, ti = title}
+          local ok, why = PARTY.requestAdd({u = p.url, f = index, ti = title}, true)   -- a pick is not lost to the pause
           if PARTY.currentUrl() ~= p.url then QUEUE.closeTorrent(p.url) end
           if ok then U.emit("party.addSent", title) end
           return ok, why
@@ -254,7 +259,9 @@ do
     end
     p.files, p.name = vids, U.trim(e.name or p.name, TITLE)
     if #vids == 1 then
-      QUEUE.pickFile(token, vids[1].index)
+      -- no picker to say so: a refused add (a member's request to the host that cannot go out) is reported here
+      local ok, why = QUEUE.pickFile(token, vids[1].index)
+      if not ok then U.emit("party.addResult", false, why) end
     else
       U.emit("queue.pick", token, vids, p.name)
     end
@@ -333,6 +340,35 @@ do
     return ok and type(pk) == "table" and pk.state == "ready"
   end
 
+  -- A member's wum.media.resolve, so members cannot keep the host's own slots busy (the core allows 4 in flight):
+  -- at most MEMBER_RESOLVES in all, one playlist per member, and one video title at a time (titles can wait).
+  -- Returns the request id, or nil, "host-busy" (or the reason resolve gave).
+  local function memberResolve(byId, url, fn, title)
+    if resolvingN >= MEMBER_RESOLVES or (title and titleBusy) or (not title and resolving[byId]) then
+      return nil, "host-busy"
+    end
+    local function release()
+      if title then titleBusy = false else resolving[byId] = nil end
+      resolvingN = resolvingN - 1
+    end
+    if title then titleBusy = true else resolving[byId] = true end
+    resolvingN = resolvingN + 1
+    local id, why = wum.media.resolve(url, U.guard("queue.resolve", function(res)
+      release()
+      fn(res)
+    end))
+    if not id then
+      release()
+      if why == "busy" then why = "host-busy" end            -- the core's lookups are all in use (the host's own)
+    end
+    return id, why
+  end
+
+  local function lookUpTitle(byId, url)
+    local id = memberResolve(byId, url, function(res) fillTitle(url, res) end, true)
+    if not id and #titleWait < MEMBER_WAIT_MAX then titleWait[#titleWait + 1] = {url = url, byId = byId} end
+  end
+
   -- Host: adds a classified link for a member (bypasses canEdit, never the checks). attrib = {by, byId, f, ti}.
   -- done(ok, why, count, title) is called exactly once (possibly later: playlist, title-less torrent).
   function QUEUE.addFor(c, attrib, done)
@@ -399,13 +435,10 @@ do
       local it = append{kind = "yt", url = c.url, title = "YouTube video", duration = 0, untitled = true,
         live = c.live or nil, by = by, byId = byId}
       changed()
-      local url = it.url
-      wum.media.resolve(url, U.guard("queue.title", function(res) fillTitle(url, res) end))
+      lookUpTitle(byId, it.url)
       return done(true, nil, 1, "YouTube video")
     end
-    local id, why = wum.media.resolve(c.url, U.guard("queue.playlist", function(res)
-      addPlaylist(res, mine, room, done)
-    end))
+    local id, why = memberResolve(byId, c.url, function(res) addPlaylist(res, mine, room, done) end)
     if not id then return done(false, why) end
   end
 
@@ -518,16 +551,23 @@ do
 
   ---------------------------------------------------------------- snapshots (resume) and wire pages
 
-  function QUEUE.snapshot() return {items = U.copy(items), cur = cur} end
+  -- anon: without who added each item (the stored last queue: the next party's members are not these ones).
+  function QUEUE.snapshot(anon)
+    local snap = {items = U.copy(items), cur = cur}
+    if anon then
+      for _, it in ipairs(snap.items) do it.by, it.byId = nil, nil end
+    end
+    return snap
+  end
 
   -- Loads a snapshot as this machine's own queue (a new host continuing, or the stored last queue). Items are
   -- checked again like wire items and get new ids; returns the new id of the snapshot's current item.
-  function QUEUE.load(snap)
+  function QUEUE.load(snap, anon)
     items, cur = {}, nil
     local newCur
     for _, it in ipairs(type(snap) == "table" and type(snap.items) == "table" and snap.items or {}) do
       local w = QUEUE.checkWire({id = 1, k = it.kind, u = it.url, f = it.file, ti = it.title, d = it.duration,
-        b = it.by, bi = it.byId})
+        b = not anon and it.by or nil, bi = not anon and it.byId or nil})
       if w then
         local n = append(w)
         if not n then break end
@@ -652,6 +692,12 @@ do
 
   -- Host: members' magnets whose file list did not come in time are refused ("torrent-slow") and their torrent closed.
   wum.timers.every(1, U.guard("queue.waits", function()
+    for i = #titleWait, 1, -1 do        -- titles that waited for a free resolve slot
+      local w = titleWait[i]
+      if not QUEUE.has(w.url, nil) or memberResolve(w.byId, w.url, function(res) fillTitle(w.url, res) end, true) then
+        table.remove(titleWait, i)
+      end
+    end
     local now, late = U.now(), {}
     for url, w in pairs(hostWaits) do
       if now - w.at >= HOST_WAIT then late[#late + 1] = url end

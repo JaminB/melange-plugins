@@ -58,7 +58,9 @@ do
   end
 
   -- Cleans a status table (wum.spotify.status() or the melange.spotify event) into {state, user, premium, linked,
-  -- error, why}; state "unavailable" (why = the available() reason) when Spotify cannot be used here.
+  -- error, why}; state "unavailable" (why = the available() reason) when Spotify cannot be used here. premium is
+  -- true (Premium), false (Free) or nil (not known yet: Melange learns it from the first play; apps in Spotify's
+  -- Development mode are no longer told the account type at sign-in).
   local function clean(t)
     local ok, why = SPOT.available()
     if not ok then return {state = "unavailable", why = why, linked = false, premium = false} end
@@ -66,7 +68,7 @@ do
     local out = {state = t.state, linked = t.linked == true, premium = false}
     if t.state == "connected" then
       out.user = U.trim(t.user, 40)
-      out.premium = t.premium == true
+      if t.premium == true or t.premium == false then out.premium = t.premium else out.premium = nil end
       out.linked = true
     elseif t.state == "error" then
       out.error = type(t.error) == "string" and U.trim(t.error, 24) or "exchange"
@@ -97,7 +99,10 @@ do
 
   function SPOT.status() return status end
   function SPOT.connected() return status.state == "connected" end
+  -- Known Premium / known Free; an account that is neither is not known yet (it may play: the play tells).
   function SPOT.premium() return status.state == "connected" and status.premium == true end
+  function SPOT.free() return status.state == "connected" and status.premium == false end
+  function SPOT.mayPlay() return status.state == "connected" and status.premium ~= false end
   function SPOT.latency() return lat end
   function SPOT.inflight() return npending end
 
@@ -190,17 +195,20 @@ do
   end
 
   -- Plays a track at positionMs on the remembered device (pref spotifyDevice), or the active one. "no-device" (or a
-  -- remembered device that is gone) lists the devices, picks one (SPOT.pickDevice), remembers it and retries once.
+  -- remembered device that is gone) lists the devices, picks one (SPOT.pickDevice), remembers it and retries once,
+  -- unless wanted() (optional) is false by then: cb then gets {error = "cancelled"} and nothing more is sent.
   -- Returns the first request id, or nil and a reason; cb gets the final result.
-  function SPOT.playTrack(uri, positionMs, cb)
+  function SPOT.playTrack(uri, positionMs, cb, wanted)
     cb = cb or noop
     local pos = math.max(0, math.floor(positionMs or 0))
     local pref = U.pref("spotifyDevice")
     if type(pref) ~= "string" or pref == "" then pref = nil end
     return SPOT.call("play", {uri = uri, positionMs = pos, deviceId = pref}, function(res)
       if not (res.error == "no-device" or (res.error == "not-found" and pref)) then return cb(res) end
+      if wanted and not wanted() then return cb({error = "cancelled"}) end
       if pref then U.setPref("spotifyDevice", nil) end
       local rid, why = SPOT.devices(function(d)
+        if wanted and not wanted() then return cb({error = "cancelled"}) end
         if d.error then return cb(d) end
         local dev = SPOT.pickDevice(d.items)
         if not dev then return cb({error = "no-device"}) end

@@ -746,6 +746,235 @@ do
   check(ok1 == true and ok2 == nil and why2 == "rate", "peer side rate limit")
 end
 
+-- 12. Steady queue edits do not freeze a member's mirror: "q" pages already going out are not replaced, so each
+-- version arrives whole; a pause ("st") overtakes the pages.
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  for k = 1, 150 do A.ns.QUEUE.add(string.format("https://youtu.be/v%010d", k)) end
+  step(ms, 600)
+  check(#A.ns.QUEUE.pages() >= 2 and B.ns.QUEUE.version() == A.ns.QUEUE.version(), "B has the multi-page queue")
+  local v0 = B.ns.QUEUE.version()
+  local extra
+  for k = 1, 24 do                        -- a change every 0.5 s for 12 s
+    if extra then
+      A.ns.QUEUE.remove(extra)
+      extra = nil
+    else
+      A.ns.QUEUE.add(string.format("https://youtu.be/w%010d", k))
+      extra = A.ns.QUEUE.items()[#A.ns.QUEUE.items()].id
+    end
+    step(ms, 30)
+  end
+  check(B.ns.QUEUE.version() > v0, "B's mirror took newer versions during the edits")
+  -- an edit, then a pause while its pages go out: the st does not wait behind them
+  A.mock.emit("melange.media", {type = "loaded", duration = 3000})
+  step(ms, 40)
+  A.ns.QUEUE.add("https://youtu.be/x0000000001")
+  step(ms, 25)                            -- the pages are queued (0.3 s debounce)
+  local e = A.ns.PARTY.hostState().e
+  A.ns.PARTY.togglePlay()
+  check(A.ns.PARTY.hostState().e > e, "the host paused")
+  local frames = 0
+  repeat
+    step(ms, 1)
+    frames = frames + 1
+  until B.ns.PARTY.hostState().e == A.ns.PARTY.hostState().e or frames > 300
+  check(frames <= 70 and A.ns.NET.holds("B", "^q%d"), "B has the pause within a second, before the pages: " .. frames)
+  step(ms, 600)
+  check(B.ns.QUEUE.version() == A.ns.QUEUE.version() and B.ns.QUEUE.count() == A.ns.QUEUE.count(), "caught up")
+  check(#B.mock.logsOf("error") == 0 and #A.mock.logsOf("error") == 0, "no errors")
+end
+
+-- 13. A member flooding "add" cannot grow the host's outbox: the answers stop while 16 wait, and "not-running" is
+-- rate limited like the rest.
+do
+  local ms = runLobby{"A", "B"}
+  local A = ms[1]
+  local worst, n = 0, 0
+  for _ = 1, 10 do                         -- 20 a second for 10 s
+    for _ = 1, 20 do
+      n = n + 1
+      A.mock.peerDeliver("B", {t = "add", n = n, u = VID2})
+    end
+    for _ = 1, 60 do
+      A.mock.frame()
+      worst = math.max(worst, A.ns.NET.pending("B", true))
+    end
+  end
+  check(worst <= 16, "the unkeyed backlog stays bounded: " .. worst)
+  local notRunning = 0
+  for _, r in ipairs(sentOf(A, "addr", "B")) do if r.tbl.why == "not-running" then notRunning = notRunning + 1 end end
+  check(notRunning >= 1 and notRunning <= 15, "not-running answers are rate limited: " .. notRunning)
+end
+
+-- 14. A member's adds a second apart are all accepted (the host's limit is below the member's pace), and one the host
+-- still refuses for the rate goes again once and is queued, not lost.
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  local res = recordResults(B)
+  B.ns.QUEUE.add(VID2)
+  step(ms, 62)                              -- 1.03 s: what the member's own pacing allows
+  B.ns.QUEUE.add(VID3)
+  step(ms, 30)
+  check(A.ns.QUEUE.count() == 3 and #res == 2 and res[1].ok == true and res[2].ok == true,
+    "two adds 1 s apart are both queued: " .. A.ns.QUEUE.count())
+  -- the host took another add of B's a moment before: this one is refused for the rate, sent again, and queued
+  step(ms, 100)
+  A.mock.peerDeliver("B", {t = "add", n = 900, u = "https://youtu.be/vid00000004"})
+  B.ns.QUEUE.add("https://youtu.be/vid00000005")
+  step(ms, 20)
+  check(#res == 2 and A.ns.QUEUE.count() == 4, "a rate refusal is not shown at once: " .. #res)
+  step(ms, 100)
+  check(A.ns.QUEUE.count() == 5 and #res == 3 and res[3].ok == true, "it was sent again and queued: " .. A.ns.QUEUE.count())
+  check(#sentOf(B, "add", "A") == 4, "one resend, no more")
+  -- a host that keeps answering "rate": one resend, then it is reported
+  local pend = #res
+  step(ms, 100)
+  check(B.ns.PARTY.requestAdd{u = "https://youtu.be/vid00000006"} == true, "sent")
+  for _ = 1, 3 do B.mock.frame() end
+  local n = #sentOf(B, "add", "A")
+  local nonce = sentOf(B, "add", "A")[n].tbl.n
+  check(n == 5 and nonce == 4, "the new add is out: " .. n .. " " .. tostring(nonce))
+  for _ = 1, 2 do
+    B.mock.peerDeliver("A", {t = "addr", n = nonce, ok = false, why = "rate"})
+    for _ = 1, 70 do B.mock.frame() end
+  end
+  check(#sentOf(B, "add", "A") == n + 1, "it went out once more")
+  check(#res == pend + 1 and res[#res].ok == false and res[#res].why == "rate", "the second refusal is reported")
+  check(#B.mock.logsOf("error") == 0 and #A.mock.logsOf("error") == 0, "no errors")
+end
+
+-- 15. A picked torrent file is not lost to the pause between adds, and a single-file torrent that cannot be sent
+-- says so.
+do
+  local ms = runParty{"A", "B"}
+  local B = ms[2]
+  local res = recordResults(B)
+  local pick
+  B.ns.U.on("queue.pick", function(token) pick = token end)
+  check(B.ns.QUEUE.add(MAGNET) == true, "magnet accepted locally")
+  B.mock.torrentFiles({{index = 0, path = "a.mkv", size = 5, video = true},
+    {index = 1, path = "dir/b.mkv", size = 9, video = true}})
+  check(pick ~= nil, "two videos: the picker")
+  check(B.ns.PARTY.requestAdd{u = VID2} == true, "an add just went out")
+  local ok, why = B.ns.QUEUE.pickFile(pick, 1)
+  check(ok == true and why == "sent", "the pick inside the pause is accepted: " .. tostring(why))
+  step(ms, 90)
+  check(ms[1].ns.QUEUE.count() == 3 and #res == 2 and res[2].ok == true, "and it reached the queue: " .. ms[1].ns.QUEUE.count())
+  -- a single-file torrent when the host cannot be reached
+  local ms2 = runParty{"A", "B"}
+  local B2 = ms2[2]
+  local res2 = recordResults(B2)
+  B2.mock.setPeers({})
+  B2.ns.QUEUE.add(MAGNET)
+  B2.mock.torrentFiles({{index = 0, path = "only.mkv", size = 5, video = true}})
+  step(ms2, 5)
+  check(#res2 == 1 and res2[1].ok == false and res2[1].why == "no-host", "the failed single-file add is reported: " .. #res2)
+end
+
+-- 16. A member's removes: a burst goes in, a pace shows "rate", and nothing is asked of a host whose party ended.
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  for k = 2, 5 do B.ns.QUEUE.add("https://youtu.be/vid0000000" .. k); step(ms, 70) end
+  check(A.ns.QUEUE.count() == 5, "B added four")
+  local mine = {}
+  for _, it in ipairs(B.ns.QUEUE.items()) do if it.byId == "B" then mine[#mine + 1] = it.id end end
+  -- three removes reach the host together (a stalled frame): all three go in
+  for k = 1, 3 do A.mock.peerDeliver("B", {t = "rm", id = mine[k]}) end
+  step(ms, 5)
+  check(A.ns.QUEUE.count() == 2, "three removes at once: " .. A.ns.QUEUE.count())
+  step(ms, 120)
+  -- the member's own pace: a second remove inside 0.5 s says so
+  for k = 6, 7 do B.ns.QUEUE.add("https://youtu.be/vid0000000" .. k); step(ms, 70) end
+  local left = {}
+  for _, it in ipairs(B.ns.QUEUE.items()) do if it.byId == "B" then left[#left + 1] = it.id end end
+  check(#left == 3 and B.ns.PARTY.requestRemove(left[1]) == true, "first remove")
+  local ok, why = B.ns.PARTY.requestRemove(left[2])
+  check(ok == nil and why == "rate", "second remove inside 0.5 s: rate")
+  step(ms, 40)
+  check(B.ns.PARTY.requestRemove(left[2]) == true, "after the pause it goes in")
+  step(ms, 40)
+  check(A.ns.QUEUE.count() == 2, "both were removed: " .. A.ns.QUEUE.count())
+  -- the host's party ends: the item stays, and a remove says why instead of going nowhere
+  A.ns.QUEUE.add("https://youtu.be/vid00000009")
+  step(ms, 70)
+  B.ns.QUEUE.add("https://youtu.be/vid00000008")
+  step(ms, 70)
+  local before = #sentOf(B, "rm", "A")
+  A.ns.PARTY.stop()
+  step(ms, 70)
+  local item
+  for _, it in ipairs(B.ns.QUEUE.items()) do if it.byId == "B" then item = it end end
+  check(item ~= nil, "B still sees its item")
+  local ok2, why2 = B.ns.PARTY.requestRemove(item.id)
+  check(ok2 == nil and why2 == "not-running" and #sentOf(B, "rm", "A") == before, "no remove after the party: " .. tostring(why2))
+end
+
+-- 17. Members cannot keep the host's wum.media.resolve slots busy: two in flight for members, a playlist each, one
+-- video title at a time; the others wait (titles) or hear "host-busy" (playlists).
+do
+  local ms = runParty{"A", "B", "C"}
+  local A, B, C = ms[1], ms[2], ms[3]
+  local resB, resC = recordResults(B), recordResults(C)
+  local base = #A.mock.resolves
+  for k = 2, 7 do A.ns.QUEUE.addFor(A.wum.media.classify("https://youtu.be/vid0000000" .. k), {by = "NB", byId = "B"},
+    function() end) end
+  check(#A.mock.resolves - base == 1, "six videos: one title lookup at a time: " .. (#A.mock.resolves - base))
+  B.ns.QUEUE.add("https://www.youtube.com/playlist?list=PLb")
+  step(ms, 70)
+  check(#A.mock.resolves - base == 2, "a playlist takes the second member slot")
+  C.ns.QUEUE.add("https://www.youtube.com/playlist?list=PLc")
+  step(ms, 70)
+  check(#A.mock.resolves - base == 2 and #resC == 1 and resC[1].why == "host-busy",
+    "a third lookup is refused, leaving two of four slots to the host: " .. (#A.mock.resolves - base))
+  check(select(1, A.ns.QUEUE.add("https://www.youtube.com/playlist?list=PLhost")) == true
+    and #A.mock.resolves - base == 3, "the host's own lookup still goes")
+  -- the title lookups go on as slots free up
+  A.mock.resolveDone({items = {{url = "https://youtu.be/vid00000002", title = "Two", duration = 1}}}, base + 1)
+  step(ms, 70)
+  check(#A.mock.resolves - base >= 4, "the next title is looked up when one finishes")
+end
+
+-- 17b. The core refusing a member's playlist lookup ("busy": the host's own four lookups are running) is the host's
+-- busy state, not "too many torrents open"
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  local resB = recordResults(B)
+  local real = A.wum.media.resolve
+  A.wum.media.resolve = function() return nil, "busy" end
+  B.ns.QUEUE.add("https://www.youtube.com/playlist?list=PLb")
+  step(ms, 70)
+  A.wum.media.resolve = real
+  check(#resB == 1 and resB[1].ok == false and resB[1].why == "host-busy",
+    "the core's busy is host-busy: " .. tostring(resB[1] and resB[1].why))
+  B.ns.QUEUE.add("https://www.youtube.com/playlist?list=PLb2")
+  step(ms, 70)
+  check(#resB == 1, "the refused lookup freed its member slot: the next one goes")
+end
+
+-- 18. The stored last queue does not keep who added what: the next party's members are not these ones.
+do
+  local ms = runParty{"A", "B"}
+  local A, B = ms[1], ms[2]
+  B.ns.QUEUE.add(VID2)
+  step(ms, 70)
+  check(A.ns.QUEUE.items()[2].byId == "B", "the live queue is attributed")
+  local last = A.ns.U.pref("lastQueue")
+  check(type(last) == "table" and #last.items == 2 and last.items[2].by == nil and last.items[2].byId == nil,
+    "the stored queue is not")
+  -- an older store that still has names is cleaned when it is restored
+  A.ns.PARTY.stop()
+  A.ns.QUEUE.clear()
+  A.ns.U.setPref("lastQueue", {items = {{kind = "yt", url = VID2, title = "x", duration = 0, by = "NB", byId = "B", id = 7}}})
+  check(A.ns.PARTY.restoreLastQueue() == true and A.ns.QUEUE.count() == 1, "restored")
+  local it = A.ns.QUEUE.items()[1]
+  check(it.by == nil and it.byId == nil, "without the old attribution")
+end
+
 -- music: a refused suppress (the audio hook not in yet) is retried until it takes
 do
   local M = machine("M")

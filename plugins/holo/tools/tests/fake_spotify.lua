@@ -14,8 +14,11 @@
 --   (fs.delay seconds, default 0.05), never inside the call.
 --   A simulated Spotify Connect device answers by default: play starts the track on the given or active device (not
 --   Premium -> "premium", no device -> "no-device", an unknown deviceId -> "not-found"), pause/seek/resume act on it
---   and playback reports it ({active, playing, uri, positionMs, at, device}). Tests steer it through the fields
---   below.
+--   and playback reports it ({active, playing, uri, positionMs, at, device}, and linkedFrom for a relinked track).
+--   Tests steer it through the fields below.
+--   premium in the status is true, false or nil (not known: a Development-mode app is not told at sign-in). Like
+--   Melange, the fake learns it from the answers to control requests (play, pause, resume, seek, volume): one that
+--   went through -> true, "premium" -> false, each change queued as a "melange.spotify" status event.
 --
 -- The returned fs:
 --   calls                     every request {i, name, args (copied, no function), fn, rid, answered, res}
@@ -27,6 +30,9 @@
 --   setStatus(t)              changes the status fields and queues "melange.spotify" (delivered at the next frame)
 --   link(premium, user)       a finished sign-in: connected, linked, premium, user; queues the event
 --   account                   {user, premium}: who a sign-in (or a grant of a linked account) connects as
+--   premiumUnknown = true     sign-ins report premium = nil (the account type is learnt from the first control call)
+--   relink[uri] = uri2        Spotify relinks a track for this account's market: plays uri2, reports linkedFrom = uri
+--   noLinkedFrom = true       an older Melange: playback never reports linkedFrom
 --   gesture(on)               pretend a click happened (or clear it)
 --   why                       set to make available() return false, why
 --   connectWhy                makes connect() return nil, connectWhy (e.g. "port-busy")
@@ -51,7 +57,9 @@ end
 
 function FS.install(wum, mock, opts)
   opts = opts or {}
+  local CONTROL = {play = true, pause = true, resume = true, seek = true, volume = true}
   local fs = {calls = {}, respond = {}, delay = opts.delay or 0.05, manual = opts.manual == true, why = opts.why,
+    relink = {}, premiumUnknown = false, noLinkedFrom = false,
     connectWhy = nil, connects = 0, gestureUntil = -1, player = nil, library = {}, nextRid = 0,
     account = {user = "Listener", premium = true},
     status = {state = "disconnected", linked = false},
@@ -73,9 +81,21 @@ function FS.install(wum, mock, opts)
     event()
   end
 
+  local function shownPremium()
+    if fs.premiumUnknown then return nil end
+    return fs.account.premium
+  end
+
   function fs.link(premium, user)
     fs.account = {user = user or fs.account.user, premium = premium ~= false}
-    fs.setStatus{state = "connected", linked = true, premium = fs.account.premium, user = fs.account.user}
+    fs.status.premium = nil
+    fs.setStatus{state = "connected", linked = true, user = fs.account.user, premium = shownPremium()}
+  end
+
+  -- Premium as Spotify sees it: the status when known, else the account's.
+  local function isPremium()
+    if fs.status.premium ~= nil then return fs.status.premium == true end
+    return fs.account.premium == true
   end
 
   function fs.gesture(on) fs.gestureUntil = on and mock.now + 2 or -1 end
@@ -123,7 +143,7 @@ function FS.install(wum, mock, opts)
   local SIM = {}
   function SIM.play(c)
     local o = c.args[1]
-    if fs.status.premium ~= true then return {error = "premium", message = "Premium required"} end
+    if not isPremium() then return {error = "premium", message = "Premium required"} end
     local dev
     if o.deviceId then
       dev = findDevice(o.deviceId)
@@ -133,7 +153,9 @@ function FS.install(wum, mock, opts)
       if not dev then return {error = "no-device", message = "No active device"} end
     end
     for _, d in ipairs(fs.devices) do d.active = d == dev end
-    fs.player = {uri = o.uri or (o.uris and o.uris[1]) or o.context, pos = o.positionMs or 0, at = nowMs(),
+    local uri = o.uri or (o.uris and o.uris[1]) or o.context
+    local linked = fs.relink[uri]
+    fs.player = {uri = linked or uri, linkedFrom = linked and uri or nil, pos = o.positionMs or 0, at = nowMs(),
       playing = true, device = dev}
     return {ok = true}
   end
@@ -164,7 +186,7 @@ function FS.install(wum, mock, opts)
     if not p or not d then return {active = false} end
     return {active = true, playing = p.playing, uri = p.uri, name = "Song", artists = "Artist", durationMs = 600000,
       positionMs = math.floor(position()), at = nowMs(), device = {id = d.id, name = d.name, type = d.type,
-      volume = d.volume}}
+      volume = d.volume}, linkedFrom = not fs.noLinkedFrom and p.linkedFrom or nil}
   end
   function SIM.devices() return {items = deepcopy(fs.devices)} end
   function SIM.library(c)
@@ -180,7 +202,10 @@ function FS.install(wum, mock, opts)
       skipped = 0}
   end
 
-  function fs.default(c) return SIM[c.name](c) end
+  function fs.default(c)
+    if CONTROL[c.name] and not isPremium() then return {error = "premium", message = "Premium required"} end
+    return SIM[c.name](c)
+  end
 
   function fs.answerNow(i, res)
     local c = fs.calls[i]
@@ -194,6 +219,12 @@ function FS.install(wum, mock, opts)
       if res == nil then res = fs.default(c) end
     end
     c.res = deepcopy(res)
+    -- Melange learns the account type from control results and tells the mods when it changed
+    if CONTROL[c.name] and fs.status.state == "connected" then
+      local learnt
+      if res.error == nil then learnt = true elseif res.error == "premium" then learnt = false end
+      if learnt ~= nil and fs.status.premium ~= learnt then fs.setStatus{premium = learnt} end
+    end
     if c.fn then c.fn(deepcopy(res)) end
   end
 

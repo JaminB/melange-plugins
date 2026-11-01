@@ -188,6 +188,37 @@ do
   check(NET.postAll({t = "all"}) == 1, "postAll count")
 end
 
+-- 5b. queue pages are bulk: a control message ("st", "ms", a reply) goes out before pages already queued, in the
+-- order the control messages were posted; holds() sees pages still waiting; pending(id, true) counts unkeyed ones
+do
+  local _, mock, ns = loadHolo()
+  local NET = ns.NET
+  mock.setLobby(LOBBY)
+  mock.frame()
+  mock.setPeers({"B"})
+  mock.frames(70)
+  local base = #mock.peerSent
+  for i = 1, 4 do NET.post("B", {t = "mq", page = i, blob = string.rep("z", 6900)}, "mq" .. i) end
+  for i = 1, 2 do NET.post("B", {t = "q", page = i, blob = string.rep("z", 6900)}, "q" .. i) end
+  check(NET.holds("B", "^mq%d") and NET.holds("B", "^q%d") and not NET.holds("C", "^mq%d"), "holds pages")
+  NET.post("B", {t = "ms", e = 1}, "ms")
+  NET.post("B", {t = "maddr", n = 1})
+  NET.post("B", {t = "st", e = 1}, "st")
+  check(NET.pending("B") == 9 and NET.pending("B", true) == 1, "pending: all 9, unkeyed 1")
+  mock.frame()
+  local got = {}
+  for i = base + 1, #mock.peerSent do got[#got + 1] = mock.peerSent[i].tbl.t end
+  check(table.concat(got, ",") == "ms,maddr,st", "control messages first, in order: " .. table.concat(got, ","))
+  mock.frames(70)
+  check(#mock.peerSent - base == 4 and mock.peerSent[base + 4].tbl.t == "mq", "then one page a second")
+  -- a control message posted later still overtakes the pages left
+  NET.post("B", {t = "st", e = 2}, "st")
+  mock.frames(65)
+  check(mock.peerSent[base + 5].tbl.t == "st" and mock.peerSent[base + 5].tbl.e == 2, "st before the next page")
+  mock.frames(400)
+  check(not NET.holds("B", "^m?q%d") and NET.pending("B") == 0, "all pages left")
+end
+
 -- 6. sizeOf is an over-estimate of the payload, so a page under 7000 fits the 8 KB reliable cap
 do
   local _, _, ns = loadHolo()

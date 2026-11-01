@@ -43,9 +43,11 @@ do
     end
   end)
 
-  -- The user took over the music in Spotify: Holo stopped following and offers to follow again.
+  -- The user took over the music in Spotify: Holo stopped following (until the host's next song) and offers to follow
+  -- again now.
   U.on("music.detached", function()
-    toast{id = "music", text = "You changed the music in Spotify; Holo stopped following", kind = "info", life = 10000,
+    toast{id = "music", text = "You changed the music in Spotify; Holo follows again at the host's next song "
+      .. "(Mute here keeps your own music)", kind = "info", life = 10000,
       actions = {{"Follow again", function() MUSIC.followAgain() end}}}
   end)
 

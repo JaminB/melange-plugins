@@ -42,15 +42,30 @@ do
     ["no-video"] = "No video file in this torrent",
     torrent = "The host could not read this torrent",
     ["torrent-slow"] = "The host found no file list for this torrent in time",
-    ["host-busy"] = "The host is reading other torrents; try again in a minute",
+    ["host-busy"] = "The host is busy with other adds; try again in a minute",
     private = "That playlist is private",
     ytdlp = "The host has not got yt-dlp yet; try again soon",
     playlist = "Could not list that playlist",
     helper = "The host's video player could not start",
   }
+  -- The same reasons when the host's Holo answered a member's add: the fix is on the host's machine.
+  local HOST_WHY = {
+    busy = "The host's Holo has too many torrents open; try again in a minute",
+    ["first-use-in-match"] = "The host has to add a first torrent in the menus or the lobby before others can",
+    pack = "The host has not downloaded the media pack yet",
+  }
+  -- Why a member's remove was not sent.
+  local RM_WHY = {
+    rate = "Wait a moment before removing again",
+    ["not-running"] = "The host's party has ended; only the host changes the queue now",
+    ["old-host"] = "The host's Holo is older than 1.1; ask them to update",
+    ["no-host"] = "The host is not reachable",
+  }
 
+  local said = 0                         -- counts say() calls
   local function say(text, kind)
     status, statusKind, statusAt = text, kind or "info", U.now()
+    said = said + 1
   end
 
   function SETUP.status() return status, statusKind end
@@ -82,7 +97,7 @@ do
     if ok then
       say(c and c > 1 and ("Added " .. c .. " videos") or ("Added " .. (ti or "it")), "info")
     else
-      say(ADD_WHY[why] or "The host could not add that", "error")
+      say(HOST_WHY[why] or ADD_WHY[why] or "The host could not add that", "error")
     end
   end)
 
@@ -115,11 +130,13 @@ do
   local function submit()
     local text = link.text
     if text:match("^%s*$") then return end
+    local before = said
     local ok, why = QUEUE.add(text)
     if ok then
       link.text, link.caret, link.anchor, link.scroll = "", 0, nil, 0
       local c = lastClass
-      if why == "sent" then say("Sent to " .. PARTY.hostName() .. "...", "info")
+      if said ~= before then                -- it failed at once (an open torrent with one file): that says why
+      elseif why == "sent" then say("Sent to " .. PARTY.hostName() .. "...", "info")
       elseif c and c.kind == "magnet" then say("Reading the torrent's file list...", "info")
       elseif c and c.playlist and not c.id then say("Listing the playlist...", "info")
       elseif not QUEUE.haveYtdlp() then say("Added; YouTube plays once Melange has downloaded yt-dlp", "warn")
@@ -196,7 +213,7 @@ do
         right = right - bs
         if W.iconButton("setup.rm." .. it.id, "cross", right, ry0 + (rowH - bs) / 2, bs) then
           local ok, why = PARTY.requestRemove(it.id)
-          if not ok then say(ADD_WHY[why] or "Could not remove that", "error") end
+          if not ok then say(RM_WHY[why] or ADD_WHY[why] or "Could not remove that", "error") end
         end
         W.active = was
         right = right - 8 * s
@@ -546,6 +563,15 @@ do
     if picks[1] then picker(x0, y0, x1, y1, s)
     elseif MUI.libOpen() then MUI.drawLibrary(x0, y0, x1, y1, s) end
   end
+
+  -- The panel opens on the Videos tab (F6, "Queue and players"); the Music chip and menu entry switch to Music right
+  -- after opening it. A tab left on Music would hide the queue, link box and players for good.
+  local wasOpen = false
+  U.on("party.changed", function()
+    local open = PARTY.setupOpen()
+    if open and not wasOpen then SETUP.setTab("videos") end
+    wasOpen = open
+  end)
 
   -- A closed panel cancels its open pickers, so their torrents do not stay open.
   U.on("party.changed", function()

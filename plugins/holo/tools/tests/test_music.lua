@@ -441,16 +441,16 @@ do
   check(r.ok == true and r.c == 1 and r.why == "dup", "duplicate skipped")
   r = madd({wire(1)})
   check(r.ok == false and r.why == "dup", "only a duplicate")
-  -- rate: two at once
-  n = n + 1
-  A.mock.peerDeliver("B", {t = "madd", n = n, items = {wire(10)}})
-  n = n + 1
-  A.mock.peerDeliver("B", {t = "madd", n = n, items = {wire(11)}})
+  -- rate: a token per 0.4 s, 3 saved: three at once go in, a fourth is refused
+  for k = 10, 13 do
+    n = n + 1
+    A.mock.peerDeliver("B", {t = "madd", n = n, items = {wire(k)}})
+  end
   A.mock.frame()
   local rs = sentOf(A, "maddr", "B")
-  check(rs[#rs].tbl.why == "rate" and rs[#rs - 1].tbl.ok == true, "one madd per 500 ms")
-  A.mock.frames(40)
-  -- the member cap: B has 4, so 46 more fit
+  check(rs[#rs].tbl.why == "rate" and rs[#rs - 1].tbl.ok == true and rs[#rs - 3].tbl.ok == true, "3 at once, not 4")
+  A.mock.frames(80)
+  -- the member cap: B has 6, so 44 more fit
   for k = 0, 1 do
     local list = {}
     for j = 1, 20 do list[j] = wire(100 + k * 20 + j) end
@@ -460,7 +460,7 @@ do
   local list = {}
   for j = 1, 20 do list[j] = wire(200 + j) end
   r = madd(list)
-  check(r.ok == true and r.c == 6 and r.why == "member-full", "member cap 50: " .. tostring(r.c) .. tostring(r.why))
+  check(r.ok == true and r.c == 4 and r.why == "member-full", "member cap 50: " .. tostring(r.c) .. tostring(r.why))
   check(A.ns.MUSIC.count() == 50, "50 songs")
   -- the host itself is not capped per member
   check(A.ns.MUSIC.addLocal(songs(300, 310)) == 11, "the host adds more")
@@ -562,12 +562,16 @@ do
   A.ns.MUSIC.toggle()
   step(ms, 400)
   check(count(B, "play") == 1 and not B.ns.MUSIC.detached(), "following")
-  B.fs.player.uri = FS.uri(99)            -- the user picked something else in Spotify
+  B.fs.player.uri = FS.uri(99)            -- the user picked something else in Spotify: it starts at its beginning
+  B.fs.player.pos, B.fs.player.at = 0, B.mock.now * 1000
   step(ms, 200)
   check(B.ns.MUSIC.detached(), "detached")
   check(lastEvent(B, "music.detached") ~= nil, "the follow-again toast is offered")
   local toasts = B.ns.MAIN.toasts()
   check(toasts[#toasts] and toasts[#toasts].actions and toasts[#toasts].actions[1][1] == "Follow again", "toast action")
+  local tt = toasts[#toasts] and toasts[#toasts].text or ""
+  check(tt:find("next song", 1, true) and tt:find("Mute here", 1, true), "the toast says it follows again at the "
+    .. "host's next song and that Mute here keeps your own music: " .. tt)
   check(not B.ns.MUSIC.audible(), "not audible (the game music may play)")
   -- the host seeks (a new epoch, the same song): still detached, no play
   A.ns.MUSIC.seek(100000)
@@ -769,6 +773,281 @@ do
   B.wum.config.set("musicFollow", true)
   step(ms, 60)
   check(B.ns.MUSIC.following() and B.fs.player.playing, "the setting on: B follows again")
+  check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
+end
+
+-- 18. Clear, or removing the playing song when it is the last, pauses every listener (the host's follower too).
+do
+  local ms = party{{"A", "premium"}, {"B", "premium"}}
+  local A, B = ms[1], ms[2]
+  A.ns.MUSIC.addLocal(songs(1, 2))
+  A.ns.MUSIC.toggle()
+  step(ms, 20)
+  check(A.fs.player.playing and B.fs.player.playing, "A and B play")
+  A.ns.MUSIC.clear()
+  step(ms, 10)
+  check(not A.fs.player.playing and not B.fs.player.playing, "Clear pauses every listener")
+  check(A.ns.MUSIC.owned() == nil and B.ns.MUSIC.owned() == nil, "Clear: nothing owned")
+  check(B.mock.music.requested == false, "Clear: the game music is back")
+  -- the host removes the playing song, the last one
+  A.ns.MUSIC.addLocal(songs(3, 4))
+  step(ms, 40)
+  A.ns.MUSIC.playItem(A.ns.MUSIC.items()[2].id, 0)
+  step(ms, 20)
+  check(B.fs.player.playing and B.fs.player.uri == FS.uri(4), "B plays the last song")
+  A.ns.MUSIC.remove(A.ns.MUSIC.state().i)
+  step(ms, 10)
+  check(A.ns.MUSIC.state().s == "stop" and A.ns.MUSIC.state().i == 0, "stopped, no song")
+  check(not A.fs.player.playing and not B.fs.player.playing, "removing the last playing song pauses every listener")
+  -- a member removes its own song while it plays and is the last
+  B.ns.MUSIC.add(songs(5, 5))
+  step(ms, 60)
+  local mine = A.ns.MUSIC.items()[#A.ns.MUSIC.items()]
+  check(mine.byId == "B", "B's song is last")
+  A.ns.MUSIC.playItem(mine.id, 0)
+  step(ms, 20)
+  check(B.fs.player.playing and B.fs.player.uri == FS.uri(5), "B plays its song")
+  check(B.ns.MUSIC.requestRemove(mine.id) == true, "B removes it")
+  step(ms, 20)
+  check(not B.fs.player.playing and not A.fs.player.playing, "the member's remove pauses every listener")
+  check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
+end
+
+-- 19. The no-device fallback (list the devices, play again) is cancelled when the host stops in between.
+do
+  local ms = party{{"A"}, {"B", "premium"}}
+  local A, B = ms[1], ms[2]
+  B.fs.devices = {{id = "pc1", name = "DESKTOP", type = "Computer", active = false, restricted = false}}
+  A.ns.MUSIC.addLocal(songs(1, 2))
+  step(ms, 40)
+  B.fs.manual = true
+  A.ns.MUSIC.toggle()
+  step(ms, 2)
+  local plays = B.fs.callsOf("play")
+  check(#plays == 1, "B's first play is on its way")
+  B.fs.answerNow(plays[1].i)               -- no active device: Holo lists the devices
+  local devs = B.fs.callsOf("devices")
+  check(#devs == 1 and not devs[1].answered, "the devices are being listed")
+  A.ns.MUSIC.stop()
+  step(ms, 3)
+  check(count(B, "pause") == 1, "Stop sends a pause (it fails: no device is active yet)")
+  for _, c in ipairs(B.fs.calls) do if not c.answered then B.fs.answerNow(c.i) end end
+  B.fs.manual = false
+  step(ms, 30)
+  check(count(B, "play") == 1 and not (B.fs.player and B.fs.player.playing), "no second play after Stop")
+  -- the same with Mute here
+  A.ns.MUSIC.toggle()
+  B.fs.manual = true
+  step(ms, 2)
+  plays = B.fs.callsOf("play")
+  B.fs.answerNow(plays[#plays].i)
+  B.ns.MUSIC.setListen(false)
+  for _, c in ipairs(B.fs.calls) do if not c.answered then B.fs.answerNow(c.i) end end
+  B.fs.manual = false
+  step(ms, 30)
+  check(count(B, "play") == #plays and not (B.fs.player and B.fs.player.playing), "no second play after Mute here")
+  check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
+end
+
+-- 20. A poll during the no-device fallback (no device active yet) does not make Holo forget its track: Stop still
+-- pauses it.
+do
+  local ms = party{{"A"}, {"B", "premium"}}
+  local A, B = ms[1], ms[2]
+  B.fs.devices = {{id = "pc1", name = "DESKTOP", type = "Computer", active = false, restricted = false}}
+  A.ns.MUSIC.addLocal(songs(1, 2))
+  step(ms, 40)
+  B.fs.manual = true
+  A.ns.MUSIC.toggle()
+  step(ms, 2)
+  local play1, poll = B.fs.callsOf("play")[1], B.fs.callsOf("playback")[1]
+  check(play1 ~= nil and poll ~= nil, "a play and a poll wait")
+  B.fs.answerNow(play1.i)                  -- no-device: the devices are listed
+  B.fs.answerNow(poll.i)                   -- the poll: nothing active yet
+  check(B.ns.MUSIC.owned() ~= nil, "a poll right after Holo's own play keeps the track Holo's")
+  B.fs.answerNow(B.fs.callsOf("devices")[1].i)
+  B.fs.answerNow(B.fs.callsOf("play")[2].i)
+  check(B.fs.player and B.fs.player.playing and B.ns.MUSIC.owned() ~= nil, "it plays, and Holo owns it")
+  B.fs.manual = false
+  step(ms, 10)
+  A.ns.MUSIC.stop()
+  step(ms, 10)
+  check(not B.fs.player.playing, "Stop pauses it")
+  check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
+end
+
+-- 21. Spotify relinks a song for a listener's country (another id plays): not a takeover, with linkedFrom (B) or
+-- without it on an older Melange (C: in step and the same length).
+do
+  local ms = party{{"A"}, {"B", "premium"}, {"C", "premium"}}
+  local A, B, C = ms[1], ms[2], ms[3]
+  B.fs.relink[FS.uri(1)] = FS.uri(51)
+  C.fs.relink[FS.uri(1)] = FS.uri(51)
+  C.fs.noLinkedFrom = true
+  A.ns.MUSIC.addLocal(songs(1, 2))
+  A.ns.MUSIC.toggle()
+  step(ms, 400)
+  check(B.fs.player.uri == FS.uri(51) and B.ns.MUSIC.playback().linkedFrom == FS.uri(1), "B plays the relinked id")
+  check(not B.ns.MUSIC.detached() and B.ns.MUSIC.audible(), "B still follows (linkedFrom)")
+  check(not C.ns.MUSIC.detached() and C.ns.MUSIC.audible(), "C still follows (no linkedFrom: in step, same length)")
+  check(count(B, "play") == 1 and count(C, "play") == 1, "no replays")
+  A.ns.MUSIC.stop()
+  step(ms, 10)
+  check(not B.fs.player.playing and not C.fs.player.playing, "Stop pauses the relinked song")
+  check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
+end
+
+-- 22. No clock sample of the host yet: the two machines' clocks are unrelated, so the follower waits for one.
+do
+  local ms = party{{"A"}, {"B", "premium"}}
+  local A, B = ms[1], ms[2]
+  B.mock.now = B.mock.now + 100           -- B's clock is 100 s ahead of A's
+  B.mock.channel.clocks.A = nil           -- and the peer bus has no sample yet
+  A.ns.MUSIC.addLocal(songs(1, 2))
+  step(ms, 40)
+  A.ns.MUSIC.toggle()
+  step(ms, 30)
+  check(count(B, "play") == 0, "no play before the host's clock is known")
+  check(B.ns.MUSIC.position() < 1000, "the position is not read across clocks: " .. B.ns.MUSIC.position())
+  B.mock.channel.clocks.A = {offset = -100000, rtt = 20, samples = 1}
+  step(ms, 3)
+  local p = lastPlay(B)
+  check(p and p.args[1].positionMs < 2000, "played at the host's position: " .. tostring(p and p.args[1].positionMs))
+  check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
+end
+
+-- 23. Steady queue edits (a member's add/remove loop) do not freeze the members' mirrors: pages already going out to
+-- a member are not replaced, so each version arrives whole.
+do
+  local ms = party{{"A"}, {"B", "premium"}, {"C"}}
+  local A, C = ms[1], ms[3]
+  local long = string.rep("x", 80)
+  A.ns.MUSIC.addLocal(songs(1, 80, {name = long, artists = long}))
+  step(ms, 400)
+  check(#A.ns.MUSIC.pages() >= 3 and C.ns.MUSIC.version() == A.ns.MUSIC.version(), "C has the 3-page queue")
+  local v0 = C.ns.MUSIC.version()
+  local extra
+  for k = 1, 24 do                        -- a change every 0.5 s for 12 s
+    if extra then
+      A.ns.MUSIC.remove(extra)
+      extra = nil
+    else
+      A.ns.MUSIC.addLocal(songs(500 + k, 500 + k))
+      extra = A.ns.MUSIC.items()[#A.ns.MUSIC.items()].id
+    end
+    step(ms, 30)
+  end
+  check(C.ns.MUSIC.version() > v0, "C's mirror took newer versions during the edits: " .. C.ns.MUSIC.version())
+  step(ms, 400)
+  check(C.ns.MUSIC.version() == A.ns.MUSIC.version() and C.ns.MUSIC.count() == A.ns.MUSIC.count(), "caught up")
+  check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
+end
+
+-- 24. Holo 1.0.x members (they ignore the music lane) get no "mq" pages.
+do
+  local ms = {machine("A"), machine("B", "premium"), machine("C", "premium")}
+  local A, B, C = ms[1], ms[2], ms[3]
+  -- C says hi as Holo 1.0.2 and never sends music messages
+  local function old(m, _, tbl)
+    if m.id == "C" and tbl.t == "hi" then tbl.holo = "1.0.2" end
+    return not (m.id == "C" and (tbl.t == "mneed" or tbl.t == "madd" or tbl.t == "mrm"))
+  end
+  lobby(ms, "A")
+  connect(ms)
+  step(ms, 10, old)
+  A.ns.MUSIC.addLocal(songs(1, 3))
+  A.ns.MUSIC.toggle()
+  step(ms, 80, old)
+  check(#sentOf(A, "mq", "B") >= 1 and B.ns.MUSIC.count() == 3, "B (1.1) gets the pages")
+  check(#sentOf(A, "mq", "C") == 0, "C (1.0.2) gets none")
+  check(A.ns.MUSIC.hasLane("1.1.0") and A.ns.MUSIC.hasLane("2.0") and not A.ns.MUSIC.hasLane("1.0.9")
+    and not A.ns.MUSIC.hasLane(nil), "version check")
+  check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
+end
+
+-- 25. A member flooding "madd" cannot grow the host's outbox: the replies stop while 16 wait; host-only and the
+-- rate refusals are counted against the rate too.
+do
+  local ms = party{{"A"}, {"B", "premium"}}
+  local A = ms[1]
+  A.wum.config.set("whoAdds", "host")
+  step(ms, 40)
+  local worst, n = 0, 0
+  for _ = 1, 10 do                         -- 20 a second for 10 s, as fast as the core lets a member send
+    for _ = 1, 20 do
+      n = n + 1
+      A.mock.peerDeliver("B", {t = "madd", n = n, items = {}})
+    end
+    for _ = 1, 60 do
+      A.mock.frame()
+      worst = math.max(worst, A.ns.NET.pending("B", true))
+    end
+  end
+  check(worst <= 16, "the unkeyed backlog stays bounded: " .. worst)
+  local hostOnly = 0
+  for _, r in ipairs(sentOf(A, "maddr", "B")) do if r.tbl.why == "host-only" then hostOnly = hostOnly + 1 end end
+  check(hostOnly <= 3 + 10 * 1000 / 400, "host-only answers are rate limited (a token per 0.4 s): " .. hostOnly)
+  check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
+end
+
+-- 26. A chunk the host refused for the rate is sent again, so a member's 45 songs all arrive.
+do
+  local ms = party{{"A"}, {"B", "premium"}}
+  local A, B = ms[1], ms[2]
+  B.ns.MUSIC.add(songs(1, 45))
+  for k = 1, 3 do A.mock.peerDeliver("B", {t = "madd", n = 9000 + k, items = {}}) end   -- B's tokens are spent
+  step(ms, 300)
+  local refused = 0
+  for _, r in ipairs(sentOf(A, "maddr", "B")) do
+    if r.tbl.why == "rate" and r.tbl.n < 9000 then refused = refused + 1 end
+  end
+  check(refused >= 1, "a chunk was refused for the rate")
+  check(A.ns.MUSIC.count() == 45, "all 45 songs arrive: " .. A.ns.MUSIC.count())
+  local failed = 0
+  for _, e in ipairs(B.events) do if e[1] == "music.addResult" and e[2] ~= true then failed = failed + 1 end end
+  check(failed == 0, "no failed add is reported")
+  check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
+end
+
+-- 27. The account type not known (premium = nil: Melange learns it from the first play): such a listener follows,
+-- a Premium one keeps playing and shows Premium, a Free one is refused once and shows Free.
+do
+  local function unknown(id, premium)
+    local wum, mock = MW.new()
+    local fs = FS.install(wum, mock)
+    fs.premiumUnknown = true
+    fs.account = {user = "U" .. id, premium = premium}
+    fs.status = {state = "connected", linked = true, user = "U" .. id}
+    wum._holoTest = {}
+    local _, ok, err = MW.load("mod/client/init.lua", wum)
+    check(ok, id .. ": init.lua runs: " .. tostring(err))
+    return {id = id, wum = wum, mock = mock, fs = fs, ns = wum._holoTest.ns, sent = 0, events = {}}
+  end
+  local A, B, C = machine("A"), unknown("B", true), unknown("C", false)
+  local ms = {A, B, C}
+  lobby(ms, "A")
+  connect(ms)
+  step(ms, 10)
+  local SB = B.ns.SPOT
+  check(SB.status().premium == nil and not SB.premium() and not SB.free() and SB.mayPlay(), "B: not known")
+  B.mock.cursorSource = "frontend"
+  B.ns.PARTY.setSetup(true)
+  B.ns.SETUP.setTab("music")
+  B.mock.frames(3)
+  local t = {}
+  for _, c in ipairs(B.mock.drawOf("hudText")) do t[#t + 1] = tostring(c.args[3]) end
+  t = table.concat(t, " ")
+  check(t:find("Free account", 1, true) == nil and t:find("first song played", 1, true) ~= nil,
+    "the panel does not call an unknown account Free")
+  B.ns.PARTY.setSetup(false)
+  A.ns.MUSIC.addLocal(songs(1, 2))
+  A.ns.MUSIC.toggle()
+  step(ms, 20)
+  check(B.fs.player and B.fs.player.playing and B.ns.MUSIC.audible(), "B (not known) plays")
+  check(SB.premium(), "B: Premium, learnt from the play")
+  check(count(C, "play") == 1 and C.ns.MUSIC.notPremium() and C.ns.SPOT.free(), "C: refused once, Free")
+  step(ms, 300)
+  check(count(C, "play") == 1 and B.fs.player.playing, "C does not try again; B plays on")
   check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
 end
 
