@@ -136,7 +136,7 @@ do
     members = {{id = "A", name = "A", host = true}, {id = "B", name = "B", me = true}}}
   mock.frame()
   local why = select(2, ns.QUEUE.add(yt(1)))
-  check(why == "not-running" or why == "old-host", "a peer without the host's cap cannot add: " .. tostring(why))
+  check(why == "not-running", "a peer before the host's party cannot add: " .. tostring(why))
   check(ns.QUEUE.count() == 0, "nothing was added")
   check(select(2, ns.QUEUE.remove(1)) == "not-host", "a peer cannot remove")
   check(select(2, ns.QUEUE.move(1, 1)) == "not-host", "a peer cannot move")

@@ -8,7 +8,7 @@ or later the party can also play Spotify music: each listener hears it on their 
 ## Using it
 
 - **F6** opens the watch party panel on its **Videos** tab: paste a link and press Enter, reorder or remove queue items,
-  then Start. Peers see the panel read-only.
+  then Start. Members can add to the queue and remove what they added (see below); the rest is the host's.
 - Between your turns the player is a small corner window. During other players' turns (online) it grows to half the
   screen. It hides while you aim and fire (setting), and **F9** hides or shows it.
 - The mouse is the game's in a match. Press **F7** (or open the panel) to move the mouse to the player; Esc or a click

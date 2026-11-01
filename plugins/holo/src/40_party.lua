@@ -81,6 +81,7 @@ do
     if PARTY.canControl() then return true end
     if not NET.inSession() or NET.isHost() then return false end
     return hostCaps ~= nil and hostCaps.add == true and (role == "peer" or PARTY.partyRunning())
+      and NET.reachable(NET.hostId())
   end
 
   -- Why a member cannot add: "not-running" | "old-host" | "host-only" | "no-host" | nil (it can, or no lobby).
@@ -761,9 +762,10 @@ do
     elseif t == "add" then
       local n = m.n
       if math.type(n) ~= "integer" or n < 1 or n > 2147483647 then return end
-      -- answers carry no key, so nothing replaces them: a member that floods gets no more once some wait for it
+      -- answers carry no key, so nothing replaces them: a member that floods gets no more refusals once some wait for
+      -- it. A success is always answered (its item is in the queue); successes are bounded by the member's cap.
       local function reply(ok, why, c, ti)
-        if NET.pending(from, true) >= REPLY_BACKLOG then return end
+        if not ok and NET.pending(from, true) >= REPLY_BACKLOG then return end
         NET.post(from, {t = "addr", n = n, ok = ok, why = why, c = c, ti = ti and U.trim(ti, 60)})
       end
       if now - (mi.addAt or -1e9) < ADD_ACCEPT then return reply(false, "rate") end
@@ -825,6 +827,8 @@ do
   ---------------------------------------------------------------- lobby changes
 
   local function resetPeerSide()
+    -- adds still waiting for the host's answer will get none: say so once
+    if next(pendingAdds) then U.emit("party.addResult", false, "no-host") end
     hostParty, declined, prompted, acked = false, false, false, false
     lastHi, wantOpen = -1e9, nil
     hostCaps, pendingAdds = nil, {}
@@ -1062,6 +1066,7 @@ do
       for n, p in pairs(pendingAdds) do
         if now - p.at >= ADD_WAIT then
           pendingAdds[n] = nil
+          NET.drop(host, "^add" .. n .. "$")              -- told it failed: it must not go out after all
           U.emit("party.addResult", false, "no-answer")
         elseif p.sendAt and now >= p.sendAt then
           sendAdd(n, p)

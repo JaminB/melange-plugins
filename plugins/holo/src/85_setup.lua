@@ -180,6 +180,7 @@ do
     SKIN.clip(ix0, iy0, ix1, iy1)
     for i = first, last do
       local it = items[i]
+      if not it then break end                -- a remove in this loop shortened the list
       local ry0 = iy0 + (i - 1) * rowH - scroll * s
       local ry1 = ry0 + rowH
       local isCur = it.id == curId
@@ -383,7 +384,8 @@ do
     local by = my1 - bh - 14 * s
     if W.button("setup.pickok", mx1 - 20 * s - bw, by, mx1 - 20 * s, by + bh, "Add", {enabled = p.sel ~= nil}) then
       local ok, why = QUEUE.pickFile(p.token, p.sel)
-      table.remove(picks, 1)
+      -- a member's refused pick (the host not reachable, the pace) stays open to try again
+      if ok or not QUEUE.pickOpen(p.token) then table.remove(picks, 1) end
       if not ok then say(ADD_WHY[why] or "Could not add that file", "error") end
     end
     if W.button("setup.pickno", mx1 - 30 * s - bw * 2, by, mx1 - 30 * s - bw, by + bh, "Cancel") then
@@ -489,6 +491,8 @@ do
         who = PARTY.hostName() .. "'s Holo has no music lane"
       elseif mwhy == "host-only" then
         who = PARTY.hostName() .. " hosts the music and adds the songs"
+      elseif mwhy == "no-host" then
+        who = PARTY.hostName() .. " hosts the music and cannot be reached now"
       else
         who = PARTY.hostName() .. " hosts the music. You can add songs"
       end
@@ -500,7 +504,8 @@ do
       who = "Only the host (" .. PARTY.hostName() .. ") controls the party"
       if why == "old-host" then who = who .. " (their Holo is older than 1.1)"
       elseif why == "host-only" then who = who .. " and adds the videos"
-      elseif why == "not-running" then who = who .. ". Adding opens when they start the party" end
+      elseif why == "not-running" then who = who .. ". Adding opens when they start the party"
+      elseif why == "no-host" then who = who .. " and cannot be reached now" end
     end
     SKIN.text(x0 + 40 * s + tagW, y0 + 14 * s, who, 15 * s, C.gold,
       {vcenter = 46 * s, maxWidth = x1 - 70 * s - (x0 + 40 * s + tagW)})

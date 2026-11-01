@@ -525,6 +525,34 @@ do
   check(regions(B)["music.rm." .. id] ~= nil and regions(B)["music.up." .. id] == nil, "B removes only its own")
   check(H.ns.SETUP.tab() == "videos", "tabs are per machine")
   check(#B.mock.logsOf("error") == 0 and #H.mock.logsOf("error") == 0, "no errors")
+  -- Spotify throttles the library: the modal says so, not the add-specific "Wait a moment before adding again"
+  B.fs.respond.library = function() return {error = "rate", retryAfter = 5} end
+  clickRegion(B, "music.browse")
+  step({H, B}, 10)
+  check(hasText(B, "Spotify asks to slow down; open this again in a moment") and not hasText(B, "before adding again"),
+    "the library's rate text")
+  B.fs.respond.library = nil
+end
+
+-- 8. Removing a row of a short list (every row on screen) does not break the rest of that frame's list.
+do
+  local A = machine("A")
+  for i = 1, 3 do A.ns.QUEUE.add(string.format("https://youtu.be/v%010d", i)) end
+  A.ns.PARTY.setSetup(true)
+  A.mock.frames(40)
+  clickRegion(A, "setup.rm." .. A.ns.QUEUE.items()[1].id)
+  check(A.ns.QUEUE.count() == 2, "a video removed")
+  A.ns.SETUP.setTab("music")
+  local songs = {}
+  for n = 1, 3 do
+    songs[n] = {uri = "spotify:track:" .. string.format("%022d", n), name = "Song " .. n, artists = "A", durationMs = 200000}
+  end
+  check(A.ns.MUSIC.addLocal(songs) == 3, "three songs")
+  A.mock.frames(40)
+  clickRegion(A, "music.rm." .. A.ns.MUSIC.items()[1].id)
+  check(A.ns.MUSIC.count() == 2, "a song removed")
+  local errs = A.mock.logsOf("error")
+  check(#errs == 0, "no errors: " .. tostring(errs[1]))
 end
 
 if fails > 0 then

@@ -30,6 +30,10 @@ do
     busy = "Spotify is still answering; try again in a moment",
   }
   MUI.WHY = WHY
+  local LIB_WHY = {
+    ["not-found"] = "Spotify does not let apps read this playlist",
+    rate = "Spotify asks to slow down; open this again in a moment",
+  }
 
   local function say(text, kind)
     status, statusKind, statusAt = text, kind or "info", U.now()
@@ -236,7 +240,8 @@ do
     local text, kind = status, statusKind
     if text and U.now() - statusAt > 6000 then text = nil end
     if lib.err then
-      text, kind = lib.err == "not-found" and "Spotify does not let apps read this playlist" or whyText(lib.err), "error"
+      -- the library's own reasons (WHY.rate is about adding songs, and the library is not retried by itself)
+      text, kind = LIB_WHY[lib.err] or whyText(lib.err), "error"
     end
     if text then
       SKIN.text(mx0 + 20 * s, by0, text, 15 * s, kind == "error" and C.error or (kind == "warn" and C.warn or C.cream),
@@ -436,6 +441,7 @@ do
     SKIN.clip(ix0, iy0, ix1, iy1)
     for i = first, last do
       local it = items[i]
+      if not it then break end                -- a remove in this loop shortened the list
       local ry0 = iy0 + (i - 1) * rowH - scroll * s
       local ry1 = ry0 + rowH
       local isCur = it.id == curId

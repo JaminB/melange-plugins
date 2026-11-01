@@ -27,12 +27,12 @@ do
   local ADD_WAIT = 45000
   local POLL_PLAY, POLL_PAUSE = 3000, 10000
   local DRIFT_MAX, SEEK_HOLD = 1500, 8000
-  local RELINK_DURATION = 2000       -- ms: a relinked song (another id, in step) is this close in length
   local OVERRIDE_GRACE = 4000        -- ms after Holo's own action before a different playback counts as the user's
   local END_SLACK = 250
   local RESUME_AFTER = 1000          -- host: the video must be off this long before auto-paused music resumes
   local PLAY_TRIES = 3               -- follower: plays of one song that failed for a passing reason, then it waits
   local PAUSE_RETRY, PAUSE_GIVEUP = 1500, 15000   -- follower: a pause that did not go through is sent again
+  local PAUSE_BUSY_GIVEUP = 35000    -- ... longer while Holo's request cap is full (SPOT frees a slot within 30 s)
   -- Request errors that pass: the request is worth sending again later ("busy" also when Holo's own cap is full).
   local PASSING = {busy = true, rate = true, network = true, timeout = true, server = true}
   MUSIC.MAX_ITEMS, MUSIC.MEMBER_MAX, MUSIC.ADD_CHUNK = MAX_ITEMS, MEMBER_MAX, ADD_CHUNK
@@ -54,7 +54,7 @@ do
   local lastSeek, lastAction = -1e9, -1e9
   local detached, notPremium, lastError, backoffUntil = false, false, nil, -1e9
   local playTry = nil                -- {e, uri, n, at}: the last play failed for a passing reason; again at `at`
-  local wantPause = nil              -- {since, next}: a pause of Holo's track that has not gone through yet
+  local wantPause = nil              -- {since, next, giveup}: a pause of Holo's track that has not gone through yet
   local wasFollow = false
 
   local function toast(text, kind) U.emit("party.toast", text, kind or "info") end
@@ -294,7 +294,14 @@ do
   end
 
   -- Sends the pause of wantPause; a passing failure (Holo's request cap full, rate, network...) is sent again from
-  -- the tick, so Stop, Mute and leaving never leave the music playing.
+  -- the tick, so Stop, Mute and leaving never leave the music playing. It gives up after PAUSE_GIVEUP, but never
+  -- before a wait Spotify asked for (rate) is over or while Holo's own cap may still free a slot (busy).
+  local function retryPause(w, why, wait)
+    w.next = U.now() + wait
+    if why == "rate" then w.giveup = math.max(w.giveup, w.next + PAUSE_RETRY) end
+    if why == "busy" then w.giveup = math.max(w.giveup, w.since + PAUSE_BUSY_GIVEUP) end
+  end
+
   local function sendPause()
     local w = wantPause
     if not w then return end
@@ -302,13 +309,13 @@ do
     local rid, why = SPOT.pause(function(res)
       if wantPause ~= w then return end
       if res.error and PASSING[res.error] then
-        w.next = U.now() + (res.error == "rate" and (U.num(res.retryAfter) or 5) * 1000 or PAUSE_RETRY)
+        retryPause(w, res.error, res.error == "rate" and (U.num(res.retryAfter) or 5) * 1000 or PAUSE_RETRY)
       else
         wantPause = nil
       end
     end)
     if not rid then
-      if PASSING[why] then w.next = U.now() + PAUSE_RETRY else wantPause = nil end
+      if PASSING[why] then retryPause(w, why, PAUSE_RETRY) else wantPause = nil end
     end
   end
 
@@ -317,7 +324,7 @@ do
       owned.playing = false
       local now = U.now()
       lastAction = now
-      wantPause = {since = now, next = now}
+      wantPause = {since = now, next = now, giveup = now + PAUSE_GIVEUP}
       sendPause()
     end
   end
@@ -462,10 +469,9 @@ do
     if want >= it.durationMs - 5000 then return end
     local drift = (lastPb.positionMs + (now - lastPb.at)) - want
     -- Spotify relinked the song for this account's country: the same song under another id. Melange reports what
-    -- was asked for (linkedFrom); without it (an older Melange), a song in step and of the same length is taken.
-    if lastPb.uri ~= owned.uri and lastPb.playing and MUSIC.validUri(lastPb.uri) then
-      local sameLength = lastPb.durationMs and math.abs(lastPb.durationMs - it.durationMs) <= RELINK_DURATION
-      if lastPb.linkedFrom == owned.uri or (sameLength and math.abs(drift) <= DRIFT_MAX) then owned.uri = lastPb.uri end
+    -- was asked for (linkedFrom: every Melange with the Spotify module sends it); any other id is the user's choice.
+    if lastPb.uri ~= owned.uri and lastPb.playing and MUSIC.validUri(lastPb.uri) and lastPb.linkedFrom == owned.uri then
+      owned.uri = lastPb.uri
     end
     if lastPb.uri ~= owned.uri or not lastPb.playing then
       if now - lastAction > OVERRIDE_GRACE then setDetached() end
@@ -762,9 +768,10 @@ do
     if t == "madd" then
       local n = m.n
       if math.type(n) ~= "integer" or n < 1 or n > 2147483647 then return end
-      -- answers carry no key, so nothing replaces them: a member that floods gets no more once some wait for it
+      -- answers carry no key, so nothing replaces them: a member that floods gets no more refusals once some wait for
+      -- it. A success is always answered (its songs are in the queue); successes are bounded by the member's cap.
       local function reply(ok, why, c)
-        if NET.pending(from, true) >= REPLY_BACKLOG then return end
+        if not ok and NET.pending(from, true) >= REPLY_BACKLOG then return end
         NET.post(from, {t = "maddr", n = n, ok = ok, why = why, c = c})
       end
       local mi = member(from)
@@ -1011,6 +1018,7 @@ do
     for n, p in pairs(pendingAdds) do
       if now - p.at >= ADD_WAIT then
         pendingAdds[n] = nil
+        NET.drop(host, "^madd" .. n .. "$")              -- told it failed: it must not go out after all
         U.emit("music.addResult", false, "no-answer")
       end
     end
@@ -1019,7 +1027,7 @@ do
   function MUSIC.tick()
     local now = U.now()
     if wantPause then
-      if now - wantPause.since > PAUSE_GIVEUP then
+      if now > wantPause.giveup then
         wantPause = nil
       elseif now >= wantPause.next then
         sendPause()

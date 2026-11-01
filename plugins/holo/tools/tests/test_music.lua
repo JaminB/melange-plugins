@@ -876,24 +876,27 @@ do
   check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
 end
 
--- 21. Spotify relinks a song for a listener's country (another id plays): not a takeover, with linkedFrom (B) or
--- without it on an older Melange (C: in step and the same length).
+-- 21. Spotify relinks a song for a listener's country (another id plays): not a takeover, with linkedFrom (B).
+-- Another song of the same length in step, without linkedFrom, is the user's own choice (C): a takeover.
 do
   local ms = party{{"A"}, {"B", "premium"}, {"C", "premium"}}
   local A, B, C = ms[1], ms[2], ms[3]
   B.fs.relink[FS.uri(1)] = FS.uri(51)
-  C.fs.relink[FS.uri(1)] = FS.uri(51)
-  C.fs.noLinkedFrom = true
   A.ns.MUSIC.addLocal(songs(1, 2))
   A.ns.MUSIC.toggle()
   step(ms, 400)
   check(B.fs.player.uri == FS.uri(51) and B.ns.MUSIC.playback().linkedFrom == FS.uri(1), "B plays the relinked id")
   check(not B.ns.MUSIC.detached() and B.ns.MUSIC.audible(), "B still follows (linkedFrom)")
-  check(not C.ns.MUSIC.detached() and C.ns.MUSIC.audible(), "C still follows (no linkedFrom: in step, same length)")
+  check(not C.ns.MUSIC.detached() and C.fs.player.uri == FS.uri(1), "C follows song 1")
   check(count(B, "play") == 1 and count(C, "play") == 1, "no replays")
+  -- C picks another song in Spotify (the fake reports the same length), at the same position
+  C.fs.player.uri = FS.uri(60)
+  step(ms, 400)
+  check(C.ns.MUSIC.detached() and C.fs.player.uri == FS.uri(60), "C's own song is a takeover, not a relink")
   A.ns.MUSIC.stop()
   step(ms, 10)
-  check(not B.fs.player.playing and not C.fs.player.playing, "Stop pauses the relinked song")
+  check(not B.fs.player.playing, "Stop pauses the relinked song")
+  check(C.fs.player.playing, "C's own song is left alone")
   check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
 end
 
@@ -1049,6 +1052,86 @@ do
   step(ms, 300)
   check(count(C, "play") == 1 and B.fs.player.playing, "C does not try again; B plays on")
   check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
+end
+
+-- 28. A pause Spotify throttles for longer than the usual 15 s, or one that waits on Holo's full request cap, is
+-- still sent once it may be: Stop never leaves the listener's device playing.
+do
+  local ms = party{{"A"}, {"B", "premium"}}
+  local A, B = ms[1], ms[2]
+  A.ns.MUSIC.addLocal(songs(1, 2))
+  A.ns.MUSIC.toggle()
+  step(ms, 20)
+  check(B.fs.player and B.fs.player.playing, "B plays")
+  local fail = 1
+  B.fs.respond.pause = function()
+    if fail > 0 then
+      fail = fail - 1
+      return {error = "rate", retryAfter = 20, message = "x"}
+    end
+  end
+  local pauses = count(B, "pause")
+  A.ns.MUSIC.stop()
+  step(ms, 10)
+  check(count(B, "pause") == pauses + 1 and B.fs.player.playing, "rate: wait 20 s")
+  step(ms, 60 * 21)
+  check(count(B, "pause") == pauses + 2 and not B.fs.player.playing, "sent again after the 20 s: paused")
+  B.fs.respond.pause = nil
+  -- Holo's cap stays full for 20 s (requests that never answer): the pause goes out once SPOT frees the slots
+  A.ns.MUSIC.toggle()
+  step(ms, 20)
+  check(B.fs.player.playing, "B plays again")
+  B.fs.manual = true
+  for _ = 1, 4 do B.ns.SPOT.devices(function() end) end
+  pauses = count(B, "pause")
+  A.ns.MUSIC.stop()
+  step(ms, 60 * 20)
+  check(count(B, "pause") == pauses and B.ns.MUSIC.debug().wantPause ~= nil, "busy for 20 s: still wanted")
+  for _, c in ipairs(B.fs.calls) do if not c.answered then B.fs.answerNow(c.i) end end
+  B.fs.manual = false
+  step(ms, 120)
+  check(count(B, "pause") == pauses + 1 and not B.fs.player.playing, "the pause went through once there was room")
+  check(#errors(ms) == 0, "no errors: " .. table.concat(errors(ms), "; "))
+end
+
+-- 29. A chunk that could not leave the member's outbox for 45 s is reported "no-answer" and never sent after that.
+do
+  local ms = party{{"A"}, {"B", "premium"}}
+  local A, B = ms[1], ms[2]
+  local real = B.mock.channel.send
+  B.mock.channel.send = function(self, id, tbl, so)
+    if tbl.t == "madd" then return false, "rate" end
+    return real(self, id, tbl, so)
+  end
+  check(B.ns.MUSIC.add(songs(1, 2)) == true, "sent")
+  step(ms, 46 * 60)
+  local e = lastEvent(B, "music.addResult")
+  check(e and e[2] == false and e[3] == "no-answer", "no-answer after 45 s")
+  B.mock.channel.send = real
+  step(ms, 120)
+  check(A.ns.MUSIC.count() == 0 and #sentOf(B, "madd", "A") == 0, "the expired chunk never reached the host")
+end
+
+-- 30. The host answers an accepted chunk even while 16 refusals wait for the member (its songs are queued).
+do
+  local ms = party{{"A"}, {"B", "premium"}}
+  local A = ms[1]
+  local real = A.mock.channel.send
+  A.mock.channel.send = function(self, id, tbl, so)
+    if id == "B" then return false, "rate" end
+    return real(self, id, tbl, so)
+  end
+  local function w(n) local x = FS.song(n); return {u = x.uri, ti = x.name, ar = x.artists, d = x.durationMs} end
+  for n = 1, 20 do A.mock.peerDeliver("B", {t = "madd", n = n, items = {w(1)}}) end
+  check(A.ns.NET.pending("B", true) == 16, "16 answers wait: " .. A.ns.NET.pending("B", true))
+  A.mock.frames(120)
+  A.mock.peerDeliver("B", {t = "madd", n = 100, items = {w(2)}})
+  check(A.ns.MUSIC.count() == 2, "the chunk went in")
+  A.mock.channel.send = real
+  step(ms, 300)
+  local r
+  for _, x in ipairs(sentOf(A, "maddr", "B")) do if x.tbl.n == 100 then r = x.tbl end end
+  check(r and r.ok == true, "and was answered")
 end
 
 if fails > 0 then

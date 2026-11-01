@@ -147,10 +147,15 @@ do
     end
   end
 
+  -- Members' magnets still waiting for their file list are answered ("not-running": the party ended).
   function QUEUE.closeAllTorrents()
     for token in pairs(picks) do picks[token] = nil end
-    for url in pairs(hostWaits) do hostWaits[url] = nil end
+    local waits = hostWaits
+    hostWaits = {}
     for url in pairs(torrents) do QUEUE.closeTorrent(url) end
+    for _, w in pairs(waits) do
+      for _, fn in ipairs(w.fns) do fn({closed = true}) end
+    end
   end
 
   -- The video files of a torrent, largest first (the picker lists nothing else, design S3).
@@ -189,15 +194,18 @@ do
     if not p then return nil, "unknown" end
     for _, f in ipairs(p.files) do
       if f.index == index then
-        picks[token] = nil
         if p.forHost then
-          -- A member's pick: the host adds it. The local torrent was only for the file list.
+          -- A member's pick: the host adds it. The local torrent was only for the file list. A refused request
+          -- ("no-host", "rate") keeps the pick, so the member can try again.
           local title = baseName(f.path)
           local ok, why = PARTY.requestAdd({u = p.url, f = index, ti = title}, true)   -- a pick is not lost to the pause
+          if not ok then return ok, why end
+          picks[token] = nil
           if PARTY.currentUrl() ~= p.url then QUEUE.closeTorrent(p.url) end
-          if ok then U.emit("party.addSent", title) end
+          U.emit("party.addSent", title)
           return ok, why
         end
+        picks[token] = nil
         local it, why = addTorrentItem(p.url, index, baseName(f.path))
         if it then U.emit("queue.picked", it) end
         return it ~= nil, why
@@ -232,6 +240,9 @@ do
     if not used then QUEUE.closeTorrent(url) end
   end
 
+  -- True while a file pick is open (a member's refused pick stays open).
+  function QUEUE.pickOpen(token) return picks[token] ~= nil end
+
   function QUEUE.cancelPick(token)
     local p = picks[token]
     if not p then return false end
@@ -261,7 +272,10 @@ do
     if #vids == 1 then
       -- no picker to say so: a refused add (a member's request to the host that cannot go out) is reported here
       local ok, why = QUEUE.pickFile(token, vids[1].index)
-      if not ok then U.emit("party.addResult", false, why) end
+      if not ok then
+        QUEUE.cancelPick(token)
+        U.emit("party.addResult", false, why)
+      end
     else
       U.emit("queue.pick", token, vids, p.name)
     end
@@ -310,7 +324,10 @@ do
     local n, limit = 0, nil
     for _, r in ipairs(type(res.items) == "table" and res.items or {}) do
       local c = type(r) == "table" and type(r.url) == "string" and wum.media.classify(r.url)
-      if c and c.kind == "youtube" and c.id then
+      -- a member's playlist skips videos already queued, as a member's single add does
+      if c and c.kind == "youtube" and c.id and attrib and QUEUE.has(c.url, nil) then
+        limit = limit or "dup"
+      elseif c and c.kind == "youtube" and c.id then
         if room and n >= room then
           limit = "member-full"
           break
@@ -412,6 +429,9 @@ do
           releaseTorrent(url)
           return done(false, reason)
         end
+        -- the party ended (QUEUE.closeAllTorrents) or members' adds were turned off while the file list came
+        if x.closed then return refuse("not-running") end
+        if CFG.get("whoAdds") ~= "anyone" then return refuse("host-only") end
         if x.error then return refuse(x.error == "slow" and "torrent-slow" or "torrent") end
         local vids = QUEUE.videoFiles(x.files)
         if #vids == 0 then return refuse("no-video") end
@@ -438,7 +458,12 @@ do
       lookUpTitle(byId, it.url)
       return done(true, nil, 1, "YouTube video")
     end
-    local id, why = memberResolve(byId, c.url, function(res) addPlaylist(res, mine, room, done) end)
+    local id, why = memberResolve(byId, c.url, function(res)
+      -- the party ended, or members' adds were turned off, while the playlist was looked up
+      if PARTY.role() ~= "host" then return done(false, "not-running", 0) end
+      if CFG.get("whoAdds") ~= "anyone" then return done(false, "host-only", 0) end
+      addPlaylist(res, mine, room, done)
+    end)
     if not id then return done(false, why) end
   end
 

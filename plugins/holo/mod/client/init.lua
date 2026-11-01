@@ -724,6 +724,7 @@ do
     if PARTY.canControl() then return true end
     if not NET.inSession() or NET.isHost() then return false end
     return hostCaps ~= nil and hostCaps.add == true and (role == "peer" or PARTY.partyRunning())
+      and NET.reachable(NET.hostId())
   end
 
   -- Why a member cannot add: "not-running" | "old-host" | "host-only" | "no-host" | nil (it can, or no lobby).
@@ -1404,9 +1405,10 @@ do
     elseif t == "add" then
       local n = m.n
       if math.type(n) ~= "integer" or n < 1 or n > 2147483647 then return end
-      -- answers carry no key, so nothing replaces them: a member that floods gets no more once some wait for it
+      -- answers carry no key, so nothing replaces them: a member that floods gets no more refusals once some wait for
+      -- it. A success is always answered (its item is in the queue); successes are bounded by the member's cap.
       local function reply(ok, why, c, ti)
-        if NET.pending(from, true) >= REPLY_BACKLOG then return end
+        if not ok and NET.pending(from, true) >= REPLY_BACKLOG then return end
         NET.post(from, {t = "addr", n = n, ok = ok, why = why, c = c, ti = ti and U.trim(ti, 60)})
       end
       if now - (mi.addAt or -1e9) < ADD_ACCEPT then return reply(false, "rate") end
@@ -1468,6 +1470,8 @@ do
   ---------------------------------------------------------------- lobby changes
 
   local function resetPeerSide()
+    -- adds still waiting for the host's answer will get none: say so once
+    if next(pendingAdds) then U.emit("party.addResult", false, "no-host") end
     hostParty, declined, prompted, acked = false, false, false, false
     lastHi, wantOpen = -1e9, nil
     hostCaps, pendingAdds = nil, {}
@@ -1705,6 +1709,7 @@ do
       for n, p in pairs(pendingAdds) do
         if now - p.at >= ADD_WAIT then
           pendingAdds[n] = nil
+          NET.drop(host, "^add" .. n .. "$")              -- told it failed: it must not go out after all
           U.emit("party.addResult", false, "no-answer")
         elseif p.sendAt and now >= p.sendAt then
           sendAdd(n, p)
@@ -1888,10 +1893,15 @@ do
     end
   end
 
+  -- Members' magnets still waiting for their file list are answered ("not-running": the party ended).
   function QUEUE.closeAllTorrents()
     for token in pairs(picks) do picks[token] = nil end
-    for url in pairs(hostWaits) do hostWaits[url] = nil end
+    local waits = hostWaits
+    hostWaits = {}
     for url in pairs(torrents) do QUEUE.closeTorrent(url) end
+    for _, w in pairs(waits) do
+      for _, fn in ipairs(w.fns) do fn({closed = true}) end
+    end
   end
 
   -- The video files of a torrent, largest first (the picker lists nothing else, design S3).
@@ -1930,15 +1940,18 @@ do
     if not p then return nil, "unknown" end
     for _, f in ipairs(p.files) do
       if f.index == index then
-        picks[token] = nil
         if p.forHost then
-          -- A member's pick: the host adds it. The local torrent was only for the file list.
+          -- A member's pick: the host adds it. The local torrent was only for the file list. A refused request
+          -- ("no-host", "rate") keeps the pick, so the member can try again.
           local title = baseName(f.path)
           local ok, why = PARTY.requestAdd({u = p.url, f = index, ti = title}, true)   -- a pick is not lost to the pause
+          if not ok then return ok, why end
+          picks[token] = nil
           if PARTY.currentUrl() ~= p.url then QUEUE.closeTorrent(p.url) end
-          if ok then U.emit("party.addSent", title) end
+          U.emit("party.addSent", title)
           return ok, why
         end
+        picks[token] = nil
         local it, why = addTorrentItem(p.url, index, baseName(f.path))
         if it then U.emit("queue.picked", it) end
         return it ~= nil, why
@@ -1973,6 +1986,9 @@ do
     if not used then QUEUE.closeTorrent(url) end
   end
 
+  -- True while a file pick is open (a member's refused pick stays open).
+  function QUEUE.pickOpen(token) return picks[token] ~= nil end
+
   function QUEUE.cancelPick(token)
     local p = picks[token]
     if not p then return false end
@@ -2002,7 +2018,10 @@ do
     if #vids == 1 then
       -- no picker to say so: a refused add (a member's request to the host that cannot go out) is reported here
       local ok, why = QUEUE.pickFile(token, vids[1].index)
-      if not ok then U.emit("party.addResult", false, why) end
+      if not ok then
+        QUEUE.cancelPick(token)
+        U.emit("party.addResult", false, why)
+      end
     else
       U.emit("queue.pick", token, vids, p.name)
     end
@@ -2051,7 +2070,10 @@ do
     local n, limit = 0, nil
     for _, r in ipairs(type(res.items) == "table" and res.items or {}) do
       local c = type(r) == "table" and type(r.url) == "string" and wum.media.classify(r.url)
-      if c and c.kind == "youtube" and c.id then
+      -- a member's playlist skips videos already queued, as a member's single add does
+      if c and c.kind == "youtube" and c.id and attrib and QUEUE.has(c.url, nil) then
+        limit = limit or "dup"
+      elseif c and c.kind == "youtube" and c.id then
         if room and n >= room then
           limit = "member-full"
           break
@@ -2153,6 +2175,9 @@ do
           releaseTorrent(url)
           return done(false, reason)
         end
+        -- the party ended (QUEUE.closeAllTorrents) or members' adds were turned off while the file list came
+        if x.closed then return refuse("not-running") end
+        if CFG.get("whoAdds") ~= "anyone" then return refuse("host-only") end
         if x.error then return refuse(x.error == "slow" and "torrent-slow" or "torrent") end
         local vids = QUEUE.videoFiles(x.files)
         if #vids == 0 then return refuse("no-video") end
@@ -2179,7 +2204,12 @@ do
       lookUpTitle(byId, it.url)
       return done(true, nil, 1, "YouTube video")
     end
-    local id, why = memberResolve(byId, c.url, function(res) addPlaylist(res, mine, room, done) end)
+    local id, why = memberResolve(byId, c.url, function(res)
+      -- the party ended, or members' adds were turned off, while the playlist was looked up
+      if PARTY.role() ~= "host" then return done(false, "not-running", 0) end
+      if CFG.get("whoAdds") ~= "anyone" then return done(false, "host-only", 0) end
+      addPlaylist(res, mine, room, done)
+    end)
     if not id then return done(false, why) end
   end
 
@@ -2632,17 +2662,16 @@ do
   function SPOT.seek(ms, cb) return SPOT.call("seek", math.max(0, math.floor(ms)), cb) end
   function SPOT.playback(cb) return SPOT.call("playback", cb) end
 
-  -- The device to fall back to: the active one, else the first usable computer, else the first usable device.
+  -- The device to fall back to: the active one, else the first computer, else the first device. A restricted device
+  -- takes no Web API commands, so it is never picked, active or not.
   function SPOT.pickDevice(items)
     if type(items) ~= "table" then return nil end
     local computer, any
     for _, d in ipairs(items) do
-      if type(d) == "table" and type(d.id) == "string" and d.id ~= "" then
+      if type(d) == "table" and type(d.id) == "string" and d.id ~= "" and d.restricted ~= true then
         if d.active == true then return d end
-        if d.restricted ~= true then
-          if not computer and d.type == "Computer" then computer = d end
-          any = any or d
-        end
+        if not computer and d.type == "Computer" then computer = d end
+        any = any or d
       end
     end
     return computer or any
@@ -2651,10 +2680,12 @@ do
   -- Plays a track at positionMs on the remembered device (pref spotifyDevice), or the active one. "no-device" (or a
   -- remembered device that is gone) lists the devices, picks one (SPOT.pickDevice), remembers it and retries once,
   -- unless wanted() (optional) is false by then: cb then gets {error = "cancelled"} and nothing more is sent.
-  -- Returns the first request id, or nil and a reason; cb gets the final result.
+  -- The retry starts later in the song by the time the failed play and the listing took. Returns the first request
+  -- id, or nil and a reason; cb gets the final result.
   function SPOT.playTrack(uri, positionMs, cb, wanted)
     cb = cb or noop
     local pos = math.max(0, math.floor(positionMs or 0))
+    local sent = U.now()
     local pref = U.pref("spotifyDevice")
     if type(pref) ~= "string" or pref == "" then pref = nil end
     return SPOT.call("play", {uri = uri, positionMs = pos, deviceId = pref}, function(res)
@@ -2667,7 +2698,7 @@ do
         local dev = SPOT.pickDevice(d.items)
         if not dev then return cb({error = "no-device"}) end
         U.setPref("spotifyDevice", dev.id)
-        local r2, why2 = SPOT.call("play", {uri = uri, positionMs = pos + math.floor(SPOT.latency()),
+        local r2, why2 = SPOT.call("play", {uri = uri, positionMs = pos + math.floor(U.now() - sent),
           deviceId = dev.id}, cb)
         if not r2 then cb({error = why2}) end
       end)
@@ -2725,12 +2756,12 @@ do
   local ADD_WAIT = 45000
   local POLL_PLAY, POLL_PAUSE = 3000, 10000
   local DRIFT_MAX, SEEK_HOLD = 1500, 8000
-  local RELINK_DURATION = 2000       -- ms: a relinked song (another id, in step) is this close in length
   local OVERRIDE_GRACE = 4000        -- ms after Holo's own action before a different playback counts as the user's
   local END_SLACK = 250
   local RESUME_AFTER = 1000          -- host: the video must be off this long before auto-paused music resumes
   local PLAY_TRIES = 3               -- follower: plays of one song that failed for a passing reason, then it waits
   local PAUSE_RETRY, PAUSE_GIVEUP = 1500, 15000   -- follower: a pause that did not go through is sent again
+  local PAUSE_BUSY_GIVEUP = 35000    -- ... longer while Holo's request cap is full (SPOT frees a slot within 30 s)
   -- Request errors that pass: the request is worth sending again later ("busy" also when Holo's own cap is full).
   local PASSING = {busy = true, rate = true, network = true, timeout = true, server = true}
   MUSIC.MAX_ITEMS, MUSIC.MEMBER_MAX, MUSIC.ADD_CHUNK = MAX_ITEMS, MEMBER_MAX, ADD_CHUNK
@@ -2752,7 +2783,7 @@ do
   local lastSeek, lastAction = -1e9, -1e9
   local detached, notPremium, lastError, backoffUntil = false, false, nil, -1e9
   local playTry = nil                -- {e, uri, n, at}: the last play failed for a passing reason; again at `at`
-  local wantPause = nil              -- {since, next}: a pause of Holo's track that has not gone through yet
+  local wantPause = nil              -- {since, next, giveup}: a pause of Holo's track that has not gone through yet
   local wasFollow = false
 
   local function toast(text, kind) U.emit("party.toast", text, kind or "info") end
@@ -2992,7 +3023,14 @@ do
   end
 
   -- Sends the pause of wantPause; a passing failure (Holo's request cap full, rate, network...) is sent again from
-  -- the tick, so Stop, Mute and leaving never leave the music playing.
+  -- the tick, so Stop, Mute and leaving never leave the music playing. It gives up after PAUSE_GIVEUP, but never
+  -- before a wait Spotify asked for (rate) is over or while Holo's own cap may still free a slot (busy).
+  local function retryPause(w, why, wait)
+    w.next = U.now() + wait
+    if why == "rate" then w.giveup = math.max(w.giveup, w.next + PAUSE_RETRY) end
+    if why == "busy" then w.giveup = math.max(w.giveup, w.since + PAUSE_BUSY_GIVEUP) end
+  end
+
   local function sendPause()
     local w = wantPause
     if not w then return end
@@ -3000,13 +3038,13 @@ do
     local rid, why = SPOT.pause(function(res)
       if wantPause ~= w then return end
       if res.error and PASSING[res.error] then
-        w.next = U.now() + (res.error == "rate" and (U.num(res.retryAfter) or 5) * 1000 or PAUSE_RETRY)
+        retryPause(w, res.error, res.error == "rate" and (U.num(res.retryAfter) or 5) * 1000 or PAUSE_RETRY)
       else
         wantPause = nil
       end
     end)
     if not rid then
-      if PASSING[why] then w.next = U.now() + PAUSE_RETRY else wantPause = nil end
+      if PASSING[why] then retryPause(w, why, PAUSE_RETRY) else wantPause = nil end
     end
   end
 
@@ -3015,7 +3053,7 @@ do
       owned.playing = false
       local now = U.now()
       lastAction = now
-      wantPause = {since = now, next = now}
+      wantPause = {since = now, next = now, giveup = now + PAUSE_GIVEUP}
       sendPause()
     end
   end
@@ -3160,10 +3198,9 @@ do
     if want >= it.durationMs - 5000 then return end
     local drift = (lastPb.positionMs + (now - lastPb.at)) - want
     -- Spotify relinked the song for this account's country: the same song under another id. Melange reports what
-    -- was asked for (linkedFrom); without it (an older Melange), a song in step and of the same length is taken.
-    if lastPb.uri ~= owned.uri and lastPb.playing and MUSIC.validUri(lastPb.uri) then
-      local sameLength = lastPb.durationMs and math.abs(lastPb.durationMs - it.durationMs) <= RELINK_DURATION
-      if lastPb.linkedFrom == owned.uri or (sameLength and math.abs(drift) <= DRIFT_MAX) then owned.uri = lastPb.uri end
+    -- was asked for (linkedFrom: every Melange with the Spotify module sends it); any other id is the user's choice.
+    if lastPb.uri ~= owned.uri and lastPb.playing and MUSIC.validUri(lastPb.uri) and lastPb.linkedFrom == owned.uri then
+      owned.uri = lastPb.uri
     end
     if lastPb.uri ~= owned.uri or not lastPb.playing then
       if now - lastAction > OVERRIDE_GRACE then setDetached() end
@@ -3460,9 +3497,10 @@ do
     if t == "madd" then
       local n = m.n
       if math.type(n) ~= "integer" or n < 1 or n > 2147483647 then return end
-      -- answers carry no key, so nothing replaces them: a member that floods gets no more once some wait for it
+      -- answers carry no key, so nothing replaces them: a member that floods gets no more refusals once some wait for
+      -- it. A success is always answered (its songs are in the queue); successes are bounded by the member's cap.
       local function reply(ok, why, c)
-        if NET.pending(from, true) >= REPLY_BACKLOG then return end
+        if not ok and NET.pending(from, true) >= REPLY_BACKLOG then return end
         NET.post(from, {t = "maddr", n = n, ok = ok, why = why, c = c})
       end
       local mi = member(from)
@@ -3709,6 +3747,7 @@ do
     for n, p in pairs(pendingAdds) do
       if now - p.at >= ADD_WAIT then
         pendingAdds[n] = nil
+        NET.drop(host, "^madd" .. n .. "$")              -- told it failed: it must not go out after all
         U.emit("music.addResult", false, "no-answer")
       end
     end
@@ -3717,7 +3756,7 @@ do
   function MUSIC.tick()
     local now = U.now()
     if wantPause then
-      if now - wantPause.since > PAUSE_GIVEUP then
+      if now > wantPause.giveup then
         wantPause = nil
       elseif now >= wantPause.next then
         sendPause()
@@ -5625,6 +5664,7 @@ do
     SKIN.clip(ix0, iy0, ix1, iy1)
     for i = first, last do
       local it = items[i]
+      if not it then break end                -- a remove in this loop shortened the list
       local ry0 = iy0 + (i - 1) * rowH - scroll * s
       local ry1 = ry0 + rowH
       local isCur = it.id == curId
@@ -5828,7 +5868,8 @@ do
     local by = my1 - bh - 14 * s
     if W.button("setup.pickok", mx1 - 20 * s - bw, by, mx1 - 20 * s, by + bh, "Add", {enabled = p.sel ~= nil}) then
       local ok, why = QUEUE.pickFile(p.token, p.sel)
-      table.remove(picks, 1)
+      -- a member's refused pick (the host not reachable, the pace) stays open to try again
+      if ok or not QUEUE.pickOpen(p.token) then table.remove(picks, 1) end
       if not ok then say(ADD_WHY[why] or "Could not add that file", "error") end
     end
     if W.button("setup.pickno", mx1 - 30 * s - bw * 2, by, mx1 - 30 * s - bw, by + bh, "Cancel") then
@@ -5934,6 +5975,8 @@ do
         who = PARTY.hostName() .. "'s Holo has no music lane"
       elseif mwhy == "host-only" then
         who = PARTY.hostName() .. " hosts the music and adds the songs"
+      elseif mwhy == "no-host" then
+        who = PARTY.hostName() .. " hosts the music and cannot be reached now"
       else
         who = PARTY.hostName() .. " hosts the music. You can add songs"
       end
@@ -5945,7 +5988,8 @@ do
       who = "Only the host (" .. PARTY.hostName() .. ") controls the party"
       if why == "old-host" then who = who .. " (their Holo is older than 1.1)"
       elseif why == "host-only" then who = who .. " and adds the videos"
-      elseif why == "not-running" then who = who .. ". Adding opens when they start the party" end
+      elseif why == "not-running" then who = who .. ". Adding opens when they start the party"
+      elseif why == "no-host" then who = who .. " and cannot be reached now" end
     end
     SKIN.text(x0 + 40 * s + tagW, y0 + 14 * s, who, 15 * s, C.gold,
       {vcenter = 46 * s, maxWidth = x1 - 70 * s - (x0 + 40 * s + tagW)})
@@ -6059,6 +6103,10 @@ do
     busy = "Spotify is still answering; try again in a moment",
   }
   MUI.WHY = WHY
+  local LIB_WHY = {
+    ["not-found"] = "Spotify does not let apps read this playlist",
+    rate = "Spotify asks to slow down; open this again in a moment",
+  }
 
   local function say(text, kind)
     status, statusKind, statusAt = text, kind or "info", U.now()
@@ -6265,7 +6313,8 @@ do
     local text, kind = status, statusKind
     if text and U.now() - statusAt > 6000 then text = nil end
     if lib.err then
-      text, kind = lib.err == "not-found" and "Spotify does not let apps read this playlist" or whyText(lib.err), "error"
+      -- the library's own reasons (WHY.rate is about adding songs, and the library is not retried by itself)
+      text, kind = LIB_WHY[lib.err] or whyText(lib.err), "error"
     end
     if text then
       SKIN.text(mx0 + 20 * s, by0, text, 15 * s, kind == "error" and C.error or (kind == "warn" and C.warn or C.cream),
@@ -6465,6 +6514,7 @@ do
     SKIN.clip(ix0, iy0, ix1, iy1)
     for i = first, last do
       local it = items[i]
+      if not it then break end                -- a remove in this loop shortened the list
       local ry0 = iy0 + (i - 1) * rowH - scroll * s
       local ry1 = ry0 + rowH
       local isCur = it.id == curId

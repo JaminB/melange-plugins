@@ -321,6 +321,32 @@ do
   check(res and res.ok == true and #m.fs.callsOf("play") == 4, "wanted: played on the listed device")
 end
 
+-- 9. The fallback: an active restricted device (it takes no Web API commands) is not picked over a usable one, and
+-- the second play starts later in the song by the time the first play and the listing took.
+do
+  local m = machine(true)
+  local SPOT = m.ns.SPOT
+  check(SPOT.pickDevice({{id = "tv", type = "TV", active = true, restricted = true},
+    {id = "pc", type = "Computer"}}).id == "pc", "pickDevice skips an active restricted device")
+  check(SPOT.pickDevice({{id = "tv", type = "TV", active = true, restricted = true}}) == nil,
+    "pickDevice: a restricted device alone is no device")
+  m.fs.link(true)
+  m.mock.frame()
+  m.fs.devices = {{id = "pc", name = "PC", type = "Computer", active = false, restricted = false}}
+  m.fs.manual = true
+  local res
+  SPOT.playTrack(FS.uri(5), 10000, function(r) res = r end)
+  m.mock.now = m.mock.now + 0.7
+  m.fs.answerNow(1)                        -- no-device after 0.7 s: the devices are listed
+  m.mock.now = m.mock.now + 0.8
+  m.fs.answerNow(2)                        -- listed after another 0.8 s: the second play
+  local plays = m.fs.callsOf("play")
+  check(#plays == 2 and plays[2].args[1].positionMs >= 11450, "the retry is about 1.5 s further in: "
+    .. tostring(plays[2] and plays[2].args[1].positionMs))
+  m.fs.answerNow(3)
+  check(res and res.ok == true, "played")
+end
+
 if fails > 0 then
   io.stderr:write(fails .. " check(s) failed\n")
   os.exit(1)

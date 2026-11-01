@@ -178,17 +178,16 @@ do
   function SPOT.seek(ms, cb) return SPOT.call("seek", math.max(0, math.floor(ms)), cb) end
   function SPOT.playback(cb) return SPOT.call("playback", cb) end
 
-  -- The device to fall back to: the active one, else the first usable computer, else the first usable device.
+  -- The device to fall back to: the active one, else the first computer, else the first device. A restricted device
+  -- takes no Web API commands, so it is never picked, active or not.
   function SPOT.pickDevice(items)
     if type(items) ~= "table" then return nil end
     local computer, any
     for _, d in ipairs(items) do
-      if type(d) == "table" and type(d.id) == "string" and d.id ~= "" then
+      if type(d) == "table" and type(d.id) == "string" and d.id ~= "" and d.restricted ~= true then
         if d.active == true then return d end
-        if d.restricted ~= true then
-          if not computer and d.type == "Computer" then computer = d end
-          any = any or d
-        end
+        if not computer and d.type == "Computer" then computer = d end
+        any = any or d
       end
     end
     return computer or any
@@ -197,10 +196,12 @@ do
   -- Plays a track at positionMs on the remembered device (pref spotifyDevice), or the active one. "no-device" (or a
   -- remembered device that is gone) lists the devices, picks one (SPOT.pickDevice), remembers it and retries once,
   -- unless wanted() (optional) is false by then: cb then gets {error = "cancelled"} and nothing more is sent.
-  -- Returns the first request id, or nil and a reason; cb gets the final result.
+  -- The retry starts later in the song by the time the failed play and the listing took. Returns the first request
+  -- id, or nil and a reason; cb gets the final result.
   function SPOT.playTrack(uri, positionMs, cb, wanted)
     cb = cb or noop
     local pos = math.max(0, math.floor(positionMs or 0))
+    local sent = U.now()
     local pref = U.pref("spotifyDevice")
     if type(pref) ~= "string" or pref == "" then pref = nil end
     return SPOT.call("play", {uri = uri, positionMs = pos, deviceId = pref}, function(res)
@@ -213,7 +214,7 @@ do
         local dev = SPOT.pickDevice(d.items)
         if not dev then return cb({error = "no-device"}) end
         U.setPref("spotifyDevice", dev.id)
-        local r2, why2 = SPOT.call("play", {uri = uri, positionMs = pos + math.floor(SPOT.latency()),
+        local r2, why2 = SPOT.call("play", {uri = uri, positionMs = pos + math.floor(U.now() - sent),
           deviceId = dev.id}, cb)
         if not r2 then cb({error = why2}) end
       end)

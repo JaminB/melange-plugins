@@ -13,8 +13,9 @@
 --   raise, "auth" / "busy" (8 waiting) / "invalid" come back as nil, reason, and callbacks run later, on a mock timer
 --   (fs.delay seconds, default 0.05), never inside the call.
 --   A simulated Spotify Connect device answers by default: play starts the track on the given or active device (not
---   Premium -> "premium", no device -> "no-device", an unknown deviceId -> "not-found"), pause/seek/resume act on it
---   and playback reports it ({active, playing, uri, positionMs, at, device}, and linkedFrom for a relinked track).
+--   Premium -> "premium", no device -> "no-device", an unknown deviceId -> "not-found", a restricted device ->
+--   "restricted"), pause/seek/resume act on it and playback reports it ({active, playing, uri, positionMs, at,
+--   device}, and linkedFrom for a relinked track).
 --   Tests steer it through the fields below.
 --   premium in the status is true, false or nil (not known: a Development-mode app is not told at sign-in). Like
 --   Melange, the fake learns it from the answers to control requests (play, pause, resume, seek, volume): one that
@@ -32,7 +33,6 @@
 --   account                   {user, premium}: who a sign-in (or a grant of a linked account) connects as
 --   premiumUnknown = true     sign-ins report premium = nil (the account type is learnt from the first control call)
 --   relink[uri] = uri2        Spotify relinks a track for this account's market: plays uri2, reports linkedFrom = uri
---   noLinkedFrom = true       an older Melange: playback never reports linkedFrom
 --   gesture(on)               pretend a click happened (or clear it)
 --   why                       set to make available() return false, why
 --   connectWhy                makes connect() return nil, connectWhy (e.g. "port-busy")
@@ -59,7 +59,7 @@ function FS.install(wum, mock, opts)
   opts = opts or {}
   local CONTROL = {play = true, pause = true, resume = true, seek = true, volume = true}
   local fs = {calls = {}, respond = {}, delay = opts.delay or 0.05, manual = opts.manual == true, why = opts.why,
-    relink = {}, premiumUnknown = false, noLinkedFrom = false,
+    relink = {}, premiumUnknown = false,
     connectWhy = nil, connects = 0, gestureUntil = -1, player = nil, library = {}, nextRid = 0,
     account = {user = "Listener", premium = true},
     status = {state = "disconnected", linked = false},
@@ -152,6 +152,7 @@ function FS.install(wum, mock, opts)
       dev = activeDevice()
       if not dev then return {error = "no-device", message = "No active device"} end
     end
+    if dev.restricted then return {error = "restricted", message = "Device is restricted"} end
     for _, d in ipairs(fs.devices) do d.active = d == dev end
     local uri = o.uri or (o.uris and o.uris[1]) or o.context
     local linked = fs.relink[uri]
@@ -186,7 +187,7 @@ function FS.install(wum, mock, opts)
     if not p or not d then return {active = false} end
     return {active = true, playing = p.playing, uri = p.uri, name = "Song", artists = "Artist", durationMs = 600000,
       positionMs = math.floor(position()), at = nowMs(), device = {id = d.id, name = d.name, type = d.type,
-      volume = d.volume}, linkedFrom = not fs.noLinkedFrom and p.linkedFrom or nil}
+      volume = d.volume}, linkedFrom = p.linkedFrom}
   end
   function SIM.devices() return {items = deepcopy(fs.devices)} end
   function SIM.library(c)
