@@ -245,6 +245,57 @@ do
     return "spinner" .. (math.floor(U.now() / 83) % 8 + 1)
   end
 
+  ---------------------------------------------------------------- glyphs, avatar, badge
+
+  -- Line drawings of Spotify device kinds (SPOT.kindOf), on a 24-unit grid `size` pixels square at x, y; drawn with
+  -- HUD primitives because the icon atlas has no room for another row.
+  local GLYPHS = {
+    computer = {{"R", 2, 4, 22, 16, false}, {"R", 10, 16, 14, 19, true}, {"R", 6, 19, 18, 21, true}},
+    phone = {{"R", 7, 2, 17, 22, false}, {"R", 11, 18.5, 13, 20, true}},
+    speaker = {{"R", 6, 2, 18, 22, false}, {"R", 10.5, 5, 13.5, 8, true}, {"R", 9, 11, 15, 18, false}},
+    tv = {{"R", 2, 4, 22, 17, false}, {"L", 8, 17, 6, 21}, {"L", 16, 17, 18, 21}},
+    console = {{"R", 2, 7, 22, 17, false}, {"R", 5, 11, 9, 13, true}, {"R", 6, 10, 8, 14, true},
+      {"R", 15, 10, 17, 12, true}, {"R", 17, 12, 19, 14, true}},
+    car = {{"R", 3, 10, 21, 17, false}, {"L", 6, 10, 9, 5}, {"L", 9, 5, 15, 5}, {"L", 15, 5, 18, 10},
+      {"R", 5, 17, 9, 20, true}, {"R", 15, 17, 19, 20, true}},
+    device = {{"R", 5, 5, 19, 19, false}, {"R", 10, 10, 14, 14, true}},
+  }
+  function SKIN.glyph(kind, x, y, size, rgb, a)
+    local u = size / 24
+    local t = math.max(1.5, 2 * u)
+    local c = col(rgb or C.cream, a)
+    for _, p in ipairs(GLYPHS[kind] or GLYPHS.device) do
+      if p[1] == "R" then
+        wum.draw.hudRect(x + p[2] * u, y + p[3] * u, x + p[4] * u, y + p[5] * u, c, p[6], t)
+      else
+        wum.draw.hudLine(x + p[2] * u, y + p[3] * u, x + p[4] * u, y + p[5] * u, c, t)
+      end
+    end
+  end
+
+  -- A round avatar `d` pixels across with the name's first letter; its tint follows the name.
+  local AVATAR = {C.btnHover, C.light2, C.off, C.btn}
+  function SKIN.avatar(name, x, y, d)
+    name = type(name) == "string" and name or ""
+    local sum = 0
+    for i = 1, #name do sum = sum + name:byte(i) end
+    SKIN.nine("pill", x, y, x + d, y + d, {tint = AVATAR[sum % 4 + 1]})
+    local initial = U.trim(name, 1)    -- the first UTF-8 character
+    if initial == "" then initial = "?" end
+    if #initial == 1 then initial = initial:upper() end
+    SKIN.text(x + d / 2, y, initial, d * 0.5, C.title, {kind = "display", align = "center", vcenter = d})
+  end
+
+  -- A small capsule label (Premium, Free) `size` text pixels at x, y, in a bright tint with ink text. Returns its
+  -- width. Drawn with the seek bar's fill: the teal pill would turn a bright tint too dark for ink text.
+  function SKIN.badge(x, y, text, size, tint)
+    local w = SKIN.measure(text, size, "body") + size * 1.4
+    local h = size * 1.6
+    SKIN.nine("bar_fill", x, y, x + w, y + h, {tint = tint})
+    SKIN.text(x + w / 2, y, text, size, C.ink, {align = "center", vcenter = h})
+    return w
+  end
+
   -- Clips nest at most 4 deep in the core; callers use at most two.
   function SKIN.clip(x0, y0, x1, y1)
     if wum.draw.hudClip then wum.draw.hudClip(x0, y0, x1, y1) end

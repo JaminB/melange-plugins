@@ -40,6 +40,29 @@
 --   player                    the simulated playback {uri, pos, at, playing, device} or nil
 --   library[key]              songs/playlists by key: "tracks", "playlists", "playlist:<id>"
 --   connects                  how many times connect() was called
+--   disconnects               how many times disconnect() was called
+--
+-- Melange 0.14 (FS.install(wum, mock, {api = "0.14", builtin = true, app = "builtin" | "user" | "ini" | nil,
+-- ini = false, clipboard = "<text>"})) adds the in-game setup surface of the contract:
+--   setup()                   {app, appHint (last 4 of fs.clientId, or "abcd"), builtin, ini, redirectUri, dashboardUrl}
+--   status() and the events   carry app; available() says "no-client-id" while app is nil
+--   setClientId(id)           a non-string non-nil raises; no click -> nil, "gesture" (not used up); trimmed, not 32
+--                             letters and digits -> nil, "invalid"; records fs.clientIds (false for a clear); sets
+--                             fs.app "user" (a clear: back to "ini", "builtin" or nil); a changed app cancels a
+--                             sign-in and signs out (disconnected, not linked); an error is cleared
+--   pasteClientId()           needs a click; the Client ID found in fs.clipboard by the contract's rule, or
+--                             nil, "clipboard"
+--   copy(what)                a non-string raises; not "redirectUri" -> nil, "invalid"; needs a click;
+--                             fs.copies += 1, fs.clipboard = the URI
+--   openDashboard()           needs a click and uses it up; fs.dashboards += 1 (fs.dashboardWhy makes it fail)
+--   cancel()                  fs.cancels += 1; connecting -> disconnected (or connected when linked), true; otherwise
+--                             clears an error, false
+--   connect()                 uses the click up; while connecting re-opens the page: fs.reopens += 1, true
+--   transfer(opts, fn)        types raise like play; a control request: an unknown id -> "not-found", a restricted
+--                             device -> "restricted", Free -> "premium"; moves fs.player to the device (play = true
+--                             starts it) and marks the device active
+--   devices                   items carry private (false unless set)
+--   notAllowlisted()          the account is not on the app's list: error "not-allowlisted", not linked
 local MW = require("mock_wum")
 local deepcopy = MW.deepcopy
 
@@ -57,10 +80,14 @@ end
 
 function FS.install(wum, mock, opts)
   opts = opts or {}
-  local CONTROL = {play = true, pause = true, resume = true, seek = true, volume = true}
+  local CONTROL = {play = true, pause = true, resume = true, seek = true, volume = true, transfer = true}
+  local v14 = opts.api == "0.14"
   local fs = {calls = {}, respond = {}, delay = opts.delay or 0.05, manual = opts.manual == true, why = opts.why,
-    relink = {}, premiumUnknown = false,
-    connectWhy = nil, connects = 0, gestureUntil = -1, player = nil, library = {}, nextRid = 0,
+    relink = {}, premiumUnknown = false, v14 = v14,
+    connectWhy = nil, connects = 0, disconnects = 0, gestureUntil = -1, player = nil, library = {}, nextRid = 0,
+    builtin = opts.builtin ~= false and v14, ini = opts.ini == true, app = opts.app, clipboard = opts.clipboard,
+    clientId = opts.clientId, clientIds = {}, copies = 0, dashboards = 0, cancels = 0, reopens = 0,
+    redirectUri = "http://127.0.0.1:8780/callback",
     account = {user = "Listener", premium = true},
     status = {state = "disconnected", linked = false},
     devices = {{id = "pc1", name = "DESKTOP", type = "Computer", active = true, restricted = false, volume = 60}}}
@@ -71,6 +98,7 @@ function FS.install(wum, mock, opts)
   local function event()
     local p = deepcopy(fs.status)
     p.type = "status"
+    if v14 then p.app = fs.app end
     mock.emit("melange.spotify", p)
   end
 
@@ -237,6 +265,7 @@ function FS.install(wum, mock, opts)
 
   local function available()
     if fs.why then return false, fs.why end
+    if v14 and fs.app == nil then return false, "no-client-id" end
     return true
   end
 
@@ -269,8 +298,9 @@ function FS.install(wum, mock, opts)
   function sp.available() return available() end
   function sp.status()
     local ok, why = available()
-    if not ok then return {state = "disconnected", linked = false} end
-    return deepcopy(fs.status)
+    local t = ok and deepcopy(fs.status) or {state = "disconnected", linked = false}
+    if v14 then t.app = fs.app end
+    return t
   end
   function sp.connect()
     fs.connects = fs.connects + 1
@@ -278,8 +308,13 @@ function FS.install(wum, mock, opts)
     if not ok then return nil, why end
     if not (fs.gestureUntil >= mock.now) then return nil, "gesture" end
     if fs.connectWhy then return nil, fs.connectWhy end
+    if v14 then fs.gestureUntil = -1 end                 -- 0.14: connect uses the click up
     if fs.status.state == "connected" then return true end
-    if fs.status.state == "connecting" then return nil, "busy" end
+    if fs.status.state == "connecting" then
+      if not v14 then return nil, "busy" end
+      fs.reopens = fs.reopens + 1                        -- this mod's own sign-in: the page opens again
+      return true
+    end
     if fs.status.linked then
       fs.setStatus{state = "connected", premium = fs.account.premium, user = fs.account.user}
     else
@@ -288,6 +323,7 @@ function FS.install(wum, mock, opts)
     return true
   end
   function sp.disconnect()
+    fs.disconnects = fs.disconnects + 1
     for _, c in ipairs(fs.calls) do
       if not c.answered then
         c.answered = true
@@ -348,6 +384,143 @@ function FS.install(wum, mock, opts)
   function sp.playback(fn)
     if type(fn) ~= "function" then error("bad argument #1 to 'playback' (function expected)") end
     return request("playback", {}, fn)
+  end
+
+  ---------------------------------------------------------------- Melange 0.14: the in-game setup
+
+  local function clicked() return fs.gestureUntil >= mock.now end
+  local function trimAscii(t) return (t:gsub("^[ \t\r\n\v\f]+", ""):gsub("[ \t\r\n\v\f]+$", "")) end
+  local function isId(t) return #t == 32 and t:match("^[0-9A-Za-z]+$") ~= nil end
+
+  -- The contract's rule: the trimmed text is an ID, or the text holds exactly one maximal run of 32 letters / digits.
+  function FS.findClientId(text)
+    if type(text) ~= "string" then return nil end
+    local t = trimAscii(text)
+    if isId(t) then return t end
+    local found, n = nil, 0
+    for run in text:gmatch("[0-9A-Za-z]+") do
+      if #run == 32 then found, n = run, n + 1 end
+    end
+    if n == 1 then return found end
+    return nil
+  end
+
+  function fs.notAllowlisted()
+    fs.setStatus{state = "error", error = "not-allowlisted", linked = false}
+  end
+
+  if v14 then
+    fs.clientId = fs.clientId or (fs.app and "0123456789abcdef0123456789ab" .. "abcd" or nil)
+
+    function sp.setup()
+      return {app = fs.app, appHint = fs.app and (fs.clientId and fs.clientId:sub(-4) or "abcd") or nil,
+        builtin = fs.builtin, ini = fs.ini, redirectUri = fs.redirectUri,
+        dashboardUrl = "https://developer.spotify.com/dashboard/create"}
+    end
+
+    function sp.setClientId(id)
+      if id ~= nil and type(id) ~= "string" then error("wum.spotify.setClientId: id must be a string or nil") end
+      if fs.why then return nil, fs.why end
+      if not clicked() then return nil, "gesture" end
+      local t = id and trimAscii(id) or ""
+      if t ~= "" and (#id > 1024 or not isId(t)) then return nil, "invalid" end
+      if fs.setClientIdWhy then return nil, fs.setClientIdWhy end
+      local before = tostring(fs.app) .. ":" .. tostring(fs.clientId)
+      if t == "" then
+        fs.clientIds[#fs.clientIds + 1] = false
+        fs.app = fs.ini and "ini" or (fs.builtin and "builtin" or nil)
+        fs.clientId = fs.app and ("fedcba9876543210fedcba98765432" .. (fs.app == "ini" and "in" or "bt")) or nil
+      else
+        fs.clientIds[#fs.clientIds + 1] = t
+        fs.app, fs.clientId = "user", t
+      end
+      local after = tostring(fs.app) .. ":" .. tostring(fs.clientId)
+      if before ~= after and (fs.status.state ~= "disconnected" or fs.status.linked) then
+        fs.setStatus{state = "disconnected", linked = false}
+      elseif fs.status.state == "error" then
+        fs.setStatus{state = "disconnected"}
+      else
+        event()
+      end
+      return true
+    end
+
+    function sp.pasteClientId()
+      if fs.why then return nil, fs.why end
+      if not clicked() then return nil, "gesture" end
+      local id = FS.findClientId(fs.clipboard)
+      if not id then return nil, "clipboard" end
+      return id
+    end
+
+    function sp.copy(what)
+      if type(what) ~= "string" then error("bad argument #1 to 'copy' (string expected)") end
+      if fs.why then return nil, fs.why end
+      if what ~= "redirectUri" then return nil, "invalid" end
+      if not clicked() then return nil, "gesture" end
+      fs.copies = fs.copies + 1
+      fs.clipboard = fs.redirectUri
+      return true
+    end
+
+    function sp.openDashboard()
+      if fs.why then return nil, fs.why end
+      if not clicked() then return nil, "gesture" end
+      fs.gestureUntil = -1
+      if fs.dashboardWhy then return nil, fs.dashboardWhy end
+      fs.dashboards = fs.dashboards + 1
+      return true
+    end
+
+    function sp.cancel()
+      fs.cancels = fs.cancels + 1
+      if fs.status.state == "connecting" then
+        if fs.status.linked then
+          fs.setStatus{state = "connected", premium = fs.account.premium, user = fs.account.user}
+        else
+          fs.setStatus{state = "disconnected"}
+        end
+        return true
+      end
+      if fs.status.state == "error" then fs.setStatus{state = "disconnected"} end
+      return false
+    end
+
+    function sp.transfer(o, fn)
+      if type(o) ~= "table" then error("bad argument #1 to 'transfer' (table expected)") end
+      if o.deviceId ~= nil and type(o.deviceId) ~= "string" then
+        error("bad argument #1 to 'transfer' (deviceId must be a string)")
+      end
+      if o.play ~= nil and type(o.play) ~= "boolean" then
+        error("bad argument #1 to 'transfer' (play must be a boolean)")
+      end
+      optFn(fn, 2, "transfer")
+      if o.deviceId == nil or #o.deviceId > 128 or not o.deviceId:match("^[0-9A-Za-z_%-]+$") then
+        return nil, "invalid"
+      end
+      return request("transfer", {o}, fn)
+    end
+
+    function SIM.transfer(c)
+      local o = c.args[1]
+      local dev = findDevice(o.deviceId)
+      if not dev then return {error = "not-found", message = "Device not found"} end
+      if dev.restricted then return {error = "restricted", message = "Device is restricted"} end
+      for _, d in ipairs(fs.devices) do d.active = d == dev end
+      if fs.player then
+        fs.player.pos, fs.player.at = position(), nowMs()
+        fs.player.device = dev
+        if o.play == true then fs.player.playing = true end
+      end
+      return {ok = true}
+    end
+
+    local listDevices = SIM.devices
+    function SIM.devices(c)
+      local res = listDevices(c)
+      for _, d in ipairs(res.items) do if d.private == nil then d.private = false end end
+      return res
+    end
   end
 
   wum.spotify = sp

@@ -1,7 +1,9 @@
--- music UI (Holo 1.1): the setup panel's Music tab (now playing, seek, the music queue, the Spotify block with the
--- consent text and the Link button), the library modal (saved songs, playlists, their songs, paged by 50) and the
--- now-playing chip at the top of the player's side. The chip shows while party music plays or is paused, with or
--- without a video party; F9 hides it with the other surfaces and never stops the music.
+-- music UI (Holo 1.2): the setup panel's Music tab (now playing, seek, the music queue and the Spotify card: sign in,
+-- set up an app of your own, waiting for the browser, or the account with its device), its modals (one at a time:
+-- the library of saved songs and playlists paged by 50, the setup guide, the device picker) and the now-playing chip
+-- at the top of the player's side. On Melange 0.13 the card keeps Holo 1.1's Link block (no guide, no transfer). The
+-- chip shows while party music plays or is paused, with or without a video party; F9 hides it with the other
+-- surfaces and never stops the music.
 do
   local C = SKIN.C
   local ROW, LIB_ROW = 52, 44
@@ -98,6 +100,8 @@ do
   end
 
   function MUI.openLibrary()
+    MUI.closeGuide()
+    MUI.closeDevices()
     lib.open = true
     load("tracks", nil, nil, 0)
   end
@@ -249,21 +253,72 @@ do
     end
   end
 
-  ---------------------------------------------------------------- the Music tab
+  ---------------------------------------------------------------- the Music tab: the Spotify card
 
   local ERROR_TEXT = {denied = "You did not allow access", timeout = "The sign-in timed out; try again",
     ["invalid-client"] = "Check [Spotify] ClientId and the app's Redirect URI", network = "Could not reach Spotify",
     revoked = "Spotify signed Holo out; link again", exchange = "The Spotify sign-in failed; try again"}
+
+  -- The text of a status error. "not-allowlisted" depends on the app: the shared app is closed to this account (set
+  -- up an app of your own), or the user's own app has not added this account yet (User Management).
+  local function errorText(st)
+    local e = st.error
+    if e == "not-allowlisted" then
+      if st.app ~= "builtin" then
+        return "Your Spotify app does not allow this account yet: add it under User Management in the dashboard, "
+          .. "then sign in again"
+      end
+      return SPOT.WHY["not-allowlisted"]
+    end
+    if e == "invalid-client" and SPOT.hasSetup() and st.app == "user" then
+      return "Spotify refused your app's Client ID or Redirect URI; check the setup"
+    end
+    -- the shared app is Melange's: nothing in Melange.ini to check
+    if e == "invalid-client" and SPOT.hasSetup() and st.app == "builtin" then
+      return "Spotify refused the shared app's sign-in; use your own Spotify app"
+    end
+    return ERROR_TEXT[e] or SPOT.WHY[e] or "The Spotify sign-in failed"
+  end
+  MUI.errorText = errorText
+
+  -- Sign-in and setup answers: SPOT.WHY first (MUI's own WHY speaks of songs and requests). "port-busy" with the
+  -- shared app: Melange tried 8780, 8781 and 8782 and ignores [Spotify] RedirectPort for it.
+  local PORTS_BUSY = "Ports 8780 to 8782 are all in use by other programs; close one and try again"
+  local function spotWhy(why)
+    if why == "port-busy" and SPOT.hasSetup() and (SPOT.setup() or {}).app == "builtin" then return PORTS_BUSY end
+    return SPOT.WHY[why] or ("Could not do that (" .. tostring(why) .. ")")
+  end
+  MUI.spotWhy = spotWhy
+
+  -- Device listing and transfer answers: MUI's WHY speaks of adding songs ("rate", "invalid"), SPOT.WHY's "rate"
+  -- promises a retry a move does not make.
+  local DEV_WHY = {
+    rate = "Spotify asks to slow down; try again in a moment",
+    invalid = "Spotify cannot use that device",
+    ["not-found"] = "That device went away; press Refresh",
+    restricted = "That device does not take commands from apps",
+    busy = "Spotify is still answering; try again in a moment",
+  }
+  local function devWhy(why)
+    return DEV_WHY[why] or SPOT.WHY[why] or ("Could not do that (" .. tostring(why) .. ")")
+  end
+  MUI.devWhy = devWhy
 
   local CONSENT = "Link your Spotify account to add songs from your library and to listen with the party on your own "
     .. "Spotify (Premium). Your browser opens Spotify's sign-in page. Melange keeps the sign-in encrypted on this PC; "
     .. "Holo never sees it, and other players see only the songs you add."
   MUI.CONSENT = CONSENT
 
-  local function lines(text, x, y, size, rgb, width, maxLines)
-    for _, ln in ipairs(SKIN.wrap(text, size, "body", width, maxLines)) do
-      SKIN.text(x, y, ln, size, rgb)
-      y = y + size * 1.3
+  local WAIT_MS = 180000             -- Melange's sign-in deadline
+  local HELP_AFTER = 15000           -- ms of waiting before the "Spotify shows an error?" help shows
+  local lastState, lastErr, connectingSince = nil, nil, nil
+
+  -- Wrapped text from x, y; returns the y under the last line. kind "display" for headings.
+  local function lines(text, x, y, size, rgb, width, maxLines, kind)
+    local lh = size * (kind == "display" and 1.25 or 1.3)
+    for _, ln in ipairs(SKIN.wrap(text, size, kind or "body", width, maxLines)) do
+      SKIN.text(x, y, ln, size, rgb, {kind = kind})
+      y = y + lh
     end
     return y
   end
@@ -284,6 +339,216 @@ do
     end
   end
 
+  -- Which Spotify card the Music tab shows: "old" (Melange 0.12), "unavailable", "signin", "setup" (no app, or the
+  -- shared app refused this account), "waiting" (the browser sign-in is open) or "account".
+  function MUI.spotifyCard()
+    if not SPOT.has() then return "old" end
+    local st = SPOT.status()
+    if st.state == "connecting" then return "waiting" end
+    if st.state == "connected" then return "account" end
+    local ok, why = SPOT.available()
+    if not SPOT.hasSetup() then return ok and "signin" or "unavailable" end
+    if not ok and why ~= "no-client-id" then return "unavailable" end
+    local su = SPOT.setup()
+    if not su or su.app == nil then return "setup" end
+    if su.app == "builtin" and (st.error == "not-allowlisted" or U.pref("spotifyOwnApp") == true) then return "setup" end
+    return "signin"
+  end
+
+  local function signinCard(ix0, ix1, y, y1, s, st)
+    local iw = ix1 - ix0
+    if st.state == "error" then y = lines(errorText(st), ix0, y, 14 * s, C.error, iw, 4) + 6 * s end
+    if not SPOT.hasSetup() then
+      -- Melange 0.13: Holo 1.1's block (the Client ID is in Melange.ini)
+      local fit = math.max(3, math.floor((y1 - 70 * s - y) / (17 * s)))
+      y = lines(CONSENT, ix0, y, 13 * s, C.cream, iw, fit)
+      y = math.max(y + 6 * s, y1 - 60 * s)
+      linkButton("music.link", ix0, y, ix1, s, st.linked and "Use my Spotify in Holo" or "Link Spotify")
+      return y1
+    end
+    local su = SPOT.setup() or {}
+    y = lines("Play music with the party", ix0, y + 4 * s, 17 * s, C.cream, iw, 2, "display") + 4 * s
+    y = lines("Sign in to add songs from your library and to hear the party's music on your own Spotify (Premium).",
+      ix0, y, 13 * s, C.cream, iw, 4)
+    if (su.app == "user" or su.app == "ini") and su.appHint then
+      y = lines("Using your own Spotify app, ID ending " .. su.appHint, ix0, y + 4 * s, 13 * s, C.offText, iw, 2)
+    end
+    y = math.max(y + 8 * s, y1 - 150 * s)
+    if W.button("music.link", ix0, y, ix1, y + 48 * s, st.linked and "Use my Spotify in Holo" or "Sign in with Spotify",
+      {size = 17 * s, icon = "link"}) then
+      local ok, why = SPOT.connect()
+      if not ok then say(spotWhy(why), "error") end
+    end
+    lines("Spotify's page opens in your browser. Melange keeps the sign-in encrypted on this PC; Holo never sees it.",
+      ix0, y + 56 * s, 12 * s, C.offText, iw, 3)
+    if W.link("music.ownapp", ix0, y1 - 30 * s, su.app == "builtin" and "Use my own Spotify app" or "Change app",
+      14 * s) then
+      MUI.openGuide()
+    end
+    return y1
+  end
+
+  local function setupCard(ix0, ix1, y, y1, s, st)
+    local iw = ix1 - ix0
+    local su = SPOT.setup() or {}
+    local refused = st.error == "not-allowlisted" or U.pref("spotifyOwnApp") == true
+    if refused then
+      y = lines("Your Spotify account is not on the shared app's list.", ix0, y, 14 * s, C.warn, iw, 2) + 6 * s
+    elseif st.state == "error" then
+      y = lines(errorText(st), ix0, y, 14 * s, C.error, iw, 2) + 6 * s
+    end
+    y = lines("Set up Spotify", ix0, y + 4 * s, 17 * s, C.cream, iw, 1, "display") + 4 * s
+    y = lines("Spotify needs a free app of your own before Holo can play your music. It takes about two minutes, "
+      .. "right from here.", ix0, y, 13 * s, C.cream, iw, 5)
+    local shared = su.builtin == true and refused
+    y = math.max(y + 10 * s, y1 - (shared and 92 or 64) * s)
+    if W.button("music.setupapp", ix0, y, ix1, y + 48 * s, "Set up my Spotify app", {size = 17 * s, icon = "add"}) then
+      MUI.openGuide()
+    end
+    if shared and W.link("music.shared", ix0, y1 - 30 * s, "Try the shared app again", 14 * s) then
+      U.setPref("spotifyOwnApp", nil)
+      SPOT.cancel()                    -- clears the "not-allowlisted" error
+    end
+    return y1
+  end
+
+  local function waitingCard(ix0, ix1, y, y1, s)
+    local iw = ix1 - ix0
+    local setup = SPOT.hasSetup()
+    local now = U.now()
+    connectingSince = connectingSince or now
+    local since = connectingSince          -- a click below may end the sign-in (and clear connectingSince)
+    local is = 40 * s
+    SKIN.icon(SKIN.spinner(), ix0, y, is)
+    local size = 17 * s
+    local tl = SKIN.wrap("Finish signing in in your browser", size, "display", iw - is - 12 * s, 2)
+    local lh = size * 1.25
+    local ty = y + math.max(0, (is - #tl * lh) / 2)
+    for _, ln in ipairs(tl) do
+      SKIN.text(ix0 + is + 12 * s, ty, ln, size, C.cream, {kind = "display"})
+      ty = ty + lh
+    end
+    y = math.max(y + is, ty) + 10 * s
+    -- Melange 0.14 brings the game back to the front after the sign-in; 0.13 does not
+    y = lines(setup and "Log in on Spotify's page and press Agree. The game comes back here by itself."
+      or "Log in on Spotify's page and press Agree, then come back to the game.", ix0, y, 13 * s, C.cream, iw, 3)
+    local left = math.ceil((WAIT_MS - (now - since)) / 1000)
+    if left > 0 then
+      SKIN.text(ix0, y + 4 * s, "Waiting for Spotify, " .. U.fmtTime(left) .. " left", 13 * s, C.offText,
+        {maxWidth = iw})
+    end
+    y = y + 30 * s
+    if setup then
+      if W.button("music.reopen", ix0, y, ix1, y + 40 * s, "Open the page again", {size = 15 * s, icon = "link"}) then
+        local ok, why = SPOT.connect()     -- re-opens the same Spotify page (the deadline is not extended)
+        if not ok then say(spotWhy(why), "error") end
+      end
+      y = y + 48 * s
+    end
+    if W.button("music.cancel", ix0, y, ix0 + 120 * s, y + 40 * s, "Cancel", {size = 15 * s}) then
+      SPOT.cancel()
+    end
+    if setup and now - since >= HELP_AFTER then
+      local su = SPOT.setup() or {}
+      local builtin = su.app == "builtin"
+      SKIN.text(ix0, y1 - 50 * s, builtin and "Spotify shows an error?" or "Spotify says the redirect URI is wrong?",
+        13 * s, C.offText, {maxWidth = iw})
+      if W.link("music.wait.help", ix0, y1 - 30 * s, builtin and "Use your own app" or "Check the setup", 13 * s) then
+        SPOT.cancel()
+        MUI.openGuide()
+      end
+    end
+    return y1
+  end
+
+  -- The "Plays on" button: the chosen device (or what plays now), opening the device picker.
+  local function deviceButton(x0, y0, x1, s)
+    local id = "music.device"
+    local y1 = y0 + 44 * s
+    W.region(id, x0, y0, x1, y1)
+    local st = W.state(id, x0, y0, x1, y1, true)
+    SKIN.nine(st == "press" and "btn_press" or (st == "hover" and "btn_hover" or "well"), x0, y0, x1, y1)
+    local cid, name = SPOT.chosen()
+    local kind
+    for _, d in ipairs(SPOT.deviceList().items) do
+      if cid and d.id == cid then
+        kind, name = d.kind, name or d.name
+        break
+      end
+    end
+    if not name then
+      local pb = MUSIC.playback()
+      if pb and pb.device and pb.device.name and pb.device.name ~= "" then
+        name, kind = pb.device.name, SPOT.kindOf(pb.device.type)
+      end
+    end
+    local tx = x0 + 44 * s
+    SKIN.glyph(kind or "device", x0 + 12 * s, y0 + 10 * s, 24 * s, name and C.cream or C.offText)
+    SKIN.text(tx, y0, name or "Choose a device", 15 * s, name and C.cream or C.warn,
+      {vcenter = y1 - y0, maxWidth = x1 - 40 * s - tx})
+    SKIN.icon("down", x1 - 34 * s, y0 + 11 * s, 22 * s, st == "hover" and "hover" or "normal")
+    if W.clicked(id) then MUI.openDevices() end
+    return y1
+  end
+
+  local function accountCard(ix0, ix1, y, y1, s, st, host)
+    local iw = ix1 - ix0
+    local setup = SPOT.hasSetup()
+    -- who: avatar, name over the plan, and Sign out at the end of the plan line (the column is too narrow for a
+    -- button beside the name: the name gets the whole width)
+    local d = 44 * s
+    SKIN.avatar(st.user, ix0, y, d)
+    local nx = ix0 + d + 10 * s
+    SKIN.text(nx, y + 1 * s, (st.user and st.user ~= "") and st.user or "Spotify account", 18 * s, C.cream,
+      {kind = "display", maxWidth = ix1 - nx})
+    local ow = SKIN.measure("Sign out", 13 * s, "body")
+    if W.link("music.unlink", ix1, y + 27 * s, "Sign out", 13 * s, {align = "right"}) then SPOT.disconnect() end
+    if st.premium == true then
+      SKIN.badge(nx, y + 25 * s, "Premium", 12 * s, C.ok)
+    elseif st.premium == false or MUSIC.notPremium() then
+      SKIN.badge(nx, y + 25 * s, "Free", 12 * s, C.warn)
+    else
+      SKIN.text(nx, y + 27 * s, "Plan not known yet", 12 * s, C.offText, {maxWidth = ix1 - ow - 10 * s - nx})
+    end
+    y = y + d + 12 * s
+    if setup then
+      local app = st.app or (SPOT.setup() or {}).app
+      local label = (app == "builtin" and "Shared Spotify app") or (app == "user" and "Your own Spotify app")
+        or (app == "ini" and "Spotify app from Melange.ini") or "Spotify app"
+      local lw = SKIN.measure("Change app", 12 * s, "body")
+      SKIN.text(ix0, y, label, 12 * s, C.offText, {maxWidth = iw - lw - 10 * s})
+      if W.link("music.changeapp", ix1, y, "Change app", 12 * s, {align = "right"}) then MUI.openGuide() end
+      y = y + 22 * s
+    end
+    SKIN.text(ix0, y, "Plays on", 13 * s, C.offText)
+    y = deviceButton(ix0, y + 18 * s, ix1, s) + 8 * s
+    if MUSIC.lastError() == "no-device" then
+      y = lines("No device: open Spotify on this PC or your phone", ix0, y - 2 * s, 12 * s, C.warn, iw, 2) + 4 * s
+    end
+    if st.premium == false or MUSIC.notPremium() then
+      y = lines("Free account: you see what plays but cannot play it here", ix0, y, 13 * s, C.warn, iw, 2) + 4 * s
+    end
+    if MUSIC.detached() then
+      y = lines("You changed the music in Spotify; Holo stopped following until the host's next song. "
+        .. "To keep your own music, use Mute here.", ix0, y, 13 * s, C.warn, iw, 3)
+      if W.button("music.follow", ix0, y + 2 * s, ix0 + 160 * s, y + 38 * s, "Follow again", {size = 14 * s}) then
+        MUSIC.followAgain()
+      end
+      y = y + 44 * s
+    end
+    y = y + 4 * s
+    if W.button("music.browse", ix0, y, ix1, y + 44 * s, "Add from my library",
+      {size = 17 * s, icon = "add", enabled = MUSIC.canAdd()}) then
+      MUI.openLibrary()
+    end
+    y = y + 52 * s
+    if host then
+      listenButton("music.listen", ix0, y, ix0 + 150 * s, y + 36 * s, s)
+      y = y + 44 * s
+    end
+    return y
+  end
+
   local function spotifyBlock(x0, y0, x1, y1, s)
     SKIN.nine("panel_dark", x0, y0, x1, y1)
     local ix0, ix1 = x0 + 14 * s, x1 - 14 * s
@@ -295,69 +560,456 @@ do
     if not host and MUSIC.oldHost() then
       y = lines(WHY["old-host"], ix0, y, 13 * s, C.warn, iw, 3) + 6 * s
     end
-    if not SPOT.has() then
-      y = lines("Spotify music needs Melange " .. SPOT.NEEDS .. " or later. You can still see what the party plays.",
+    local card = MUI.spotifyCard()
+    if card == "old" then
+      return lines("Spotify music needs Melange " .. SPOT.NEEDS .. " or later. You can still see what the party plays.",
         ix0, y, 14 * s, C.cream, iw, 4)
-    else
-      local st = SPOT.status()
-      local ok, why = SPOT.available()
-      if not ok then
-        y = lines(SPOT.WHY[why] or ("Spotify is not available (" .. tostring(why) .. ")"), ix0, y, 14 * s, C.cream, iw, 4)
-      elseif st.state == "connecting" then
-        SKIN.icon(SKIN.spinner(), ix0, y, 26 * s)
-        SKIN.text(ix0 + 34 * s, y, "Finish signing in in your browser", 15 * s, C.cream,
-          {vcenter = 26 * s, maxWidth = iw - 34 * s})
-        y = y + 38 * s
-        if W.button("music.cancel", ix0, y, ix0 + 120 * s, y + 40 * s, "Cancel", {size = 15 * s}) then
-          SPOT.disconnect()
-        end
-        y = y + 48 * s
-      elseif st.state == "connected" then
-        SKIN.text(ix0, y, "Spotify: " .. (st.user ~= "" and st.user or "linked"), 16 * s, C.cream, {maxWidth = iw})
-        y = y + 22 * s
-        local free = st.premium == false or MUSIC.notPremium()
-        local kind = free and "Free account: you see what plays but cannot play it here"
-          or (st.premium == true and "Premium" or "Premium or Free: Spotify tells at the first song played")
-        y = lines(kind, ix0, y, 13 * s, free and C.warn or C.offText, iw, 2)
-        local pb = MUSIC.playback()
-        local dev = pb and pb.active and pb.device and pb.device.name
-        local devText = (dev and dev ~= "") and ("Device: " .. dev) or "No device: open Spotify on this PC or your phone"
-        if MUSIC.lastError() == "no-device" then devText = "No device: open Spotify on this PC or your phone" end
-        y = lines(devText, ix0, y + 2 * s, 13 * s, C.offText, iw, 2)
-        if MUSIC.detached() then
-          y = lines("You changed the music in Spotify; Holo stopped following until the host's next song. "
-            .. "To keep your own music, use Mute here.", ix0, y + 2 * s, 13 * s, C.warn, iw, 3)
-          if W.button("music.follow", ix0, y + 2 * s, ix0 + 160 * s, y + 38 * s, "Follow again", {size = 14 * s}) then
-            MUSIC.followAgain()
-          end
-          y = y + 44 * s
-        end
-        y = y + 8 * s
-        if W.button("music.browse", ix0, y, ix1, y + 44 * s, "Add from my library",
-          {size = 17 * s, icon = "add", enabled = MUSIC.canAdd()}) then
-          MUI.openLibrary()
-        end
-        y = y + 52 * s
-        if host then listenButton("music.listen", ix0, y, ix0 + 150 * s, y + 36 * s, s) end
-        if W.button("music.unlink", ix1 - 100 * s, y, ix1, y + 36 * s, "Unlink", {size = 14 * s}) then
-          SPOT.disconnect()
-        end
-        y = y + 44 * s
+    elseif card == "unavailable" then
+      local _, why = SPOT.available()
+      return lines(SPOT.WHY[why] or ("Spotify is not available (" .. tostring(why) .. ")"), ix0, y, 14 * s, C.cream,
+        iw, 4)
+    end
+    local st = SPOT.status()
+    if card == "waiting" then return waitingCard(ix0, ix1, y, y1 - 10 * s, s) end
+    if card == "account" then return accountCard(ix0, ix1, y, y1 - 10 * s, s, st, host) end
+    if card == "setup" then return setupCard(ix0, ix1, y, y1 - 10 * s, s, st) end
+    return signinCard(ix0, ix1, y, y1 - 10 * s, s, st)
+  end
+
+  -- Sign-in transitions: the countdown starts with "connecting"; a finished sign-in says who and closes the guide; the
+  -- shared app refusing this account opens the guide while the Music tab shows.
+  U.on("spot.status", function(st)
+    if st.state == "connecting" and lastState ~= "connecting" then connectingSince = U.now() end
+    if st.state ~= "connecting" then connectingSince = nil end
+    if st.state == "connected" and lastState == "connecting" then
+      say("Signed in as " .. ((st.user and st.user ~= "") and st.user or "your Spotify account"), "info")
+      MUI.closeGuide()
+    end
+    if st.error == "not-allowlisted" and st.app == "builtin" and lastErr ~= "not-allowlisted"
+      and PARTY.setupOpen() and SETUP.tab() == "music" then
+      if MUI.openGuide() then MUI.guideNote("Your Spotify account is not on the shared app's list.") end
+    end
+    -- signed out (Sign out, revoked, not allowlisted): the device picker has nothing left to list or move
+    if st.state ~= "connected" and MUI.devicesOpen() then MUI.closeDevices() end
+    lastState, lastErr = st.state, st.error
+  end)
+
+  ---------------------------------------------------------------- the setup guide (Melange 0.14)
+
+  -- Three steps to an app of the user's own: open Spotify's dashboard, copy the Redirect URI, paste the Client ID.
+  -- Every button is a click Melange checks (open, copy, paste, save need one; save then signs in with the same click).
+  local guide = {open = false, box = W.newText("music.guide.id"), copiedAt = -1e9, copiedEver = false, openedAt = nil,
+    err = nil, note = nil}
+  local ID_TEXT = "A Client ID has 32 letters and digits"
+
+  function MUI.guideOpen() return guide.open end
+  function MUI.guide() return guide end
+  function MUI.guideNote(text) guide.note = text end
+
+  -- Opens the guide (only on Melange 0.14; a no-op otherwise). true when it is open.
+  function MUI.openGuide()
+    if not SPOT.hasSetup() then return false end
+    if not guide.open then
+      MUI.closeLibrary()
+      MUI.closeDevices()
+      guide.open = true
+      guide.box.text, guide.box.caret, guide.box.anchor, guide.box.scroll = "", 0, nil, 0
+      guide.copiedAt, guide.copiedEver, guide.openedAt, guide.err, guide.note = -1e9, false, nil, nil, nil
+      SPOT.dropSetup()
+    end
+    return true
+  end
+
+  function MUI.closeGuide()
+    if guide.box.focused then W.blur() end
+    guide.open = false
+  end
+
+  local function validId(t) return #t == 32 and t:match("^%w+$") ~= nil end
+
+  -- The Client ID in the box: the trimmed text when it is one, or else the one run of exactly 32 letters and digits in
+  -- it (the rule Melange's Paste uses, for text pasted with Ctrl+V such as "Client ID 0a1b..."), or nil.
+  local function idIn(text)
+    local t = U.trim(text)
+    if validId(t) then return t end
+    local found, n = nil, 0
+    for run in t:gmatch("%w+") do
+      if #run == 32 then found, n = run, n + 1 end
+    end
+    return n == 1 and found or nil
+  end
+  MUI.idIn = idIn
+
+  -- Save and sign in: saves the Client ID (Melange signs out a sign-in made with another app), then opens Spotify's
+  -- page with the same click. fromKey: Enter in the box (no click: Melange may ask for one).
+  local function guideSave(fromKey)
+    local t = idIn(guide.box.text)
+    if not t then
+      guide.err = ID_TEXT
+      return
+    end
+    local ok, why = SPOT.setClientId(t)
+    if not ok then
+      if why == "invalid" then guide.err = ID_TEXT
+      elseif why == "gesture" and fromKey then guide.err = "Click Save and sign in to finish"
+      else guide.err = spotWhy(why) end
+      return
+    end
+    U.setPref("spotifyOwnApp", nil)
+    local c, why2 = SPOT.connect()
+    MUI.closeGuide()
+    if not c then say(spotWhy(why2), "error") end
+  end
+
+  local function modalFrame(id, x0, y0, x1, y1, s, mw, mh, title)
+    local W0, H0 = x1 - x0, y1 - y0
+    local w, h = math.min(mw * s, W0 - 40 * s), math.min(mh * s, H0 - 40 * s)
+    local mx0, my0 = x0 + (W0 - w) / 2, y0 + (H0 - h) / 2
+    SKIN.rect(x0, y0, x1, y1, C.black, 0.45)
+    W.region(id, mx0, my0, mx0 + w, my0 + h, "arrow")
+    SKIN.nine("panel_dark", mx0, my0, mx0 + w, my0 + h)
+    SKIN.text(mx0 + 20 * s, my0 + 14 * s, title, 22 * s, C.title, {kind = "display", maxWidth = w - 90 * s})
+    return mx0, my0, mx0 + w, my0 + h
+  end
+
+  local function msgColour(kind) return kind == "error" and C.error or (kind == "warn" and C.warn or C.offText) end
+
+  function MUI.drawGuide(x0, y0, x1, y1, s)
+    local mx0, my0, mx1, my1 = modalFrame("music.guide", x0, y0, x1, y1, s, 720, 560, "Use your own Spotify app")
+    if W.iconButton("music.guide.close", "close", mx1 - 52 * s, my0 + 12 * s, 36 * s) then
+      MUI.closeGuide()
+      return
+    end
+    local su = SPOT.setup() or {redirectUri = "http://127.0.0.1:8780/callback"}
+    local w = mx1 - mx0
+    lines("Spotify lets every free developer app play music for you and a few friends you add. Three steps:",
+      mx0 + 20 * s, my0 + 50 * s, 14 * s, C.cream, w - 40 * s, 2)
+    local sx = mx0 + 20 * s
+    local ax = sx + 46 * s
+    local tw = mx1 - 20 * s - ax
+    local now = U.now()
+    local function step(i, title, body, done)
+      local sy = my0 + 96 * s + (i - 1) * 118 * s
+      local b = 32 * s
+      SKIN.nine("pill", sx, sy, sx + b, sy + b, {tint = C.btn})
+      if done then
+        SKIN.icon("check", sx + 5 * s, sy + 5 * s, b - 10 * s)
       else
-        if st.state == "error" then
-          y = lines(ERROR_TEXT[st.error] or SPOT.WHY[st.error] or "The Spotify sign-in failed", ix0, y, 14 * s, C.error,
-            iw, 2)
-          y = y + 4 * s
-        end
-        local fit = math.max(3, math.floor((y1 - 70 * s - y) / (17 * s)))
-        y = lines(CONSENT, ix0, y, 13 * s, C.cream, iw, fit)
-        y = math.max(y + 6 * s, y1 - 60 * s)
-        linkButton("music.link", ix0, y, ix1, s, st.linked and "Use my Spotify in Holo" or "Link Spotify")
-        y = y1
+        SKIN.text(sx + b / 2, sy, tostring(i), 18 * s, C.title, {kind = "display", align = "center", vcenter = b})
       end
+      SKIN.text(ax, sy, title, 17 * s, C.gold, {kind = "display", vcenter = b, maxWidth = tw})
+      lines(body, ax, sy + 32 * s, 13 * s, C.cream, tw, 2)
+      return sy + 62 * s
+    end
+
+    -- 1. create the app
+    local ay = step(1, "Create a free app",
+      "Log in to Spotify for Developers and press Create app. Any name and description will do.", guide.openedAt ~= nil)
+    local bh = 40 * s
+    if W.button("music.guide.open", ax, ay, ax + 290 * s, ay + bh, "Open Spotify for Developers",
+      {size = 15 * s, icon = "link"}) then
+      local ok, why = SPOT.openDashboard()
+      if ok then guide.openedAt, guide.err = U.now(), nil else guide.err = spotWhy(why) end
+    end
+    if guide.openedAt then
+      SKIN.icon("check", ax + 302 * s, ay + 7 * s, 26 * s)
+      SKIN.text(ax + 334 * s, ay, "Opened in your browser", 13 * s, C.offText,
+        {vcenter = bh, maxWidth = mx1 - 20 * s - (ax + 334 * s)})
+    end
+
+    -- 2. the Redirect URI
+    ay = step(2, "Add this Redirect URI", "Paste it under Redirect URIs and press Add. Tick Web API, then Save.",
+      guide.copiedEver)
+    local wx1 = mx1 - 150 * s
+    SKIN.nine("well", ax, ay, wx1, ay + bh)
+    SKIN.text(ax + 14 * s, ay, su.redirectUri, 17 * s, C.title, {vcenter = bh, maxWidth = wx1 - ax - 28 * s})
+    local copied = now - guide.copiedAt < 2000
+    if W.button("music.guide.copy", mx1 - 140 * s, ay, mx1 - 20 * s, ay + bh, copied and "Copied" or "Copy",
+      {size = 15 * s, icon = copied and "check" or nil}) then
+      local ok, why = SPOT.copyRedirect()
+      if ok then
+        guide.copiedAt, guide.copiedEver, guide.err = U.now(), true, nil
+      else
+        guide.err = why == "gesture" and SPOT.WHY.gesture or "Could not copy to the clipboard; try again"
+      end
+    end
+
+    -- 3. the Client ID: typed or pasted (Ctrl+V in the box, or the Paste button: Melange reads only an ID from the
+    -- clipboard); Paste saves and signs in at once, like Save
+    ay = step(3, "Paste your Client ID", "Open your app's Settings and copy the Client ID.",
+      idIn(guide.box.text) ~= nil)
+    local ph = "32 letters and digits"
+    if su.app == "user" and su.appHint then ph = "32 letters and digits (yours ends " .. su.appHint .. ")" end
+    local r = W.textbox(guide.box, ax, ay, wx1, ay + bh, {size = 16 * s, placeholder = ph})
+    if r == "changed" then guide.err = nil end
+    local valid = idIn(guide.box.text) ~= nil
+    if U.trim(guide.box.text) ~= "" then SKIN.icon(valid and "check" or "cross", wx1 + 4 * s, ay + 5 * s, 30 * s) end
+    if W.button("music.guide.paste", mx1 - 110 * s, ay, mx1 - 20 * s, ay + bh, "Paste", {size = 15 * s}) then
+      local id, why = SPOT.pasteClientId()
+      if id then
+        guide.box.text, guide.box.caret, guide.box.anchor, guide.err = id, #id, nil, nil
+        guideSave(false)
+        if not guide.open then return end
+      else
+        guide.err = spotWhy(why)
+      end
+    end
+    lines("Friends who use your app: add their Spotify e-mail under User Management.", ax, ay + bh + 6 * s, 12 * s,
+      C.offText, tw, 1)
+    if r == "submit" then
+      guideSave(true)
+      if not guide.open then return end
+    end
+
+    -- footer: the shared app (when this build has one and another app is in use), messages, Save and sign in
+    local by0, by1 = my1 - 60 * s, my1 - 16 * s
+    local msg, kind = guide.err, "error"
+    if not msg and guide.note then msg, kind = guide.note, "warn" end
+    -- Clearing the in-game Client ID falls back to Melange.ini's, then to the shared app: offered only when the
+    -- in-game one is in use and there is something to fall back to (an ini app cannot be cleared from the game).
+    local fallback = su.app == "user" and (su.ini == true and "ini" or (su.builtin == true and "builtin")) or nil
+    local shared = fallback ~= nil
+    local above, aboveKind
+    if SPOT.connected() then above, aboveKind = "Saving a different app signs you out of Spotify here.", "warn" end
+    if shared and msg then above, aboveKind = msg, kind end     -- the footer's left holds the shared-app link
+    if above then
+      SKIN.text(mx0 + 20 * s, by0 - 24 * s, above, 13 * s, msgColour(aboveKind), {maxWidth = w - 40 * s})
+    end
+    local fw = mx1 - 272 * s - (mx0 + 20 * s)
+    if shared then
+      local label = fallback == "ini" and "Use the app from Melange.ini" or "Use the shared app instead"
+      local _, lh = SKIN.measure(label, 14 * s, "body")
+      if W.link("music.guide.shared", mx0 + 20 * s, by0 + (by1 - by0 - lh) / 2, label, 14 * s) then
+        local ok, why = SPOT.setClientId(nil)
+        if ok then
+          MUI.closeGuide()
+          local now = (SPOT.setup() or {}).app
+          say(now == "ini" and "Using the Spotify app from Melange.ini" or (now == "builtin"
+            and "Using the shared Spotify app" or "Your Client ID is removed"), "info")
+          return
+        end
+        guide.err = spotWhy(why)
+      end
+    elseif msg then
+      local ls = SKIN.wrap(msg, 13 * s, "body", fw, 2)
+      local yy = by0 + (by1 - by0 - #ls * 13 * s * 1.3) / 2
+      for _, ln in ipairs(ls) do
+        SKIN.text(mx0 + 20 * s, yy, ln, 13 * s, msgColour(kind))
+        yy = yy + 13 * s * 1.3
+      end
+    end
+    if W.button("music.guide.save", mx1 - 260 * s, by0, mx1 - 20 * s, by1, "Save and sign in",
+      {size = 17 * s, enabled = valid}) then
+      guideSave(false)
+    end
+  end
+
+  ---------------------------------------------------------------- the device picker
+
+  -- Every Spotify Connect device of the account (desktop app, phone, speaker, console, web player); a pick moves the
+  -- music there (Melange 0.14: transfer) and is remembered (Melange 0.13: remembered, used from the next song).
+  local DEV_ROW = 56
+  local DEV_REFRESH = 10000          -- ms between listings while the picker is open
+  local devs = {open = false, scroll = 0, pending = nil, lastTry = -1e9}
+
+  function MUI.devicesOpen() return devs.open end
+  function MUI.devicesState() return devs end
+
+  function MUI.openDevices()
+    MUI.closeLibrary()
+    MUI.closeGuide()
+    local now, dev = U.now(), SPOT.deviceList()
+    devs.open, devs.scroll = true, 0
+    -- a listing younger than 3 s is shown as it is (opening and closing the picker does not spend requests)
+    if dev.err or dev.at <= 0 or now - dev.at >= 3000 then
+      devs.lastTry = now
+      SPOT.refreshDevices()
+    else
+      devs.lastTry = dev.at              -- the 10 s refresh counts from that listing
+    end
+  end
+
+  -- A device row's region id: the device's own id (cut to the 64 bytes a region id may have), so a listing that
+  -- arrives between the press and the release cannot turn the click into a click on another device.
+  function MUI.deviceRowId(d) return "music.dev.r." .. d.id:sub(1, 52) end
+
+  function MUI.closeDevices() devs.open = false end
+
+  local function refreshLater()
+    wum.timers.after(1.5, U.guard("mui.devices", function()
+      if SPOT.connected() then SPOT.refreshDevices() end
+    end))
+  end
+
+  function MUI.pickDevice(d)
+    if type(d) ~= "table" or d.restricted then return end
+    if not SPOT.hasTransfer() then
+      SPOT.choose(d)
+      MUSIC.deviceChanged()
+      say("The party's music will play on " .. d.name .. " from the next song", "info")
+      return
+    end
+    if devs.pending then return end
+    local play = MUSIC.audible()
+    devs.pending = d.id
+    local rid, why = SPOT.transfer(d.id, play, function(res)
+      devs.pending = nil
+      local e = res.error
+      if not e then
+        SPOT.choose(d)
+        MUSIC.deviceChanged()
+        say(play and ("Now playing on " .. d.name) or ("The party's music will play on " .. d.name), "info")
+        refreshLater()
+      elseif e == "premium" then
+        SPOT.choose(d)
+        say("Moving the music needs Spotify Premium", "warn")
+      else
+        say(devWhy(e), "error")
+        if e == "not-found" then SPOT.refreshDevices() end
+      end
+    end)
+    if not rid then
+      devs.pending = nil
+      say(devWhy(why), "error")
+    end
+  end
+
+  local function centred(text, cx, y, size, rgb, width, maxLines)
+    for _, ln in ipairs(SKIN.wrap(text, size, "body", width, maxLines)) do
+      SKIN.text(cx, y, ln, size, rgb, {align = "center"})
+      y = y + size * 1.3
     end
     return y
   end
+
+  function MUI.drawDevices(x0, y0, x1, y1, s)
+    local mx0, my0, mx1, my1 = modalFrame("music.dev", x0, y0, x1, y1, s, 560, 500, "Play music on")
+    if W.iconButton("music.dev.close", "close", mx1 - 52 * s, my0 + 12 * s, 36 * s) then
+      MUI.closeDevices()
+      return
+    end
+    local w = mx1 - mx0
+    local st = SPOT.status()
+    local who = (st.user and st.user ~= "") and ("signed in as " .. st.user) or "signed in to your account"
+    lines("Any Spotify app " .. who .. ": this PC, a phone, a speaker, a console or the web player.", mx0 + 20 * s,
+      my0 + 50 * s, 13 * s, C.offText, w - 40 * s, 2)
+    local dev = SPOT.deviceList()
+    local now = U.now()
+    if not dev.loading and now - devs.lastTry >= DEV_REFRESH then
+      devs.lastTry = now
+      SPOT.refreshDevices()
+    end
+    -- the list
+    local lx0, ly0, lx1, ly1 = mx0 + 16 * s, my0 + 96 * s, mx1 - 16 * s, my1 - 64 * s
+    W.region("music.dev.list", lx0, ly0, lx1, ly1, "arrow")
+    SKIN.nine("well", lx0, ly0, lx1, ly1)
+    local items = dev.items
+    local rowH = DEV_ROW * s
+    local viewH = ly1 - ly0 - 12 * s
+    local maxScroll = math.max(0, #items * DEV_ROW - viewH / s)
+    devs.scroll = U.clamp(devs.scroll - W.wheel("music.dev.list") * DEV_ROW, 0, maxScroll)
+    local cx = (lx0 + lx1) / 2
+    if #items == 0 then
+      if dev.loading then
+        SKIN.icon(SKIN.spinner(), cx - 16 * s, ly0 + 40 * s, 32 * s)
+        SKIN.text(cx, ly0 + 82 * s, "Looking for your devices...", 15 * s, C.offText, {align = "center"})
+      elseif dev.err then
+        centred(devWhy(dev.err), cx, ly0 + 40 * s, 14 * s, C.error, lx1 - lx0 - 60 * s, 3)
+      else
+        SKIN.glyph("speaker", cx - 18 * s, ly0 + 30 * s, 36 * s, C.offText)
+        SKIN.text(cx, ly0 + 78 * s, "No devices found", 18 * s, C.cream, {kind = "display", align = "center"})
+        centred("Open Spotify on any phone, speaker or computer signed in to your account, then press Refresh.", cx,
+          ly0 + 108 * s, 14 * s, C.offText, lx1 - lx0 - 80 * s, 3)
+      end
+    else
+      local cid = SPOT.chosen()
+      local first = math.floor(devs.scroll / DEV_ROW) + 1
+      local last = math.min(#items, first + math.ceil(viewH / rowH) + 1)
+      SKIN.clip(lx0 + 6 * s, ly0 + 6 * s, lx1 - 6 * s, ly1 - 6 * s)
+      for i = first, last do
+        local d = items[i]
+        local ry0 = ly0 + 6 * s + (i - 1) * rowH - devs.scroll * s
+        local ry1 = ry0 + rowH
+        local rx0, rx1 = lx0 + 6 * s, lx1 - 6 * s
+        -- a row half in view still takes clicks, on its visible part only
+        local vy0, vy1 = math.max(ry0, ly0 + 6 * s), math.min(ry1, ly1 - 6 * s)
+        local vis = vy1 - vy0 >= rowH * 0.5
+        local rid = MUI.deviceRowId(d)
+        local stt = "normal"
+        if not d.restricted and vis then
+          W.region(rid, rx0, vy0, rx1, vy1)
+          stt = W.state(rid, rx0, vy0, rx1, vy1, true)
+        end
+        local chosen = cid ~= nil and d.id == cid
+        if chosen then
+          SKIN.part("swash", rx0 + 2 * s, ry0 + 4 * s, rx1 - 2 * s, ry1 - 4 * s)
+        elseif stt == "hover" or stt == "press" then
+          SKIN.part("swash", rx0 + 2 * s, ry0 + 4 * s, rx1 - 2 * s, ry1 - 4 * s, {a = stt == "press" and 0.8 or 0.45})
+        end
+        local fg = d.restricted and C.offText or (chosen and C.title or C.cream)
+        SKIN.glyph(d.kind, rx0 + 12 * s, ry0 + 13 * s, 30 * s, d.restricted and C.offText or C.cream)
+        local right = rx1 - 14 * s
+        if devs.pending == d.id then
+          SKIN.icon(SKIN.spinner(), right - 26 * s, ry0 + 15 * s, 26 * s)
+          right = right - 36 * s
+        elseif chosen then
+          SKIN.icon("check", right - 26 * s, ry0 + 15 * s, 26 * s)
+          right = right - 36 * s
+        end
+        if d.active then
+          local dy = ry0 + (rowH - 10 * s) / 2
+          SKIN.nine("bar_fill", right - 10 * s, dy, right, dy + 10 * s, {tint = C.ok})
+          right = right - 20 * s
+        end
+        local tx = rx0 + 54 * s
+        SKIN.text(tx, ry0 + 8 * s, d.name, 17 * s, fg, {maxWidth = right - tx})
+        local sub
+        if d.restricted then
+          sub = "Spotify does not let apps control this device"
+        else
+          sub = d.label .. (d.active and " · Playing now" or "") .. (d.private and " · Private session" or "")
+        end
+        SKIN.text(tx, ry0 + 31 * s, sub, 13 * s, C.offText, {maxWidth = right - tx})
+        if i < #items then SKIN.part("divider", lx0 + 20 * s, ry1 - 3 * s, lx1 - 20 * s, ry1 + 1 * s, {a = 0.25}) end
+        if not d.restricted and vis and W.clicked(rid) then MUI.pickDevice(d) end
+      end
+      SKIN.clipEnd()
+    end
+    -- footer: messages and Refresh
+    local by0, by1 = my1 - 54 * s, my1 - 14 * s
+    if W.button("music.dev.refresh", mx1 - 150 * s, by0, mx1 - 20 * s, by1, "Refresh",
+      {size = 15 * s, enabled = not dev.loading}) then
+      devs.lastTry = U.now()
+      SPOT.refreshDevices()
+    end
+    local text, kind = status, statusKind
+    if text and U.now() - statusAt > 6000 then text = nil end
+    if not text and dev.err and #items > 0 then text, kind = devWhy(dev.err), "error" end
+    if not text and dev.loading and #items > 0 then
+      SKIN.icon(SKIN.spinner(), mx0 + 20 * s, by0 + 6 * s, 28 * s)
+    elseif text then
+      SKIN.text(mx0 + 20 * s, by0, text, 14 * s, kind == "error" and C.error or (kind == "warn" and C.warn or C.cream),
+        {vcenter = by1 - by0, maxWidth = w - 200 * s})
+    end
+  end
+
+  ---------------------------------------------------------------- one modal at a time
+
+  function MUI.modalOpen() return lib.open or guide.open or devs.open end
+
+  function MUI.closeModals()
+    MUI.closeLibrary()
+    MUI.closeGuide()
+    MUI.closeDevices()
+  end
+
+  function MUI.drawModal(x0, y0, x1, y1, s)
+    if lib.open then MUI.drawLibrary(x0, y0, x1, y1, s)
+    elseif guide.open then MUI.drawGuide(x0, y0, x1, y1, s)
+    elseif devs.open then MUI.drawDevices(x0, y0, x1, y1, s) end
+  end
+
+  ---------------------------------------------------------------- the Music tab
 
   local function nowPlaying(x0, y0, x1, s)
     local h = 48 * s
@@ -517,8 +1169,14 @@ do
       status, text = nil, nil
     end
     if text then
-      SKIN.text(rx0, y1 - 34 * s, text, 14 * s, kind == "error" and C.error or (kind == "warn" and C.warn or C.cream),
-        {maxWidth = rx1 - rx0})
+      -- the Spotify column is narrow: a reason that does not fit one line (a sign-in failure says what to do) takes
+      -- two smaller lines instead of being cut
+      local rgb = kind == "error" and C.error or (kind == "warn" and C.warn or C.cream)
+      if SKIN.measure(text, 14 * s, "body") <= rx1 - rx0 then
+        SKIN.text(rx0, y1 - 34 * s, text, 14 * s, rgb)
+      else
+        lines(text, rx0, y1 - 37 * s, 12 * s, rgb, rx1 - rx0, 2)
+      end
     end
     return by
   end
@@ -527,8 +1185,10 @@ do
 
   local function chipLine(it, st)
     if st.s == "pause" then return "Paused" end
+    if not SPOT.has() then return "Listening needs Melange " .. SPOT.NEEDS .. " or later" end
     if not SPOT.connected() then
-      return "Link Spotify in the watch party panel (" .. (CFG.hotkeyKey("setup") or "F6") .. ") to listen"
+      return (SPOT.hasSetup() and "Sign in to Spotify" or "Link Spotify") .. " in the watch party panel ("
+        .. (CFG.hotkeyKey("setup") or "F6") .. ") to listen"
     end
     if MUSIC.audible() then
       local pb = MUSIC.playback()
@@ -589,8 +1249,8 @@ do
     end
   end
 
-  -- A closed panel closes the library.
+  -- A closed panel closes the open modal (library, setup guide or device picker).
   U.on("party.changed", function()
-    if not PARTY.setupOpen() and lib.open then MUI.closeLibrary() end
+    if not PARTY.setupOpen() and MUI.modalOpen() then MUI.closeModals() end
   end)
 end
