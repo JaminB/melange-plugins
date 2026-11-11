@@ -1,6 +1,6 @@
 ## 1.2.0
 
-- Easier Spotify (Melange 0.14): sign in from the Music tab with one click. Spotify's page opens in your browser and the game comes back by itself with your account. No more Melange.ini.
+- Easier Spotify (Melange 0.14.1): sign in from the Music tab with one click. Spotify's page opens in your browser and the game comes back by itself with your account. No more Melange.ini.
 - Spotify allows the shared app only a few accounts. If yours is not one of them, Holo walks you through making your own free Spotify app in the game: open Spotify's dashboard, copy the Redirect URI, paste your Client ID.
 - Choose where the music plays: any Spotify device signed in to your account (this PC, your phone, a speaker, a console or the web player). Holo moves the music there and remembers it.
 - An account card shows who is signed in and whether the account is Premium (once Spotify has told), with Sign out and Change app. Cancel no longer signs you out (Melange 0.14).

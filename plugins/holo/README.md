@@ -4,7 +4,7 @@ Client-side watch parties for Worms Ultimate Mayhem. In an online lobby the host
 magnet links; every player who has Holo sees the same video in a themed in-game player, kept in sync with the host. It
 also works offline as a solo player. Needs Melange 0.12.0 or later and, for video, its media pack. With Melange 0.13.0
 or later the party can also play Spotify music: each listener hears it on their own Spotify account. With Melange
-0.14.0 you sign in to Spotify right in the game.
+0.14.1 you sign in to Spotify right in the game.
 
 ## Using it
 
@@ -35,7 +35,7 @@ speaker, a console or the web player). Members without Spotify, without Premium 
 playing (the panel says why they do not hear it). The host does not need Spotify. A now-playing chip at the top of the
 screen shows the song and opens the Music tab.
 
-Setup, in the game (Melange 0.14 or later):
+Setup, in the game (Melange 0.14.1 or later):
 
 1. In the Music tab, press **Sign in with Spotify**. Spotify's own page opens in your browser: log in and press Agree.
    The game comes back by itself and shows your account (your name; Premium or Free once Spotify has told, at the

@@ -491,7 +491,7 @@ do
   -- the legacy no-client-id text
   local m2 = machine({why = "no-client-id"})
   openMusicTab(m2)
-  check(m2.ns.MUI.spotifyCard() == "unavailable" and has(m2, "update Melange to 0.14"), "0.13 no-client-id text")
+  check(m2.ns.MUI.spotifyCard() == "unavailable" and has(m2, "update Melange to 0.14.1"), "0.13 no-client-id text")
   noErrors(m, "6")
 end
 

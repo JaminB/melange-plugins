@@ -17,7 +17,7 @@ do
   SPOT.WHY = {
     gesture = "Click the button again",
     -- only reached on Melange 0.13: 0.14 sets the Client ID up in the game (the Music tab's setup card)
-    ["no-client-id"] = "Add a Spotify Client ID to Melange.ini ([Spotify] ClientId), or update Melange to 0.14 to set "
+    ["no-client-id"] = "Add a Spotify Client ID to Melange.ini ([Spotify] ClientId), or update Melange to 0.14.1 to set "
       .. "Spotify up in the game",
     disabled = "Spotify is turned off in Melange.ini",
     unavailable = "Melange's Spotify module did not start; see Melange's log",
