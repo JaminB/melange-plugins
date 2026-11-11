@@ -181,6 +181,25 @@ do
     return enabled and c ~= nil
   end
 
+  -- A text link: gold, title-coloured and underlined under the cursor, grey when disabled. o: {enabled, align =
+  -- "left" | "right" (x is then the right edge)}. Its region is the text plus a little margin. Returns true when
+  -- clicked (and enabled).
+  function W.link(id, x, y, label, size, o)
+    local enabled = not (o and o.enabled == false)
+    local w, h = SKIN.measure(label, size, "body")
+    local x0 = (o and o.align == "right") and x - w or x
+    local m = 2 * SKIN.s
+    W.region(id, x0, y - m, x0 + w, y + h + m, enabled and "hand" or "arrow")
+    local st = W.state(id, x0, y - m, x0 + w, y + h + m, enabled)
+    local rgb = st == "off" and C.offText or ((st == "hover" or st == "press") and C.title or C.gold)
+    SKIN.text(x0, y, label, size, rgb)
+    if st == "hover" or st == "press" then
+      wum.draw.hudLine(x0, y + h + 1, x0 + w, y + h + 1, SKIN.col(rgb), math.max(1, SKIN.s))
+    end
+    local c = W.clicked(id)
+    return enabled and c ~= nil
+  end
+
   ---------------------------------------------------------------- sliders
 
   -- A horizontal bar (the volume): returns value (0..1), changed, released. Drag while held; a click sets it.

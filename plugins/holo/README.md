@@ -3,7 +3,8 @@
 Client-side watch parties for Worms Ultimate Mayhem. In an online lobby the host picks YouTube videos, playlists or
 magnet links; every player who has Holo sees the same video in a themed in-game player, kept in sync with the host. It
 also works offline as a solo player. Needs Melange 0.12.0 or later and, for video, its media pack. With Melange 0.13.0
-or later the party can also play Spotify music: each listener hears it on their own Spotify account.
+or later the party can also play Spotify music: each listener hears it on their own Spotify account. With Melange
+0.14.1 you sign in to Spotify right in the game.
 
 ## Using it
 
@@ -26,23 +27,36 @@ or later the party can also play Spotify music: each listener hears it on their 
 ## Spotify music (optional, Melange 0.13+)
 
 The **Music** tab of the watch party panel (F6, or "Music" in the player's "..." menu) holds the party's music queue.
-Anyone in the lobby who linked Spotify adds songs from their saved songs and playlists (unless the host set "Who can
-add to the queue" to the host). When the host plays the queue, every member who linked **Spotify Premium** hears the
-same song on **their own Spotify**, kept in step with the host.
-Spotify plays it on an open Spotify app, the **device**: the desktop app on this PC, your phone or the web player. Members
-without Spotify, without Premium or without an open device see what is playing (the panel says why they do not hear
-it). The host does not need Spotify. A now-playing chip at the top of the screen shows the song and opens the Music tab.
+Anyone in the lobby who signed in to Spotify adds songs from their saved songs and playlists (unless the host set "Who
+can add to the queue" to the host). When the host plays the queue, every member who signed in with **Spotify Premium**
+hears the same song on **their own Spotify**, kept in step with the host.
+Spotify plays it on a **device**: any Spotify app signed in to your account (the desktop app on this PC, your phone, a
+speaker, a console or the web player). Members without Spotify, without Premium or without an open device see what is
+playing (the panel says why they do not hear it). The host does not need Spotify. A now-playing chip at the top of the
+screen shows the song and opens the Music tab.
 
-Setup, once per person (or one friend registers the app and adds the others):
+Setup, in the game (Melange 0.14.1 or later):
 
-1. Register an app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) (any name).
-2. Set its **Redirect URI** to `http://127.0.0.1:8780/callback`, exactly.
-3. Choose the **Web API**.
-4. Put the app's **Client ID** into `Melange.ini` under `[Spotify]` as `ClientId=...`.
-5. While the app is in development mode, add your friends' Spotify e-mails under **User Management**. A friend can
-   also use their own app.
+1. In the Music tab, press **Sign in with Spotify**. Spotify's own page opens in your browser: log in and press Agree.
+   The game comes back by itself and shows your account (your name; Premium or Free once Spotify has told, at the
+   first song). Nothing to edit in `Melange.ini`.
+2. Spotify lets the shared app that comes with Melange sign in only a few accounts. If Holo says your account is not on
+   the shared app's list, press **Set up my Spotify app** and follow the three steps in the game:
+   - **Open Spotify for Developers** and press Create app (any name and description).
+   - Add the Redirect URI Holo shows (press **Copy**; it is `http://127.0.0.1:8780/callback` unless you changed
+     `[Spotify] RedirectPort`), tick **Web API** and save.
+   - Copy the app's **Client ID** from its Settings and press **Paste**, which saves it and signs you in (or press
+     Ctrl+V in the box, then **Save and sign in**).
 
-Then click **Link Spotify** in the Music tab and allow access in your browser.
+   Friends who use your app go under **User Management** in your app's dashboard (their Spotify e-mail), or they make
+   their own app the same way. **Change app** on the account card sets up another app, or goes back from yours to the
+   shared one (or to the one in `Melange.ini`).
+3. Under **Plays on**, pick the device the party's music plays on. Holo moves the music there and remembers it (also
+   when Spotify gives the web player a new id). **Cancel** while signing in does not sign you out; **Sign out** does.
+
+Older Melange (0.13): there is no in-game setup. Register an app as in step 2, put its **Client ID** into
+`Melange.ini` under `[Spotify]` as `ClientId=...`, then click **Link Spotify** in the Music tab and come back to the
+game after allowing access. Cancel there signs you out. A device you pick there is used from the next song.
 
 The music keeps playing when you hide (F9) or minimise the player, close the panel, a video ends or the video party
 ends. It stops when the host presses Stop music, when the music queue ends, when you leave the lobby or when the host
@@ -75,12 +89,15 @@ panel remove everything.
 - Between players Holo sends only small playback messages (position, play state, queue) over the game's Steam
   connection, to lobby members who also run Holo. Logs exported by Melange redact links, magnets and infohashes.
 - **Spotify** (only if you use it): the sign-in happens in your browser on Spotify's own page, and only after you click
-  Link Spotify. Melange (not Holo) keeps the sign-in, encrypted with Windows DPAPI on this PC
+  Sign in with Spotify. Melange (not Holo) keeps the sign-in, encrypted with Windows DPAPI on this PC
   (`%LOCALAPPDATA%\Melange\spotify`), and talks only to `accounts.spotify.com` and `api.spotify.com`; Holo never sees
   it. Holo reads your saved songs and playlists only to show them to you in the panel. Other party members receive only
   the songs you add (title, artists, length and Spotify URI) and your name as the one who added them. Spotify sees which
-  songs your account plays, as with any Spotify app. Unlink in the Music tab, or remove the app at
-  `spotify.com/account/apps`, to end it.
+  songs your account plays, as with any Spotify app. Sign out in the Music tab, or remove the app at
+  `spotify.com/account/apps`, to end it. The clipboard is written only when you press Copy. It is read when you
+  press Paste (Holo then receives only a Client ID found there) or press Ctrl+V in a text box (Holo receives what you
+  paste, as in any text box). A Client ID you set in the game is kept by Melange in
+  `%LOCALAPPDATA%\Melange\spotify\client.json`; it is not a secret.
 
 ## Antivirus and firewall
 

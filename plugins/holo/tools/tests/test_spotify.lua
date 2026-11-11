@@ -112,7 +112,7 @@ do
   local SPOT = m.ns.SPOT
   local ok, why = SPOT.connect()
   check(ok == nil and why == "gesture", "connect without a click: gesture")
-  check(SPOT.WHY.gesture == "Click Link Spotify again", "gesture text")
+  check(SPOT.WHY.gesture == "Click the button again", "gesture text")
   check(m.fs.status.state == "disconnected", "no sign-in started")
   openMusicTab(m)
   local t = texts(m)
@@ -146,7 +146,7 @@ do
   check(SPOT.connected() and SPOT.status().user == "Bee", "granted without the browser")
   m.mock.frames(2)
   check(regions(m)["music.browse"] ~= nil and regions(m)["music.unlink"] ~= nil, "connected: browse and unlink")
-  check(texts(m):find("Spotify: Bee", 1, true) ~= nil and texts(m):find("Premium", 1, true) ~= nil, "who and Premium")
+  check(texts(m):find("Bee", 1, true) ~= nil and texts(m):find("Premium", 1, true) ~= nil, "who and Premium")
   -- a refused connect shows its reason
   m.fs.setStatus{state = "disconnected", linked = false}
   m.mock.frames(40)
@@ -345,6 +345,47 @@ do
     .. tostring(plays[2] and plays[2].args[1].positionMs))
   m.fs.answerNow(3)
   check(res and res.ok == true, "played")
+end
+
+-- 10. The remembered device got a new id (Spotify gives the web player a new one): the fallback finds it by its
+-- remembered name, plays there and remembers the new id with the name.
+do
+  local m = machine(true)
+  local SPOT, U = m.ns.SPOT, m.ns.U
+  m.fs.link(true)
+  m.mock.frame()
+  SPOT.choose({id = "web-old", name = "Web Player (Chrome)"})
+  check(SPOT.chosen() == "web-old" and select(2, SPOT.chosen()) == "Web Player (Chrome)", "chosen: id and name")
+  m.fs.devices = {
+    {id = "pc", name = "PC", type = "Computer", active = true, restricted = false},
+    {id = "web-new", name = "Web Player (Chrome)", type = "Computer", active = false, restricted = false},
+  }
+  local res
+  SPOT.playTrack(FS.uri(8), 0, function(r) res = r end)
+  m.mock.frames(20)
+  local plays = m.fs.callsOf("play")
+  check(#plays == 2 and plays[1].args[1].deviceId == "web-old" and plays[2].args[1].deviceId == "web-new",
+    "not-found, then the same name under its new id (not the active PC)")
+  check(res and res.ok == true, "played")
+  check(U.pref("spotifyDevice") == "web-new" and U.pref("spotifyDeviceName") == "Web Player (Chrome)",
+    "both prefs updated")
+  -- a successful play on the remembered device keeps both
+  SPOT.playTrack(FS.uri(9), 0, function(r) res = r end)
+  m.mock.frames(20)
+  check(#m.fs.callsOf("play") == 3 and U.pref("spotifyDevice") == "web-new"
+    and U.pref("spotifyDeviceName") == "Web Player (Chrome)", "kept after a good play")
+  -- a restricted device with the remembered name is not picked
+  SPOT.choose({id = "spk-old", name = "Kitchen"})
+  m.fs.devices = {
+    {id = "spk-new", name = "Kitchen", type = "Speaker", active = false, restricted = true},
+    {id = "pc", name = "PC", type = "Computer", active = true, restricted = false},
+  }
+  SPOT.playTrack(FS.uri(10), 0, function(r) res = r end)
+  m.mock.frames(20)
+  check(m.fs.callsOf("play")[5].args[1].deviceId == "pc" and U.pref("spotifyDeviceName") == "PC",
+    "restricted namesake skipped: the active PC")
+  SPOT.choose(nil)
+  check(SPOT.chosen() == nil and U.pref("spotifyDeviceName") == nil, "choose(nil) clears both")
 end
 
 if fails > 0 then
