@@ -25,3 +25,11 @@ plugins/holo/tools/fonts.lock.json text eol=lf
 plugins/holo/tools/*.md text eol=lf
 plugins/holo/tools/tests/*.py text eol=lf
 plugins/holo/tools/.gitignore text eol=lf
+
+# Foldspace's map patches are compared byte for byte with a fresh copy (plugins/foldspace/tools/sync_map.py --check) and
+# their bytes are part of the pack version every online player must match; never convert their line endings.
+plugins/foldspace/mod/maps/**/*.ergpatch.json -text
+plugins/foldspace/mod/spice.json text eol=lf
+plugins/foldspace/tools/*.json text eol=lf
+plugins/foldspace/tools/*.py text eol=lf
+plugins/foldspace/tools/tests/*.py text eol=lf

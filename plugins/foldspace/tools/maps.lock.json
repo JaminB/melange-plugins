@@ -1,0 +1,25 @@
+{
+  "caldera": {
+    "melange": {
+      "commit": "e8d6d10d6074462cadbf9120a29ab48e81e45b46",
+      "branch": "erg-detail",
+      "path": "tools/erg-mcp/bench/caldera/pack",
+      "localChanges": false
+    },
+    "packId": "caldera",
+    "packVersion": "2.1.0",
+    "packRange": ">=0.14.0",
+    "sources": {
+      "assets/meshes/caldera.Boulder.xom": "8e34c1260717fd197c086229d65089684db299adfe24b064ddb6ee99e2796151",
+      "assets/meshes/caldera.BoulderDark.xom": "a21adc3a983ee1864e15827259b2aa3686ebd9331c2072cc9283a7a341418508",
+      "assets/meshes/caldera.Shard.xom": "53b0427e9ed6b4793f4101c1aeb4655db26660cc7d24d3aa4def8f929db8a625",
+      "assets/meshes/caldera.ShardDark.xom": "22fea76988ae00a12e7b25fc4d27b42f136d8da784709a8bf20b5ee4d09f3d58",
+      "assets/meshes/caldera.Slab.xom": "e4fd942019fb69bc23caecbbab47cbeabc352b42b21ca009cc1458e598cb8992",
+      "assets/meshes/caldera.SlabDark.xom": "7abe3e405691e203fbf0a8aded1dc0e7e3557baca406089797ce8bdf26026fff",
+      "assets/meshes/caldera.Wedge.xom": "be666290dcb28052030ff144442d1e7d2f7fe601fd3d7b4a6007babef0ad480e",
+      "assets/meshes/caldera.WedgeDark.xom": "5671d67ad507f01c84b77d27874590082757c340ee59889e796c78e291d66404",
+      "src/caldera.ergpatch.json": "3eb0e924cf20497775f77a930a2e0670b7f34bc9f147e12ff0d69de32b7cb49b"
+    },
+    "synced": "2026-11-10"
+  }
+}
