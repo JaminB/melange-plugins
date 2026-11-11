@@ -1,0 +1,6 @@
+{
+  "caldera": {
+    "pack": "tools/erg-mcp/bench/caldera/pack",
+    "built": "tools/erg-mcp/bench/caldera (build.mjs, detail.mjs, ship.mjs; see DETAIL.md \"Shipping\")"
+  }
+}

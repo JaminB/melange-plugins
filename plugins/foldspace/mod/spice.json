@@ -1,0 +1,36 @@
+{
+  "spiceVersion": 1,
+  "id": "foldspace",
+  "version": "1.0.0",
+  "name": "Foldspace",
+  "authors": [
+    "Melange"
+  ],
+  "description": "Big hand-built multiplayer maps, made with Melange's Erg editor. First map: Caldera, a volcanic island with a mine factory in its crater that throws mines across the island, four team castles on the shore and switchback trails to the rim. Content mod: every player in an online match needs it.",
+  "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/foldspace",
+  "kind": "content",
+  "melange": {
+    "range": ">=0.14.0"
+  },
+  "permissions": {
+    "unsafe": false,
+    "filesystem": "none"
+  },
+  "dependencies": [],
+  "conflicts": [],
+  "levels": [
+    {
+      "slug": "caldera",
+      "title": "Caldera",
+      "type": "multi",
+      "chunk": true,
+      "source": "maps/caldera/caldera.ergpatch.json"
+    }
+  ],
+  "meshes": [
+    {
+      "file": "assets/meshes/caldera/foldspace.caldera.xom"
+    }
+  ],
+  "settings": []
+}

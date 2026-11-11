@@ -1,0 +1,33 @@
+{
+  "storeVersion": 1,
+  "licence": "MIT",
+  "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/foldspace",
+  "categories": [
+    "maps"
+  ],
+  "gameBuilds": [
+    "1077"
+  ],
+  "screenshots": [
+    {
+      "file": "1.jpg",
+      "caption": "Caldera: the volcano, its trails and three of the four castles"
+    },
+    {
+      "file": "2.jpg",
+      "caption": "The crater, where the mine factory throws its volleys from"
+    },
+    {
+      "file": "3.jpg",
+      "caption": "Seawall, one of the four team castles on the shore"
+    },
+    {
+      "file": "4.jpg",
+      "caption": "Mines rising out of the crater, and a blast on a trail below"
+    },
+    {
+      "file": "5.jpg",
+      "caption": "The island from the sea, before sudden death raises the water"
+    }
+  ]
+}
