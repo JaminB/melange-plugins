@@ -1,8 +1,8 @@
 {
   "caldera": {
     "melange": {
-      "commit": "4c51e837b2a72af70037b1a6c4c12dc64fb928ae",
-      "branch": "erg-autobuild",
+      "commit": "5e56d47981d238aa4e60a0e1f59e25a66e1095d9",
+      "branch": "erg-detail",
       "path": "tools/erg-mcp/bench/caldera/pack",
       "localChanges": false
     },
@@ -11,8 +11,8 @@
     "packRange": ">=0.14.0",
     "sources": {
       "assets/meshes/caldera.Rocks.xom": "7b82902d56f51ea8ca7671ff0700aa368ea9df949f65027e8171a8103da3b306",
-      "src/caldera.ergpatch.json": "3eb0e924cf20497775f77a930a2e0670b7f34bc9f147e12ff0d69de32b7cb49b"
+      "src/caldera.ergpatch.json": "7883e57a64457b70d362dacbd13e3d9df904ad3c1435a9031b7cc43941c8c8fb"
     },
-    "synced": "2026-11-10"
+    "synced": "2026-11-11"
   }
 }
