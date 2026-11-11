@@ -2,14 +2,18 @@
 """Copy an Erg-built map into Foldspace, or check that Foldspace's copy is current and well formed.
 
 Each Foldspace map is made in the Melange repo (Erg, erg-mcp) and exported there as a source pack: a mod of its own
-(`<pack>/spice.json`, `src/<slug>.ergpatch.json`, `assets/meshes/<packId>.<Name>.xom`). Foldspace carries several maps
+(`<pack>/spice.json`, `src/<slug>.ergpatch.json`, `assets/meshes/*.xom`). A pack ships its meshes in ONE bank
+(`assets/meshes/<packId>.Rocks.xom` holding `<packId>.Boulder`, `<packId>.Slab`, ...; mod mesh banks share 44 engine
+sections, so one bank per map matters) or, in older packs, one bank per mesh. Foldspace carries several maps
 in ONE mod, so this script renames the map into Foldspace's names as it copies it:
 
     level stem       <packId>_<slug>          ->  foldspace_<slug>        (Melange names a level <modId>_<slug>)
     mesh names       <packId>.<Name>          ->  foldspace.<slug>_<Name> (a bank's names must start with "<modId>.")
     the patch        src/<slug>.ergpatch.json ->  mod/maps/<slug>/<slug>.ergpatch.json, stem and mesh names rewritten
-    the mesh banks   assets/meshes/*.xom      ->  mod/assets/meshes/<slug>/foldspace.<slug>_<Name>.xom, renamed with
-                                                  xomtool unpack / pack (a round trip that changes nothing else)
+    the mesh banks   assets/meshes/*.xom      ->  mod/assets/meshes/<slug>/foldspace.<slug>.xom (one bank), renamed with
+                                                  xomtool unpack / pack (a round trip that changes nothing else).
+                                                  The mesh names are read from the bank's XMeshDescriptors. An old
+                                                  one-mesh-bank pack keeps one file per mesh, foldspace.<slug>_<Name>.xom
     a level script   sim/<slug>.lua           ->  mod/sim/<slug>.lua (none today)
 
 and rewrites that map's entries in mod/spice.json `levels` and `meshes`, leaving the other maps and every other field alone.
@@ -91,6 +95,18 @@ def mesh_name(slug: str, pack_id: str, name: str) -> str:
     return f"{MOD_ID}.{slug}_{name[len(prefix):]}"
 
 
+def bank_file_name(slug: str, pack_id: str, stem: str, names: list[str], bank_count: int) -> str:
+    """The file stem Foldspace gives a bank. An old one-mesh bank named after its mesh keeps
+    'foldspace.<slug>_<Name>'. A bank of several meshes is 'foldspace.<slug>' (the map's only bank) or, when the
+    pack has more than one, 'foldspace.<slug>_<what follows the pack id in the file name>'."""
+    if len(names) == 1 and stem == names[0]:
+        return mesh_name(slug, pack_id, stem)
+    if bank_count == 1:
+        return f"{MOD_ID}.{slug}"
+    rest = stem[len(pack_id) + 1:] if stem.startswith(pack_id + ".") else stem
+    return f"{MOD_ID}.{slug}_{rest}"
+
+
 def rewrite_patch(text: str, slug: str, pack_id: str, meshes: list[str]) -> str:
     """The pack's patch with Foldspace's level stem and mesh names. Only whole JSON strings are replaced."""
     doc = json.loads(text)
@@ -108,15 +124,28 @@ def rewrite_patch(text: str, slug: str, pack_id: str, meshes: list[str]) -> str:
     return out
 
 
-def rename_bank_json(doc_text: str, pack_id: str, slug: str, name: str) -> str:
-    """xomtool-unpacked bank JSON with every string that is the mesh's name, or starts with it plus '_', renamed."""
-    new = mesh_name(slug, pack_id, name)
-    pat = re.compile(r'"' + re.escape(name) + r'((?:_[A-Za-z0-9_]*)?)"')
-    out, count = pat.subn(lambda m: json.dumps(new + m.group(1)), doc_text)
+def bank_mesh_names(bank: dict) -> list[str]:
+    """The mesh names a xomtool-unpacked bank declares: the ResourceId of each XMeshDescriptor."""
+    names = [o["fields"]["ResourceId"] for o in bank.get("objects", []) if o.get("type") == "XMeshDescriptor"]
+    if not names:
+        die("a bank declares no XMeshDescriptor")
+    if len(set(names)) != len(names):
+        die("a bank declares the same mesh twice")
+    return names
+
+
+def rename_bank_json(doc_text: str, pack_id: str, slug: str, names: list[str] | str) -> str:
+    """xomtool-unpacked bank JSON with every string that is one of the meshes' names, or starts with it plus '_',
+    renamed (a mesh 'caldera.Slab' also owns 'caldera.Slab_group_0')."""
+    names = [names] if isinstance(names, str) else list(names)
+    news = {n: mesh_name(slug, pack_id, n) for n in names}
+    alt = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+    pat = re.compile(r'"(' + alt + r')((?:_[A-Za-z0-9_]*)?)"')
+    out, count = pat.subn(lambda m: json.dumps(news[m.group(1)] + m.group(2)), doc_text)
     if count == 0:
-        die(f"{name}: the bank never names its mesh")
+        die(f"{', '.join(names)}: the bank never names its meshes")
     if re.search(r'"' + re.escape(pack_id) + r'\.', out):
-        die(f"{name}: the bank names another {pack_id}.* mesh")
+        die(f"{', '.join(names)}: the bank names another {pack_id}.* mesh")
     return out
 
 
@@ -157,32 +186,38 @@ def build_copy(slug: str, pack: Path, xomtool: str) -> tuple[dict[str, bytes], d
     banks = []
     for entry in spice.get("meshes", []):
         rel = entry["file"]
-        name = Path(rel).name[: -len(".xom")]
-        banks.append((rel, name))
-    names = [n for _, n in banks]
+        banks.append((rel, Path(rel).name[: -len(".xom")]))
 
-    src_rel = level.get("source") or f"src/{slug}.ergpatch.json"
-    raw = (pack / src_rel).read_bytes()
-    sources[src_rel] = sha256(raw)
-    patch_rel = f"maps/{slug}/{slug}.ergpatch.json"
-    files[patch_rel] = rewrite_patch(raw.decode("utf-8"), slug, pack_id, names).encode("utf-8")
-    level["source"] = patch_rel
-
-    if level.get("sim"):
-        sim = (pack / level["sim"]).read_bytes()
-        sources[level["sim"]] = sha256(sim)
-        level["sim"] = f"sim/{slug}.lua"
-        files[level["sim"]] = sim
-
+    # unpack every bank first: the patch rewrite needs the mesh names the banks declare
+    unpacked: dict[str, tuple[Path, Path, list[str]]] = {}
     with tempfile.TemporaryDirectory(prefix="foldspace-") as tmp:
-        for rel, name in banks:
-            bank = (pack / rel).read_bytes()
-            sources[rel] = sha256(bank)
-            j, out = Path(tmp) / f"{name}.json", Path(tmp) / f"{name}.xom"
+        for rel, stem in banks:
+            sources[rel] = sha256((pack / rel).read_bytes())
+            j, out = Path(tmp) / f"{stem}.json", Path(tmp) / f"{stem}.xom"
             subprocess.run([xomtool, "unpack", str(pack / rel), "-o", str(j)], check=True, capture_output=True)
-            j.write_text(rename_bank_json(j.read_text(encoding="utf-8"), pack_id, slug, name), encoding="utf-8")
+            unpacked[rel] = (j, out, bank_mesh_names(json.loads(j.read_text(encoding="utf-8"))))
+        names = [n for _, _, ns in unpacked.values() for n in ns]
+        if len(set(names)) != len(names):
+            die("two banks of the pack declare the same mesh")
+
+        src_rel = level.get("source") or f"src/{slug}.ergpatch.json"
+        raw = (pack / src_rel).read_bytes()
+        sources[src_rel] = sha256(raw)
+        patch_rel = f"maps/{slug}/{slug}.ergpatch.json"
+        files[patch_rel] = rewrite_patch(raw.decode("utf-8"), slug, pack_id, names).encode("utf-8")
+        level["source"] = patch_rel
+
+        if level.get("sim"):
+            sim = (pack / level["sim"]).read_bytes()
+            sources[level["sim"]] = sha256(sim)
+            level["sim"] = f"sim/{slug}.lua"
+            files[level["sim"]] = sim
+
+        for rel, stem in banks:
+            j, out, ns = unpacked[rel]
+            j.write_text(rename_bank_json(j.read_text(encoding="utf-8"), pack_id, slug, ns), encoding="utf-8")
             subprocess.run([xomtool, "pack", str(j), str(out)], check=True, capture_output=True)
-            files[f"assets/meshes/{slug}/{mesh_name(slug, pack_id, name)}.xom"] = out.read_bytes()
+            files[f"assets/meshes/{slug}/{bank_file_name(slug, pack_id, stem, ns, len(banks))}.xom"] = out.read_bytes()
 
     facts = {"packId": pack_id, "packVersion": spice.get("version"), "packRange": spice.get("melange", {}).get("range"),
              "sources": dict(sorted(sources.items()))}
@@ -319,20 +354,27 @@ def verify() -> list[str]:
         if doc.get("title") != lv.get("title"):
             errs.append(f"{slug}: the patch's title {doc.get('title')!r} != spice.json's {lv.get('title')!r}")
         named = set(re.findall(r'"resource":\s*"(' + MOD_ID + r'\.[A-Za-z0-9_]+)"', text))
-        banks = {}
-        for rel in listed:
-            if rel.startswith(f"assets/meshes/{slug}/"):
-                name = Path(rel).name[: -len(".xom")]
-                banks[name] = (MOD / rel).read_bytes() if (MOD / rel).is_file() else b""
-        for name, data in sorted(banks.items()):
-            if not name.startswith(f"{MOD_ID}.{slug}_"):
-                errs.append(f"{slug}: bank {name} is not named '{MOD_ID}.{slug}_<Name>'")
-            if data and name.encode() + b"\0" not in data and name.encode() not in data:
-                errs.append(f"{slug}: bank {name}.xom does not declare the mesh {name}")
-        for name in sorted(named - set(banks)):
+        prefix = f"{MOD_ID}.{slug}_"
+        declared: dict[str, str] = {}  # mesh name -> bank file
+        for rel in sorted(listed):
+            if not rel.startswith(f"assets/meshes/{slug}/"):
+                continue
+            file_stem = Path(rel).name[: -len(".xom")]
+            if not (file_stem == f"{MOD_ID}.{slug}" or file_stem.startswith(prefix)):
+                errs.append(f"{slug}: bank file {rel} is not named '{MOD_ID}.{slug}.xom' or '{prefix}<Name>.xom'")
+            data = (MOD / rel).read_bytes() if (MOD / rel).is_file() else b""
+            mine = set(re.findall(re.escape(prefix.encode()) + rb"[A-Za-z0-9]+", data))
+            if data and not mine:
+                errs.append(f"{slug}: bank {rel} declares no {prefix}<Name> mesh")
+            for raw_name in sorted(mine):
+                name = raw_name.decode()
+                if name in declared:
+                    errs.append(f"{slug}: mesh {name} is in both {declared[name]} and {rel}")
+                declared[name] = rel
+        for name in sorted(named - set(declared)):
             errs.append(f"{slug}: the patch names {name}, which no bank of this map carries")
-        for name in sorted(set(banks) - named):
-            errs.append(f"{slug}: bank {name} is shipped but the patch never names it")
+        for name in sorted(set(declared) - named):
+            errs.append(f"{slug}: bank {declared[name]} carries {name} but the patch never names it")
         rec = lock.get(slug, {})
         if rec.get("packRange") and range_floor(rec["packRange"]) > floor:
             errs.append(f"{slug}: its pack needs Melange {rec['packRange']}, above spice.json's {spice['melange']['range']}")

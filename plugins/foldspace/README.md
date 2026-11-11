@@ -31,28 +31,31 @@ a wide crater.
 - Local Game > Versus > Deathmatch (or another Versus type), Landscape > Prebuilt > Caldera.
 - Four teams, so every castle is used. Two or three teams also work; the other castles stay empty.
 - A game style whose sudden death is **Raise Water**. The island was built for a sea that rises. At the "fast" water
-  speed the sea climbs about a fifth of the cone every turn once sudden death starts. A round of 10 to 15 minutes with
-  45 to 60 s turns gives time to climb.
+  speed the sea reaches the castle floors about five turns after sudden death starts (twice that at the default
+  speed), so worms still in their castles drown together; the slopes stay dry for dozens of turns more. A round of 10
+  to 15 minutes with 45 to 60 s turns gives time to climb.
 - Weapons that move worms (Jetpack, Ninja Rope, Teleport, Girder) make the island far more fun.
 - [Sunstone](https://jaminb.github.io/melange-plugins/plugins/sunstone/) is optional: Caldera was checked with and
   without it.
 
-## After installing: build the maps once
+## Maps are built for you
 
 Foldspace ships each map as an Erg **source pack**. That is the map's edits (`maps/<map>/<map>.ergpatch.json`) and its
 rock models, not the finished level files. The finished files are built from your own copy of the game, so the plugin
-carries no game files. Until they are built, the Mods page shows Foldspace as **"not built"** and none of its maps or
-rocks load.
+carries no game files.
 
-1. With the game closed, start `Melange.exe` and open Erg (**Oasis tools**, then **Erg**).
-2. Under **Map packs to build**, press **Build** next to Foldspace. It takes a few seconds.
-3. Start the game. Caldera is under **Prebuilt** in the Landscape list.
+Melange builds them for you. `Melange.exe` builds Foldspace's maps when it starts and again before it launches the
+game, after every install or update, so there is nothing to press. While it works the launcher shows **"Building map
+pack Foldspace..."**, and it starts the game when the build ends. Caldera is then under **Prebuilt** in the Landscape
+list.
 
-With Melange's `xomtool.exe` you can build from a command line instead (what Erg's Build does, file for file):
-`xomtool level build --patch Mods\foldspace\maps\caldera\caldera.ergpatch.json --game . --out Mods\foldspace\assets\levels`,
-run in the game folder, once per map.
-
-Build again after every Foldspace update: an update replaces the plugin's folder, and the built files with it.
+- If a build fails, the Plugins page says why. Erg's **Build** button (under **Map packs to build**) and Melange's
+  `xomtool.exe` still work by hand:
+  `xomtool level build --patch Mods\foldspace\maps\caldera\caldera.ergpatch.json --game . --out Mods\foldspace\assets\levels`,
+  run in the game folder, once per map.
+- If you start the game without `Melange.exe`, nothing builds it: the Mods page shows Foldspace as **"not built"** and
+  none of its maps or rocks load until `Melange.exe` has built it, or you build by hand as above.
+- `[Erg] AutoBuildMaps=0` in `Melange.ini` turns the automatic build off.
 
 ## It is a content mod
 
@@ -62,10 +65,9 @@ landscape picks (`[Levels] RandomPool=0`, the default).
 
 ## Limits
 
-- **Mesh sections.** The game has 44 slots for mod mesh banks, and Caldera's rocks use 8 of them. Kindjal ships 38
-  banks, so with both plugins enabled two of Kindjal's models don't load (the log names them: "not loaded, all 44 mod
-  sections ... are in use"). The weapons still work but show the game's own model. Turn Foldspace off for a match
-  where that matters.
+- **Mesh sections.** The game has 44 slots for mod mesh banks shared by every enabled plugin. Foldspace uses one for
+  all of Caldera's rocks, so it fits next to Kindjal (38 banks) and most other content plugins. Each further map
+  adds one.
 - In a Versus match Caldera is drawn in a darker evening light than in Erg's Test. The cause isn't known yet.
 - The mine factory follows the engine's payload pool: at most about 30 mines lie on the island at once.
 - Caldera places about 860 scenery pieces, more than the game's own mesh pool holds. Melange's `[Fixes] MeshInstances`

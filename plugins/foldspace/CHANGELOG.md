@@ -7,7 +7,7 @@ Foldspace's first release: big hand-built multiplayer maps made with Melange's E
 - Four team castles on the shore (Strand, Ashgate, Harbour and Seawall). Every team starts in its own castle, and a
   switchback trail of pale stone climbs from each castle to the crater rim.
 - The sea stays at the beaches until sudden death, then rises with the game style's own Raise Water.
-- Basalt rocks and plants dress the slopes and beaches. They are decoration only and never change a shot.
-- The maps ship as Erg source: build them once in Erg (Map packs to build, Build) after installing and after every
-  update. The plugin carries no game files.
+- Basalt rocks (all in one mesh bank) and plants dress the slopes and beaches. They are decoration only and never change a shot.
+- The maps ship as Erg source, and Melange builds them from your own game when it starts and before it launches the
+  game, after every install or update. The plugin carries no game files.
 - Content mod: every player in an online match needs the same version.

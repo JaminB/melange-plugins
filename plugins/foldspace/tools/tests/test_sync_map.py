@@ -41,13 +41,40 @@ class Renames(unittest.TestCase):
         with self.assertRaises(SystemExit):
             sync_map.rewrite_patch(json.dumps({"stem": "caldera_other"}), "caldera", "caldera", [])
 
-    def test_bank_rename(self):
+    def test_bank_rename_one_mesh(self):
         doc = json.dumps({"a": "caldera.Boulder", "b": ["caldera.Boulder_group_0"], "c": "caldera.BoulderDark2x"})
         with self.assertRaises(SystemExit):  # another caldera.* name left in the bank
             sync_map.rename_bank_json(doc, "caldera", "caldera", "caldera.Boulder")
         doc = json.dumps({"a": "caldera.Boulder", "b": ["caldera.Boulder_group_0"], "c": "Rock"})
         out = json.loads(sync_map.rename_bank_json(doc, "caldera", "caldera", "caldera.Boulder"))
         self.assertEqual(out, {"a": "foldspace.caldera_Boulder", "b": ["foldspace.caldera_Boulder_group_0"], "c": "Rock"})
+
+    def test_bank_rename_many_meshes(self):
+        doc = json.dumps({"a": "caldera.Boulder", "b": "caldera.BoulderDark", "c": ["caldera.BoulderDark_group_0",
+                          "caldera.Boulder_group_0"], "d": "Rock"})
+        out = json.loads(sync_map.rename_bank_json(doc, "caldera", "caldera", ["caldera.Boulder", "caldera.BoulderDark"]))
+        self.assertEqual(out, {"a": "foldspace.caldera_Boulder", "b": "foldspace.caldera_BoulderDark",
+                               "c": ["foldspace.caldera_BoulderDark_group_0", "foldspace.caldera_Boulder_group_0"], "d": "Rock"})
+        with self.assertRaises(SystemExit):  # a caldera.* mesh the bank does not declare
+            sync_map.rename_bank_json(doc, "caldera", "caldera", ["caldera.Boulder"])
+
+    def test_bank_mesh_names_come_from_the_descriptors(self):
+        bank = {"objects": [{"type": "XInteriorNode", "fields": {"Name": "caldera.Decoy"}},
+                            {"type": "XMeshDescriptor", "fields": {"ResourceId": "caldera.A"}},
+                            {"type": "XMeshDescriptor", "fields": {"ResourceId": "caldera.B"}}]}
+        self.assertEqual(sync_map.bank_mesh_names(bank), ["caldera.A", "caldera.B"])
+        with self.assertRaises(SystemExit):
+            sync_map.bank_mesh_names({"objects": []})
+
+    def test_bank_file_name(self):
+        f = sync_map.bank_file_name
+        # one bank holding many meshes
+        self.assertEqual(f("caldera", "caldera", "caldera.Rocks", ["caldera.A", "caldera.B"], 1), "foldspace.caldera")
+        # old layout: one mesh per bank, named after it
+        self.assertEqual(f("caldera", "caldera", "caldera.Boulder", ["caldera.Boulder"], 8), "foldspace.caldera_Boulder")
+        self.assertEqual(f("caldera", "caldera", "caldera.Boulder", ["caldera.Boulder"], 1), "foldspace.caldera_Boulder")
+        # two many-mesh banks stay apart
+        self.assertEqual(f("caldera", "caldera", "caldera.Rocks", ["caldera.A", "caldera.B"], 2), "foldspace.caldera_Rocks")
 
     def test_spice_with_keeps_other_maps(self):
         spice = {"id": "foldspace", "melange": {"range": ">=0.14.0"},
@@ -56,6 +83,7 @@ class Renames(unittest.TestCase):
                  "meshes": [{"file": "assets/meshes/isle/foldspace.isle_A.xom"},
                             {"file": "assets/meshes/caldera/foldspace.caldera_Gone.xom"}]}
         files = {"maps/caldera/caldera.ergpatch.json": b"", "assets/meshes/caldera/foldspace.caldera_B.xom": b""}
+        # (the same call with one bank per map: foldspace.caldera.xom replaces every caldera file)
         out = sync_map.spice_with(spice, "caldera", {"slug": "caldera", "source": "maps/caldera/caldera.ergpatch.json"}, files)
         self.assertEqual([lv["slug"] for lv in out["levels"]], ["caldera", "isle"])
         self.assertEqual([m["file"] for m in out["meshes"]],
@@ -66,6 +94,22 @@ class Renames(unittest.TestCase):
         self.assertEqual(sync_map.range_floor(">=0.14.0"), (0, 14, 0))
         with self.assertRaises(SystemExit):
             sync_map.range_floor(">=0.14.0 <0.15.0")
+
+
+class VerifyBanks(unittest.TestCase):
+    """verify() reads mesh names out of the committed banks' bytes; check that read for both layouts."""
+
+    def names(self, data: bytes, slug="caldera"):
+        import re
+        return {m.decode() for m in re.findall(("foldspace." + slug + "_").encode() + rb"[A-Za-z0-9]+", data)}
+
+    def test_one_bank_many_meshes(self):
+        data = b"\0foldspace.caldera_Boulder_group_0\0foldspace.caldera_Boulder\0foldspace.caldera_Slab\0"
+        self.assertEqual(self.names(data), {"foldspace.caldera_Boulder", "foldspace.caldera_Slab"})
+
+    def test_one_mesh_bank(self):
+        self.assertEqual(self.names(b"\0foldspace.caldera_Shard\0foldspace.caldera_Shard_group_0\0"),
+                         {"foldspace.caldera_Shard"})
 
 
 class Committed(unittest.TestCase):

@@ -12,7 +12,7 @@ plugins/foldspace/
   mod/
     spice.json                                   one `levels` entry and the mesh banks of every map
     maps/<map>/<map>.ergpatch.json               the map's Erg patch (its edits against a stock base level)
-    assets/meshes/<map>/foldspace.<map>_<Name>.xom   the map's own mesh banks (rocks and the like)
+    assets/meshes/<map>/foldspace.<map>.xom      the map's mesh bank: all its meshes (rocks and the like) in ONE bank
     sim/<map>.lua                                a level script, if the map has one (Caldera has none)
   tools/
     maps.json        each map's pack folder inside the Melange checkout
@@ -27,14 +27,20 @@ made under its own id (Caldera's pack is the mod `caldera`) can't be dropped in 
 | --- | --- | --- |
 | level stem | `caldera_caldera` | `foldspace_caldera` |
 | mesh | `caldera.Boulder` | `foldspace.caldera_Boulder` |
-| bank file | `assets/meshes/caldera.Boulder.xom` | `assets/meshes/caldera/foldspace.caldera_Boulder.xom` |
+| bank file | `assets/meshes/caldera.Rocks.xom` | `assets/meshes/caldera/foldspace.caldera.xom` |
 | patch | `src/caldera.ergpatch.json` | `maps/caldera/caldera.ergpatch.json` (stem and mesh names rewritten) |
 
-The banks are renamed with `xomtool unpack` and `xomtool pack`; that round trip is byte-exact for these banks, so only
-the names change.
+A pack ships its meshes in one bank (Caldera's `caldera.Rocks.xom` holds eight). The mesh names are read from the bank
+itself (the `ResourceId` of each `XMeshDescriptor` in `xomtool unpack`'s output), not from the file name, and every
+`<pack>.<Name>` becomes `foldspace.<map>_<Name>` in the bank and in the patch. The bank is renamed with `xomtool unpack`
+and `xomtool pack`; that round trip is byte-exact for these banks, so only the names change. A pack still in the old
+layout, one mesh per bank named after it (`caldera.Boulder.xom`), also syncs, to one
+`foldspace.<map>_<Name>.xom` per mesh; a pack with several multi-mesh banks keeps them apart as
+`foldspace.<map>_<what follows the pack id>.xom`. Prefer one bank.
 
-Built level files (`assets/levels/`) are never committed or shipped: they are modified copies of game files. Each
-player builds them from their own game (Erg's **Map packs to build**, **Build**). `--verify` fails if
+Built level files (`assets/levels/`) are never committed or shipped: they are modified copies of game files. Melange
+builds them from each player's own game, by itself, when `Melange.exe` starts and before it launches the game (Erg's
+**Build** button and `xomtool level build` still work by hand). `--verify` fails if
 `mod/assets/levels` exists.
 
 ## Refreshing a map from its pack
@@ -57,7 +63,7 @@ taken from a pack with uncommitted changes, so sync from a commit.
 
 `sync_map.py caldera --check` rebuilds the copy in memory and exits 1 if the committed files differ (needs the
 checkout and xomtool). `--verify` needs neither: it checks that `spice.json`, `maps.json`, the patches, the banks and
-the lock agree, that every mesh a patch names is shipped and every shipped bank is used, that the README's "Needs
+the lock agree, that every mesh a patch names is shipped and every mesh a bank declares is used, that the README's "Needs
 Melange" line matches `melange.range`, and that the CHANGELOG section is within the Store's 2000 characters.
 
 ## The minimum Melange version
@@ -73,6 +79,7 @@ CHANGELOG to match (`--verify` compares the README line with the range).
 1. Build and ship the map in the Melange repo as Caldera is (its `ship.mjs` writes the source pack).
 2. Add `"<slug>": {"pack": "<path of the pack in the checkout>"}` to `maps.json`. The slug is 1-24 of `a-z0-9`.
 3. Run `sync_map.py <slug>` and `--verify`. Mind the limits: 32 maps per mod, and 44 mesh-bank sections shared by
-   every enabled mod (Caldera uses 8; Kindjal alone uses 38). Fewer, larger banks are better.
+   every enabled mod (each Foldspace map uses one bank; Kindjal alone uses 38). Put all of a map's meshes in one bank
+   (the Melange repo's `meshes/merge.mjs` does that for Caldera).
 4. Describe the map in the README, add screenshots (1920x1080 JPEG, under 1 MiB each, at most 6 in all), bump
    `spice.json`'s version and add a CHANGELOG section.

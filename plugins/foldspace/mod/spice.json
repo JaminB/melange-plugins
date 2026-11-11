@@ -6,7 +6,7 @@
   "authors": [
     "Melange"
   ],
-  "description": "Big hand-built multiplayer maps, made with Melange's Erg editor. First map: Caldera, a volcanic island with a mine factory in its crater that throws mines across the island, four team castles on the shore and switchback trails to the rim. Build the maps once in Erg after installing. Content mod: every player in an online match needs it.",
+  "description": "Big hand-built multiplayer maps, made with Melange's Erg editor. First map: Caldera, a volcanic island with a mine factory in its crater that throws mines across the island, four team castles on the shore and switchback trails to the rim. Content mod: every player in an online match needs it.",
   "website": "https://github.com/JaminB/melange-plugins/tree/main/plugins/foldspace",
   "kind": "content",
   "melange": {
@@ -29,28 +29,7 @@
   ],
   "meshes": [
     {
-      "file": "assets/meshes/caldera/foldspace.caldera_Boulder.xom"
-    },
-    {
-      "file": "assets/meshes/caldera/foldspace.caldera_BoulderDark.xom"
-    },
-    {
-      "file": "assets/meshes/caldera/foldspace.caldera_Shard.xom"
-    },
-    {
-      "file": "assets/meshes/caldera/foldspace.caldera_ShardDark.xom"
-    },
-    {
-      "file": "assets/meshes/caldera/foldspace.caldera_Slab.xom"
-    },
-    {
-      "file": "assets/meshes/caldera/foldspace.caldera_SlabDark.xom"
-    },
-    {
-      "file": "assets/meshes/caldera/foldspace.caldera_Wedge.xom"
-    },
-    {
-      "file": "assets/meshes/caldera/foldspace.caldera_WedgeDark.xom"
+      "file": "assets/meshes/caldera/foldspace.caldera.xom"
     }
   ],
   "settings": []
