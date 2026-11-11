@@ -59,6 +59,7 @@ LOCK_JSON = TOOLS / "maps.lock.json"
 SLUG_RE = re.compile(r"^[a-z0-9]{1,24}$")
 RANGE_RE = re.compile(r"^>=\s*(\d+)\.(\d+)\.(\d+)$")
 README_NEEDS_RE = re.compile(r"Needs Melange (\d+\.\d+\.\d+) or later")
+GROUP_RE = re.compile(r"_group_\d+$")
 
 
 def die(msg: str) -> None:
@@ -132,6 +133,13 @@ def bank_mesh_names(bank: dict) -> list[str]:
     if len(set(names)) != len(names):
         die("a bank declares the same mesh twice")
     return names
+
+
+def bank_names_in(data: bytes, prefix: str) -> set[str]:
+    """The mesh names in a packed bank that start with prefix: whole identifiers (a mesh may have '_' in its name),
+    without the '<mesh>_group_<n>' groups each mesh owns."""
+    found = {m.decode() for m in re.findall(re.escape(prefix.encode()) + rb"[A-Za-z0-9_]+", data)}
+    return {n for n in found if not GROUP_RE.search(n)}
 
 
 def rename_bank_json(doc_text: str, pack_id: str, slug: str, names: list[str] | str) -> str:
@@ -253,11 +261,28 @@ def resolve_pack(args, maps: dict) -> tuple[Path, Path | None]:
     return pack, melange
 
 
+def source_record(pack: Path, melange: Path | None) -> dict:
+    """Where the copy comes from: the Melange commit and whether the pack has uncommitted changes. A pack outside a Git
+    checkout, or one Git cannot read, is refused before anything is written."""
+    commit = git(melange, "rev-parse", "HEAD") if melange else ""
+    if not commit:
+        die(f"{pack} is not in a readable Git checkout: sync from a committed Melange pack")
+    try:
+        dirty = subprocess.run(["git", "-C", str(melange), "status", "--porcelain", "--", str(pack)], check=True,
+                               capture_output=True, text=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        die(f"git status failed in {melange}")
+    return {"commit": commit, "branch": git(melange, "rev-parse", "--abbrev-ref", "HEAD"),
+            "path": pack.relative_to(melange).as_posix() if pack.is_relative_to(melange) else str(pack),
+            "localChanges": bool(dirty)}
+
+
 def cmd_sync(args) -> int:
     maps = load_json(MAPS_JSON)
     if args.map not in maps:
         die(f"unknown map {args.map!r}; tools/maps.json has {', '.join(sorted(maps))}")
     pack, melange = resolve_pack(args, maps)
+    src = source_record(pack, melange)
     xomtool = find_xomtool(args.xomtool, melange)
     files, level, facts = build_copy(args.map, pack, xomtool)
 
@@ -280,8 +305,13 @@ def cmd_sync(args) -> int:
     extra = sorted(have - set(files))
     spice_stale = dump_json(new_spice) != (MOD / "spice.json").read_text(encoding="utf-8")
 
+    lock = load_json(LOCK_JSON) if LOCK_JSON.is_file() else {}
+    rec = lock.get(args.map, {})
+    lock_stale = {k: rec.get(k) for k in facts} != facts
+
     if args.check:
-        bad = stale + [f"{r} (not in the pack)" for r in extra] + (["spice.json"] if spice_stale else [])
+        bad = stale + [f"{r} (not in the pack)" for r in extra] + (["spice.json"] if spice_stale else []) + (
+            ["tools/maps.lock.json (the recorded source)"] if lock_stale else [])
         if bad:
             print("sync_map --check: out of date:\n  " + "\n  ".join(bad), file=sys.stderr)
             return 1
@@ -296,13 +326,6 @@ def cmd_sync(args) -> int:
         p.write_bytes(data)
     (MOD / "spice.json").write_text(dump_json(new_spice), encoding="utf-8", newline="\n")
 
-    lock = load_json(LOCK_JSON) if LOCK_JSON.is_file() else {}
-    src = {}
-    if melange:
-        dirty = git(melange, "status", "--porcelain", "--", str(pack))
-        src = {"commit": git(melange, "rev-parse", "HEAD"), "branch": git(melange, "rev-parse", "--abbrev-ref", "HEAD"),
-               "path": pack.relative_to(melange).as_posix() if pack.is_relative_to(melange) else str(pack),
-               "localChanges": bool(dirty)}
     lock[args.map] = {"melange": src, **facts, "synced": datetime.date.today().isoformat()}
     LOCK_JSON.write_text(dump_json(dict(sorted(lock.items()))), encoding="utf-8", newline="\n")
     print(f"sync_map: {args.map} copied from {pack}" + (f" ({src['branch']} {src['commit'][:7]}"
@@ -363,11 +386,10 @@ def verify() -> list[str]:
             if not (file_stem == f"{MOD_ID}.{slug}" or file_stem.startswith(prefix)):
                 errs.append(f"{slug}: bank file {rel} is not named '{MOD_ID}.{slug}.xom' or '{prefix}<Name>.xom'")
             data = (MOD / rel).read_bytes() if (MOD / rel).is_file() else b""
-            mine = set(re.findall(re.escape(prefix.encode()) + rb"[A-Za-z0-9]+", data))
+            mine = bank_names_in(data, prefix)
             if data and not mine:
                 errs.append(f"{slug}: bank {rel} declares no {prefix}<Name> mesh")
-            for raw_name in sorted(mine):
-                name = raw_name.decode()
+            for name in sorted(mine):
                 if name in declared:
                     errs.append(f"{slug}: mesh {name} is in both {declared[name]} and {rel}")
                 declared[name] = rel
@@ -378,6 +400,8 @@ def verify() -> list[str]:
         rec = lock.get(slug, {})
         if rec.get("packRange") and range_floor(rec["packRange"]) > floor:
             errs.append(f"{slug}: its pack needs Melange {rec['packRange']}, above spice.json's {spice['melange']['range']}")
+        if slug in lock and not rec.get("melange", {}).get("commit"):
+            errs.append(f"{slug}: tools/maps.lock.json records no Melange commit; sync it again from a Git checkout")
         if rec.get("melange", {}).get("localChanges"):
             errs.append(f"{slug}: copied from a pack with uncommitted changes; sync it again from a commit")
     readme = (PLUGIN / "README.md").read_text(encoding="utf-8")

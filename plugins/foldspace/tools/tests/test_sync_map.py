@@ -100,8 +100,7 @@ class VerifyBanks(unittest.TestCase):
     """verify() reads mesh names out of the committed banks' bytes; check that read for both layouts."""
 
     def names(self, data: bytes, slug="caldera"):
-        import re
-        return {m.decode() for m in re.findall(("foldspace." + slug + "_").encode() + rb"[A-Za-z0-9]+", data)}
+        return sync_map.bank_names_in(data, "foldspace." + slug + "_")
 
     def test_one_bank_many_meshes(self):
         data = b"\0foldspace.caldera_Boulder_group_0\0foldspace.caldera_Boulder\0foldspace.caldera_Slab\0"
@@ -110,6 +109,10 @@ class VerifyBanks(unittest.TestCase):
     def test_one_mesh_bank(self):
         self.assertEqual(self.names(b"\0foldspace.caldera_Shard\0foldspace.caldera_Shard_group_0\0"),
                          {"foldspace.caldera_Shard"})
+
+    def test_underscore_names_are_whole(self):
+        data = b"\0foldspace.caldera_Basalt_Rock\0foldspace.caldera_Basalt_Rock_group_0\0foldspace.caldera_Basalt\0"
+        self.assertEqual(self.names(data), {"foldspace.caldera_Basalt_Rock", "foldspace.caldera_Basalt"})
 
 
 class Committed(unittest.TestCase):
