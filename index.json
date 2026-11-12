@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 51,
+  "serial": 52,
   "plugins": [
     {
       "id": "bloodsand",
@@ -279,6 +279,74 @@
           "publisher": "mod.worms.pro",
           "host": "mod.worms.pro",
           "size": 153878165
+        }
+      ]
+    },
+    {
+      "id": "foldspace",
+      "name": "Foldspace",
+      "authors": [
+        "Melange"
+      ],
+      "description": "Big hand-built multiplayer maps, made with Melange's Erg editor. First map: Caldera, a volcanic island with a mine factory in its crater that throws mines across the island, four team castles on the shore and switchback trails to the rim. Content mod: every player in an online match needs it.",
+      "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/foldspace",
+      "licence": "MIT",
+      "categories": [
+        "maps"
+      ],
+      "gameBuilds": [
+        "1077"
+      ],
+      "screenshots": [
+        {
+          "path": "plugins/foldspace/screenshots/1.jpg",
+          "sha256": "fb139a3f2da4cf8d7d0b4daf528357630d8b67f0a05c69628f711f8ec7385adb",
+          "size": 193471,
+          "caption": "Caldera: the volcano, its trails and three of the four castles"
+        },
+        {
+          "path": "plugins/foldspace/screenshots/2.jpg",
+          "sha256": "c070f767ce4c040565b31f8eb23045d282b6a15273a95a8d58856cd464096f64",
+          "size": 251907,
+          "caption": "The crater, where the mine factory throws its volleys from"
+        },
+        {
+          "path": "plugins/foldspace/screenshots/3.jpg",
+          "sha256": "072819b7905ce7ad67d4b030e99ba9080f00b9dd8901ad4354678e5b6940ff30",
+          "size": 260835,
+          "caption": "Seawall, one of the four team castles on the shore"
+        },
+        {
+          "path": "plugins/foldspace/screenshots/4.jpg",
+          "sha256": "55f8b5b83ea673d75606a544d74d922d08da00f45618efecc96d15764b1ec217",
+          "size": 145788,
+          "caption": "Mines rising out of the crater, and a blast on a trail below"
+        },
+        {
+          "path": "plugins/foldspace/screenshots/5.jpg",
+          "sha256": "77f487f31456c9f0e46e37e540ab3446ee1fcee79ac80bd228fd1136642fb27b",
+          "size": 160073,
+          "caption": "The island from the sea, before sudden death raises the water"
+        }
+      ],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "released": "2026-11-11",
+          "melange": ">=0.14.0",
+          "kind": "content",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/foldspace-v1.0.0/foldspace-1.0.0.zip",
+          "sha256": "3a9138ee14ee7e4d4888253908ae671c8706ecdb29984b54f9362becfa842e27",
+          "size": 329899,
+          "unpackedSize": 927623,
+          "files": 4,
+          "changelog": "Foldspace's first release: big hand-built multiplayer maps made with Melange's Erg editor. Needs Melange 0.14.0 or later.\n\n- The first map, Caldera: a volcanic island with a crater at its summit. A mine factory in the crater throws volleys of mines out across the island, onto the slopes, the beaches and sometimes into a castle, keeping off the trails.\n- Four team castles on the shore (Strand, Ashgate, Harbour and Seawall). Every team starts in its own castle, and a switchback trail of pale stone climbs from each castle to the crater rim.\n- The sea stays at the beaches until sudden death, then rises with the game style's own Raise Water.\n- Basalt rocks (all in one mesh bank) and plants dress the slopes and beaches. They are decoration only and never change a shot.\n- The maps ship as Erg source, and Melange builds them from your own game when it starts and before it launches the game, after every install or update. The plugin carries no game files.\n- Content mod: every player in an online match needs the same version."
         }
       ]
     },
