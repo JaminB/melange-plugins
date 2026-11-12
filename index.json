@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 53,
+  "serial": 54,
   "plugins": [
     {
       "id": "bloodsand",
@@ -288,7 +288,7 @@
       "authors": [
         "Melange"
       ],
-      "description": "Big hand-built multiplayer maps, made with Melange's Erg editor. First map: Caldera, a volcanic island with a mine factory in its crater that throws mines across the island, four team castles on the shore and switchback trails to the rim. Content mod: every player in an online match needs it.",
+      "description": "Big hand-built multiplayer maps, made with Melange's Erg editor. Two maps: Caldera, a volcanic island with a mine factory in its crater that throws mines across the island, four team castles on the shore and switchback trails to the rim; and Dustcrown, a water-starved desert around one vast sandstone palace, built for the Sandtide plugin. Content mod: every player in an online match needs it.",
       "homepage": "https://github.com/JaminB/melange-plugins/tree/main/plugins/foldspace",
       "licence": "MIT",
       "categories": [

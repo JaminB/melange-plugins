@@ -4,9 +4,45 @@ Big, hand-built multiplayer maps for Worms Ultimate Mayhem, made with Melange's 
 world to fight over, not a dressed-up copy of a stock level. Foldspace collects them in one plugin, and new maps arrive
 as plugin updates.
 
-Needs Melange 0.14.0 or later.
+Needs Melange 0.15.0 or later.
 
-The first map is **Caldera**.
+There are two maps so far: **Caldera**, a volcanic island, and **Dustcrown**, a water-starved desert.
+
+## Dustcrown
+
+A harsh desert with no water to be seen: dunes and sandstone mesas run out to a coast where the sea is the colour of
+sand, and one vast palace stands alone in the middle. Its sheer walls rise from a stepped base, around inner courtyards,
+to corner towers and a tall central keep. There is no ramp. A worm on foot cannot climb it.
+
+- **Sand starts, palace start.** Spawn points lie in four dune troughs (north, south, east, west) and in the palace
+  courtyards. At the start of each match the game deals the teams across them, and every player's peer deals the same.
+  Two teams start in opposite dunes and race each other to the palace. Three teams read as the map was drawn: two in the
+  sand on opposite sides and one on the palace. Four teams use three dunes and the palace. A different match can deal a
+  different axis or side.
+- **Reaching the palace.** The stepped base has footholds, but the walls above them are too sheer to walk. Getting in
+  takes the movement weapons: Jetpack, Ninja Rope, Teleport, Girder. Dunes and rock outcrops lie in between: boulder
+  fields to hide behind, two tall refuge mesas to hold, and lower mesas to shoot from.
+- **Sand is the hazard.** The map was built for [Sandtide](https://jaminb.github.io/melange-plugins/plugins/sandtide/)
+  (with Kindjal, which Sandtide needs). With them on, the sand line cuts across the map at about a quarter of the way up
+  the palace: the dunes, the low mesas and the palace's lowest step are cursed ground, while the palace above, its
+  courtyards and the two refuge mesas are safe. The sea then rises with the game style's own sudden death, and it
+  reads as a sand plain rising over the dunes.
+- **Without Sandtide** it plays as any other map. The sea stays at the coast until the game style's sudden death, then
+  rises with Raise Water: the dunes flood first, the mesas and the palace steps after.
+- **Detail.** Sandstone boulders, balanced rocks, bleached bones, dry wells and thorn scrub in the desert, banners,
+  pilasters and window slits on the palace. All of it is decoration and never changes a shot.
+- **Time of day.** The map is always played in daylight, with a light sand haze, so what you see is what it was
+  made for.
+
+### Recommended settings
+
+- Local Game > Versus > Deathmatch (or another Versus type), Landscape > Prebuilt > Dustcrown.
+- Three teams is the intended game (two in the sand, one on the palace). Two to four work.
+- Sandtide on, with a scheme that starts its curse at 3:00 and a sudden death at 5:00 (Sandtide's own Sandworms scheme
+  does). Turn Sandtide off for a plain game.
+- Weapons that move worms (Jetpack, Ninja Rope, Teleport, Girder) are the way into the palace.
+- [Sunstone](https://jaminb.github.io/melange-plugins/plugins/sunstone/) is optional but recommended: the sand-coloured
+  sea and the haze need a graphics mod to draw. Without one the sea is the game's own water.
 
 ## Caldera
 
@@ -46,7 +82,7 @@ carries no game files.
 
 Melange builds them for you. `Melange.exe` builds Foldspace's maps when it starts and again before it launches the
 game, after every install or update, so there is nothing to press. While it works the launcher shows **"Building map
-pack Foldspace..."**, and it starts the game when the build ends. Caldera is then under **Prebuilt** in the Landscape
+pack Foldspace..."**, and it starts the game when the build ends. Caldera and Dustcrown are then under **Prebuilt** in the Landscape
 list.
 
 - If a build fails, the Plugins page says why. Erg's **Build** button (under **Map packs to build**) and Melange's
@@ -66,8 +102,8 @@ landscape picks (`[Levels] RandomPool=0`, the default).
 ## Limits
 
 - **Mesh sections.** The game has 44 slots for mod mesh banks shared by every enabled plugin. Foldspace uses one for
-  all of Caldera's rocks, so it fits next to Kindjal (38 banks) and most other content plugins. Each further map
-  adds one.
+  Caldera's rocks and one for Dustcrown's, so it fits next to Kindjal (38 banks) and most other content plugins. Each
+  further map adds one.
 - In a Versus match Caldera is drawn in a darker evening light than in Erg's Test. The cause isn't known yet.
 - The mine factory follows the engine's payload pool: at most about 30 mines lie on the island at once.
 - Caldera places about 860 scenery pieces, more than the game's own mesh pool holds. Melange's `[Fixes] MeshInstances`
