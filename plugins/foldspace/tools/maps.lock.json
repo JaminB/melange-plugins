@@ -14,5 +14,23 @@
       "src/caldera.ergpatch.json": "7883e57a64457b70d362dacbd13e3d9df904ad3c1435a9031b7cc43941c8c8fb"
     },
     "synced": "2026-11-11"
+  },
+  "dustcrown": {
+    "melange": {
+      "commit": "87f60906e748895f21db8e5d99ac3a84a202e6a3",
+      "branch": "erg-dustcrown",
+      "path": "tools/erg-mcp/bench/dustcrown/pack",
+      "localChanges": false
+    },
+    "packId": "dustcrown",
+    "packVersion": "1.0.0",
+    "packRange": ">=0.15.0",
+    "sources": {
+      "assets/meshes/dustcrown.Rocks.xom": "f193fa4adf8c82fdffa70de875cc62e0a0cad5c71a7b22e0487d69304ebd0b03",
+      "sim/dustcrown.lua": "8c29b87315e6eff18461a61c4ce98f79f8d3302b8411e3bdc04b58cdedd68719",
+      "src/dustcrown.ergpatch.json": "ad8701fd67756895c9606e6f7b771fe8ecb57b2654243b4bdf454a8707d4dbc5",
+      "thumb/dustcrown.png": "91c76613c6629ec8884cc0720d9126ae6473903f1ef5cc6ef6274e0443922b51"
+    },
+    "synced": "2026-11-12"
   }
 }

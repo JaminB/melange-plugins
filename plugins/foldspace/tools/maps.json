@@ -2,5 +2,9 @@
   "caldera": {
     "pack": "tools/erg-mcp/bench/caldera/pack",
     "built": "tools/erg-mcp/bench/caldera (build.mjs, detail.mjs, ship.mjs; see DETAIL.md \"Shipping\")"
+  },
+  "dustcrown": {
+    "pack": "tools/erg-mcp/bench/dustcrown/pack",
+    "built": "tools/erg-mcp/bench/dustcrown (build.mjs, detail.mjs, ship.mjs; see DETAIL.md)"
   }
 }

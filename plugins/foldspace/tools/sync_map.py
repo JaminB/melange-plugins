@@ -14,7 +14,8 @@ in ONE mod, so this script renames the map into Foldspace's names as it copies i
                                                   xomtool unpack / pack (a round trip that changes nothing else).
                                                   The mesh names are read from the bank's XMeshDescriptors. An old
                                                   one-mesh-bank pack keeps one file per mesh, foldspace.<slug>_<Name>.xom
-    a level script   sim/<slug>.lua           ->  mod/sim/<slug>.lua (none today)
+    a level script   sim/<slug>.lua           ->  mod/sim/<slug>.lua (Dustcrown's sea look)
+    a menu picture   thumb/<slug>.png         ->  mod/maps/<slug>/<slug>.png (the level entry's `image`)
 
 and rewrites that map's entries in mod/spice.json `levels` and `meshes`, leaving the other maps and every other field alone.
 It records where the copy came from (the Melange commit, branch, whether the pack had local changes, and each source
@@ -221,6 +222,12 @@ def build_copy(slug: str, pack: Path, xomtool: str) -> tuple[dict[str, bytes], d
             level["sim"] = f"sim/{slug}.lua"
             files[level["sim"]] = sim
 
+        if level.get("image"):
+            img = (pack / level["image"]).read_bytes()
+            sources[level["image"]] = sha256(img)
+            level["image"] = f"maps/{slug}/{slug}.png"
+            files[level["image"]] = img
+
         for rel, stem in banks:
             j, out, ns = unpacked[rel]
             j.write_text(rename_bank_json(j.read_text(encoding="utf-8"), pack_id, slug, ns), encoding="utf-8")
@@ -366,6 +373,9 @@ def verify() -> list[str]:
             continue
         if slug not in lock:
             errs.append(f"{slug}: no record in tools/maps.lock.json (run sync_map.py {slug})")
+        for key in ("sim", "image"):
+            if lv.get(key) and not (MOD / lv[key]).is_file():
+                errs.append(f"{slug}: {lv[key]} ({key}) is missing")
         patch_path = MOD / lv["source"]
         if not patch_path.is_file():
             errs.append(f"{slug}: {lv['source']} is missing")
