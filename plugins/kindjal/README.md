@@ -114,12 +114,16 @@ How it works: everything that changes the match (every scoop's land, the once-a-
 damage, the kill) is decided in `mod/sim/main.lua` on every machine at the same tick, and sent to the clients as the
 message `Kindjal.Spade`. The cinematic, the poses, the head and the gore are drawn on each machine alone: the sim
 holds the next turn start (`wum.sim.holdTurn`) for the 10.4 s the show takes, pins both worms, and kills the victim
-5.4 s in through the engine's own death (`worm:kill`, no death explosion, with its gravestone). The worms' hands follow
-the spade through MiragePose (`wum.render.wormPose`: the hands carried onto its grip, the body laid down or turned,
-the head flattened into a stump), and the severed head is the worm's own head (`wum.render.wormCopy`) while its body
-is drawn, then the plugin's head model. The engine's held spade is an invisible speck; the real one is drawn by the
-client in the worm's hands. On a driver where MiragePose cannot read the worms' bones, the spade is drawn alone on the
-same path (the hands do not follow it), and the victim does not lie down.
+5.4 s in through the engine's own death (`worm:kill`, no death explosion, with its gravestone; the body goes a few
+ticks after the chop). The engine's held spade is an invisible speck; the real one is drawn by the client.
+
+Poses: Worms Ultimate Mayhem (build #1077) skins its worms on the CPU, so Melange 0.16's pose API
+(`wum.render.wormPose`) answers "unsupported" there and Kindjal uses its fallback. The spade turns in the worm's
+fists, where the engine's Bat hold puts them, and every scoop, lever and fling is the spade's own motion. The execution
+is staged upright: the attacker points the spade at the victim, raises it over the shoulder, holds it for the beat and
+swings it through the neck. The plugin's head model flies off and rolls, and the body drops under the burst as the
+grave comes down. On a Melange and game that can pose worms, the hands follow the grip, the victim lies down, the
+attacker climbs on, and the first severed head is the worm's own (`wum.render.wormCopy`).
 
 ### Tuning the knockback
 
@@ -163,11 +167,12 @@ All of this is client-side and off by a setting; none of it touches the simulati
   blood still shows through acid.
 - **Acid bursts.** Green-yellow smoke and a bubbling puddle at the burst that smokes and dies over about twenty seconds
   (at most three puddles, the Buddy Bomb's pool of blood among them).
-- **The Grave Spade.** The spade in the worm's hands: leaning on it at rest, held along the aim while aiming, and a
+- **The Grave Spade.** The spade in the worm's fists: hanging blade-down at rest, held along the aim while aiming, and a
   full scoop (bite, lever, fling over the shoulder, wind up) for every scoop the sim digs, with clods that bounce on the
   land, dust that hangs over the cut, stone chips and sparks on stone and buildings (by the level's theme), and its own
   scoop and scrape sounds. The execution has a letterbox, the circling camera, a name card and its own sting, chop,
-  spurt and rolling-head sounds; the camera keeps out of the land, so it also works inside a dug cave.
+  spurt and rolling-head sounds. The camera keeps out of the land and out of the worms, so it also works inside a dug
+  cave. It follows the head only while the head is near and above the pair's ground.
 - **Melee impact.** A spray of dark sparks at the victim and a short red hit-flash on a spade, prod, punch or nail hit,
   with its own impact sound. Spike glints on the swing are an experimental setting, off by default.
 - **Buddy Bomb.** The sheep's slot is a long, black, curly labradoodle in a vest of dynamite. A few little hearts float

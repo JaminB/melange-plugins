@@ -5898,10 +5898,12 @@ wum.timers.every(2, GIBS.checkFx)
 -- gore, the heaviest it has:
 --   start     {slot, attacker, chopIn}  the victim is pinned: its death burst (the sim kills it at the chop) waits for the
 --                                       chop instead, or bursts as usual if no chop comes within chopIn + 4 s
---   chop      {slot, x, y, z, dx, dy, dz}  the head is off at the neck (x, y, z), the stump facing (dx, dy, dz): a death
---                                       burst from the neck and a second spray, the gibs, a lens splat, the grave pool and
---                                       a pool at the neck, and the stump pumps arterial jets for several seconds, slowing
---                                       and weakening with the heartbeat, then dribbles; a wider pool once it has pumped
+--   chop      {slot, x, y, z, dx, dy, dz[, sx, sy, sz]}  the head is off at the neck (x, y, z), the stump facing
+--                                       (dx, dy, dz): a death burst from the neck and a second spray, the gibs, a lens
+--                                       splat, the grave pool and a pool at the neck, and the stump pumps arterial jets for
+--                                       several seconds, slowing and weakening with the heartbeat, then dribbles; a wider
+--                                       pool once it has pumped. (sx, sy, sz), when given, is where the jets come from
+--                                       instead of the neck: the body went down or away at the chop
 --   head      {slot, x, y, z, impact}   the rolling head: drops behind it, and a splat where it bounces
 --   headRest  {slot, x, y, z}           a pool where it comes to rest
 --   end / abort {slot}                  over (abort: nothing was cut, the worm is an ordinary worm again)
@@ -5967,7 +5969,8 @@ local function build()
         -- the jet leaves the stump along it, lifted
         local jx, jy, jz = dx / l * 0.8, dy / l * 0.8 + 0.55, dz / l * 0.8
         l = sqrt(jx * jx + jy * jy + jz * jz)
-        STUMPS[#STUMPS + 1] = { x = x, y = y, z = z, dx = jx / l, dy = jy / l, dz = jz / l, t0 = now, nextAt = now + 0.08,
+        local sx, sy, sz = num(p, "sx", x), num(p, "sy", y), num(p, "sz", z)
+        STUMPS[#STUMPS + 1] = { x = sx, y = sy, z = sz, dx = jx / l, dy = jy / l, dz = jz / l, t0 = now, nextAt = now + 0.08,
                                 pStart = 0, pEnd = 0, str = 1, acc = 0, bacc = 0, dacc = 0, pooled = false }
     end
 

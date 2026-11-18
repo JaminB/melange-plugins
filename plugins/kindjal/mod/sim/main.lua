@@ -266,7 +266,10 @@ SPADE = {
     STROKE = 18,        -- ticks between scoops while fire is held (0.36 s; 83 in a 30 s turn, inside the 900-sphere budget)
     HOLD = 800,         -- the turn-start hold armed for the execution (released at END)
     CHOP = 270,         -- ticks after the execution starts: the blade comes down
-    THROES = 230,       -- the victim's throes after the chop (the body and its head copy are drawn this long)
+    -- The victim's throes after the chop: its body is drawn this long, and it still has its head (build #1077 skins worms
+    -- on the CPU, so no client can cut it to a stump). A few ticks: the body goes under the chop's burst and the grave
+    -- drops while the client's severed head flies.
+    THROES = 8,
     END = 520,          -- the cinematic is over: pins released, the next turn may start
     CONFIRM = 30,       -- a kill not confirmed by then (the victim still alive) aborts the execution
     SHIV_D = 10,        -- the Shiv's numbers if its container cannot be read (Kindjal's own)
