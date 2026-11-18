@@ -287,8 +287,8 @@ well next to Bloodsand's splat is a judgement for a person to make in play.
   proves every machine digs and kills alike is still to do. A held dig that reaches a worm stays a dig (the gate decides
   at the press), so a strike is always a fresh press. Which hand takes the grip is learned from the worm's bones in the
   first frames it holds the spade. The execution needs the camera override free: with another mod's override (a
-  Sandtide tour) it plays under the game's camera. The engine's HUD is hidden only on a Melange with
-  `wum.render.hideHud`; otherwise the letterbox covers the timer and team bars, and the worms' name tags stay.
+  Sandtide tour) it plays under the game's camera, with the game's HUD (the HUD is hidden with Melange's
+  `wum.render.hideHud` only while the execution has the camera).
 - The Nail Bat is gone from the panel (its slot is the spade); its model and icon are still in the package, unused.
 - The Crucible follows the Holy Hand Grenade's ammo and delay: in the Standard style it reads "Delayed" until the
   third turn, like the grenade it is built on.
