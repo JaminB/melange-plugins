@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Generate Kindjal's sound effects into mod/sounds/.
 
-Fifteen mono 16-bit 44.1 kHz WAVs: kj_swing, kj_impact_bat / _stab / _spike, kj_firepunch, kj_launch,
-kj_boom_small / _med / _large, kj_crucible, kj_acid_burst, kj_acid_hiss, and the Buddy Bomb's kj_bark, kj_bark2 and
-kj_yelp. Every sound is synthesised here from scratch (noise bursts shaped by envelopes, time-varying biquad
+Twenty-five mono 16-bit 44.1 kHz WAVs (the last ten are the Grave Spade's, mastered like Sandtide's: one-shots
+peak -6 dBFS, the loop -24 dBFS RMS): kj_swing, kj_impact_bat / _stab / _spike, kj_firepunch, kj_launch,
+kj_boom_small / _med / _large, kj_crucible, kj_acid_burst, kj_acid_hiss, the Buddy Bomb's kj_bark, kj_bark2 and
+kj_yelp, and kj_dig_scoop1-3, kj_dig_stone, kj_dig_loop, kj_spade_ring, kj_chop, kj_neck_spurt, kj_head_roll,
+kj_exec_sting. Every sound is synthesised here from scratch (noise bursts shaped by envelopes, time-varying biquad
 low/band/high-pass filters for body, pitch-dropping sines for sub-booms, decaying inharmonic partials for the metal,
 granular blips for bubbles and debris, a harmonic buzz through formant band-passes for the dog, tanh saturation for grit),
 so nothing comes from the game or any other recording. All randomness comes from seeded random.Random instances, so the
@@ -520,6 +522,200 @@ def yelp():
     return finish(sat(x, 1.3))
 
 
+# ---------------------------------------------------------------- the Grave Spade
+# Mastering follows Sandtide: one-shots peak at -6 dBFS, loops sit at -24 dBFS RMS.
+SHOT_PEAK = 10 ** (-6.0 / 20)
+LOOP_RMS = 10 ** (-24.0 / 20)
+
+
+def finish_shot(x):
+    """DC-block, 5 ms fades, peak-normalise to -6 dBFS (the Sandtide one-shot level)."""
+    x = dc_block(x)
+    f = ms(FADE)
+    for i in range(min(f, len(x))):
+        k = i / f
+        x[i] *= k
+        x[len(x) - 1 - i] *= k
+    return scaled(x, SHOT_PEAK)
+
+
+def finish_loop(x, loop):
+    """x holds `loop` samples plus a crossfade tail. Equal-power crossfade of the tail into the head, then scale to
+    -24 dBFS RMS (the peak is kept under -1 dBFS)."""
+    xf = len(x) - loop
+    x = dc_block(x)
+    out = x[:loop]
+    for i in range(xf):
+        th = 0.5 * math.pi * i / xf
+        out[i] = x[i] * math.sin(th) + x[loop + i] * math.cos(th)
+    rms = math.sqrt(sum(v * v for v in out) / len(out)) or 1.0
+    out = [v * LOOP_RMS / rms for v in out]
+    pk = max(abs(v) for v in out)
+    if pk > PEAK:
+        out = [v * PEAK / pk for v in out]
+    return out
+
+
+def scoop(seed, dur, body_hz, grit, wet):
+    """Wet earth crunch: a soft low thump, a low-passed dirt body, a front-loaded grain crunch and a little wet squelch.
+    Variants differ in seed, length, body colour, grit amount and wetness."""
+    n = ms(dur)
+    r = random.Random(seed)
+    x = zeros(n)
+    add(x, mul(sweep_sine(n, 130, 55, 0.03), env(n, 0.002, 0.07)), 0, 0.8)
+    add(x, mul(noise_band(r, n, "lp", decay_f(250, body_hz, 0.05), 0.8), env(n, 0.004, dur * 0.3)), 0, 0.9)
+    crunch_grains(x, r, grit, 0.005, dur * 0.6, 300, 2600, 0.008, 0.035, 0.5, q=2.0)
+    add(x, mul(noise_band(r, n, "hp", 3200), env(n, 0.0005, 0.01)), 0, 0.18)
+    for t in (0.04, 0.09, 0.15):
+        if t < dur - 0.03:
+            add(x, bubble(r, 220 + 300 * r.random(), 0.02 + 0.02 * r.random()), t, wet)
+    return finish_shot(sat(x, 1.4))
+
+
+def dig_scoop1():
+    """0.28 s. Medium wet earth crunch."""
+    return scoop(5101, 0.28, 1800, 14, 0.25)
+
+
+def dig_scoop2():
+    """0.32 s. Deeper, wetter and slower."""
+    return scoop(5102, 0.32, 1300, 10, 0.4)
+
+
+def dig_scoop3():
+    """0.24 s. Drier and grittier."""
+    return scoop(5103, 0.24, 2400, 20, 0.1)
+
+
+def dig_stone():
+    """0.5 s. Spade on stone: a gritty scrape (band-passed noise with a rising centre), a hard tick, a few scattered
+    grains and a short metallic ring."""
+    n = ms(0.5)
+    r = random.Random(5201)
+    x = zeros(n)
+    add(x, mul(noise_band(r, n, "hp", 2500), env(n, 0.0003, 0.006)), 0, 0.7)
+    add(x, mul(noise_band(r, n, "bp", lambda i: 1500 + 2500 * (i / n), 1.2), env(n, 0.015, 0.09, 0.06)), 0.01, 0.8)
+    crunch_grains(x, r, 22, 0.01, 0.25, 800, 5000, 0.004, 0.02, 0.45, q=3.0, bias=1.0)
+    add(x, mul(metal(n, [1210, 2360, 3550, 5120], [0.2, 0.14, 0.09, 0.06], [1.0, 0.55, 0.35, 0.2]),
+               env(n, 0.0004, 1.0)), 0.003, 0.4)
+    add(x, mul(sweep_sine(n, 140, 70, 0.02), env(n, 0.001, 0.04)), 0, 0.4)
+    return finish_shot(sat(x, 1.5))
+
+
+def dig_loop():
+    """2.0 s loop: four rhythmic dig strokes per loop at 0.5 s (a scrape in, a thud and crunch, a toss of loose dirt),
+    no two quite alike. 0.25 s of extra tail is crossfaded into the head, so the loop point is seamless."""
+    loop = ms(2.0)
+    xf = ms(0.25)
+    n = loop + xf
+    r = random.Random(5301)
+    x = zeros(n)
+    for k in range(5):
+        t = 0.5 * k
+        m = ms(0.3)
+        add(x, mul(noise_band(r, m, "bp", lambda i: 700 + 1400 * (i / m), 1.0), env(m, 0.06, 0.07)), t, 0.35)
+        t2 = t + 0.17 + 0.02 * r.random()
+        add(x, mul(sweep_sine(m, 120 + 20 * r.random(), 50, 0.03), env(m, 0.002, 0.06)), t2, 0.9)
+        add(x, mul(noise_band(r, m, "lp", decay_f(300, 1800 + 400 * r.random(), 0.04), 0.8), env(m, 0.003, 0.07)),
+            t2, 0.8)
+        crunch_grains(x, r, 8, t2, 0.1, 300, 2400, 0.008, 0.03, 0.4, q=2.0)
+        m2 = ms(0.18)
+        add(x, mul(noise_band(r, m2, "hp", 3000), env(m2, 0.01, 0.05)), t2 + 0.1, 0.12)
+    return finish_loop(sat(x, 1.3), loop)
+
+
+def spade_ring():
+    """1.4 s. The blade ringing after a clean strike: iron partials with a slightly detuned pair (beating), over a
+    tiny click."""
+    n = ms(1.4)
+    r = random.Random(5401)
+    x = zeros(n)
+    add(x, mul(noise_band(r, n, "hp", 3000), env(n, 0.0003, 0.004)), 0, 0.4)
+    add(x, metal(n, [440, 443, 1090, 1960, 2870, 4300, 6100], [0.9, 0.8, 0.55, 0.4, 0.28, 0.18, 0.1],
+                 [1.0, 0.8, 0.7, 0.45, 0.3, 0.2, 0.1]), 0, 0.5)
+    return finish_shot(x)
+
+
+def chop():
+    """0.7 s. The decapitating blow: a heavy wet thud (sub drop, low squelch, bone and meat grains, bubbles), with
+    an iron ring from the blade biting the earth behind it."""
+    n = ms(0.7)
+    r = random.Random(5501)
+    x = zeros(n)
+    add(x, mul(sweep_sine(n, 95, 35, 0.05, 0.2), env(n, 0.002, 0.14)), 0, 1.0)
+    add(x, mul(noise_band(r, n, "lp", decay_f(200, 1800, 0.04), 0.9), env(n, 0.001, 0.09)), 0, 0.9)
+    add(x, mul(noise_band(r, n, "hp", 2500), env(n, 0.0003, 0.008)), 0, 0.4)
+    crunch_grains(x, r, 16, 0.005, 0.12, 250, 1800, 0.012, 0.04, 0.55, q=2.0)
+    for t in (0.06, 0.11, 0.17, 0.25, 0.33):
+        add(x, bubble(r, 150 + 350 * r.random(), 0.03 + 0.03 * r.random()), t, 0.3 * math.exp(-t / 0.3))
+    add(x, mul(metal(n, [610, 1330, 2150, 3280], [0.35, 0.25, 0.17, 0.1], [1.0, 0.6, 0.4, 0.2]),
+               env(n, 0.0004, 1.0)), 0.015, 0.35)
+    return finish_shot(sat(x, 1.8))
+
+
+def neck_spurt():
+    """1.6 s. Wet arterial hiss: pulsing (about 2.8 per second, slowing and fading) band-passed noise with a squirty
+    low layer and wet bubbles."""
+    n = ms(1.6)
+    r = random.Random(5601)
+    hiss = [a + 0.5 * b for a, b in zip(noise_band(r, n, "bp", 3500, 0.7), noise_band(r, n, "hp", 5500, 0.7))]
+    low = noise_band(r, n, "bp", 700, 0.9)
+    ph = 0.0
+    x = zeros(n)
+    for i in range(n):
+        t = i / SR
+        ph += 2.8 * (1.0 - 0.45 * t / 1.6) / SR
+        pulse = 0.25 + 0.75 * max(0.0, math.sin(TWO_PI * ph)) ** 1.5
+        a = min(1.0, t / 0.03) * math.exp(-t / 0.9)
+        x[i] = (hiss[i] * 0.6 + low[i] * 0.45) * pulse * a
+    t = 0.05
+    while t < 1.4:
+        add(x, bubble(r, 200 * (1100 / 200) ** r.random(), 0.015 + 0.03 * r.random()), t,
+            0.3 * math.exp(-t / 0.7) * (0.4 + 0.6 * r.random()))
+        t += r.expovariate(25.0)
+    return finish_shot(sat(x, 1.2))
+
+
+def head_roll():
+    """1.2 s. A head rolling: soft tumbling thuds with shrinking gaps, each quieter and duller than the last, and a
+    faint dirt scuff under each."""
+    n = ms(1.2)
+    r = random.Random(5701)
+    x = zeros(n)
+    t = 0.0
+    gap = 0.28
+    g = 1.0
+    while t < 1.05:
+        m = ms(0.12)
+        f0 = 90 + 40 * r.random()
+        add(x, mul(sweep_sine(m, f0, 45, 0.025), env(m, 0.002, 0.04)), t, 0.9 * g)
+        add(x, mul(noise_band(r, m, "lp", 500 + 400 * r.random(), 0.8), env(m, 0.002, 0.03)), t, 0.6 * g)
+        add(x, mul(noise_band(r, m, "bp", 1500, 0.9), env(m, 0.01, 0.04)), t + 0.02, 0.1 * g)
+        t += gap * (0.85 + 0.3 * r.random())
+        gap *= 0.78
+        g *= 0.72
+    return finish_shot(sat(x, 1.2))
+
+
+def exec_sting():
+    """2.0 s. A low ominous hit: a deep sub boom dropping to 28 Hz, a dark detuned drone swelling beneath it, a short
+    noise swell leading in, and a dull iron chord."""
+    n = ms(2.0)
+    r = random.Random(5801)
+    x = zeros(n)
+    add(x, mul(sweep_sine(n, 70, 28, 0.12, 0.1), env(n, 0.006, 0.55)), 0.15, 1.0)
+    add(x, mul(noise_band(r, n, "lp", decay_f(90, 1400, 0.1), 0.9), env(n, 0.002, 0.2)), 0.15, 0.6)
+    sw = [(i / ms(0.15)) ** 2 if i < ms(0.15) else 0.0 for i in range(n)]
+    add(x, mul(noise_band(r, n, "lp", 1200, 0.7), sw), 0, 0.35)
+    swell = env(n, 0.3, 0.9)
+    for f, a in ((55.0, 0.5), (55.8, 0.45), (82.5, 0.25), (110.7, 0.15)):
+        w = TWO_PI * f / SR
+        add(x, [math.sin(w * i) * swell[i] for i in range(n)], 0.1, a)
+    add(x, mul(metal(n, [196, 293, 587], [1.2, 0.9, 0.6], [1.0, 0.5, 0.25]), env(n, 0.002, 1.0)), 0.15, 0.25)
+    x = echoes(x, [(0.2, 0.2, 900), (0.45, 0.1, 600)])
+    return finish_shot(sat(x, 1.8))
+
+
 # ---------------------------------------------------------------- output
 SOUNDS = [
     ("kj_swing", swing),
@@ -537,6 +733,16 @@ SOUNDS = [
     ("kj_bark", bark),
     ("kj_bark2", bark2),
     ("kj_yelp", yelp),
+    ("kj_dig_scoop1", dig_scoop1),
+    ("kj_dig_scoop2", dig_scoop2),
+    ("kj_dig_scoop3", dig_scoop3),
+    ("kj_dig_stone", dig_stone),
+    ("kj_dig_loop", dig_loop),
+    ("kj_spade_ring", spade_ring),
+    ("kj_chop", chop),
+    ("kj_neck_spurt", neck_spurt),
+    ("kj_head_roll", head_roll),
+    ("kj_exec_sting", exec_sting),
 ]
 
 
