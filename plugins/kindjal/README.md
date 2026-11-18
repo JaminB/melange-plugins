@@ -263,6 +263,15 @@ read from `Bundl09.xom` at build time:
   Drop's carcass, the Hangwoman, the
   Knifeman, the Gorger, both gunships, the Slug Gun, Gibbet Turret, Harpoon launcher and Harpoon, the Plague Arrow's
   bow, the Nail Cluster and its piece, the Carpet Bombing shell, the Bear Trap and the Dead Star are of this kind.
+- **The Grave Spade bank** (`gravespade.xom`, from `meshes_held.py` and `build_meshes.py`): like the static banks, its
+  two meshes (the spade, and an invisible speck the client can name while it draws the spade itself) are generated from
+  scratch and borrow only the BaseballBat's material. `gravespade.mesh.txt` + `gravespade.png` are the same spade as plain
+  data for the client to draw.
+- **The severed head** (`gravespade_head.mesh.txt`, `gravespade_head.png`, `gravespade_head_clean.png`, made by
+  `meshes_head.py` from `Bundl474.xom`): the upper half of the vanilla worm (`W4.Worm`: its body shape in bind pose,
+  its eyes and teeth) cut through the neck and closed with a new neck face, so its geometry is the game's. Its texture
+  is an atlas rebuilt from the worm's own body, eye and teeth textures (the eye baked from three of its layers) plus a
+  neck face painted by the script. The client draws it only as a fallback when Melange cannot copy the real head.
 
 Rebuilding any of them needs a game install and `xomtool` (see `tools/README-meshes.md`).
 

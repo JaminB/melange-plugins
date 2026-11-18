@@ -16,6 +16,8 @@ along the weapon, origin where the vanilla asset has it, bounding box agreeing w
 shiv      Prod                 no vanilla mesh   reference size derived from BaseballBat (blade 45% of the bat's length)
 gauntlet  Fire Punch           no vanilla mesh   reference size derived from BaseballBat (35% of its length, centred on 0)
 railspike No More Nails        TailNail          sledge + rust-orange railway spike through a plank
+gravespade Grave Spade (Bat)   BaseballBat       D-grip, ash shaft, riveted socket, long dished iron blade, grave soil
+gravespade_hidden              (none)            a 0.04-unit speck: the held mesh while the client draws the spade itself
 
 Original art, nothing from the game. Fixed seeds, stdlib only, deterministic.
 """
@@ -42,6 +44,7 @@ REF = {
     "shiv": ("BaseballBat", (-2.887, -12.581, -2.855), (2.887, 13.295, 2.855), 504),
     "gauntlet": ("BaseballBat", (-2.887, -0.175 * BAT_LEN, -2.855), (2.887, 0.175 * BAT_LEN, 2.855), 504),
     "railspike": ("TailNail", (-6.139, -4.168, -9.520), (6.139, 22.109, 8.394), 358),
+    "gravespade": ("BaseballBat", (-2.887, -12.581, -2.855), (2.887, 13.295, 2.855), 504),
 }
 
 
@@ -532,20 +535,198 @@ def paint_railspike():
     return tex.render()
 
 
+# ================================================================= GRAVE SPADE
+# Axis Y, in the BaseballBat's frame (the spade replaces the bat in the worm's hand): a D-grip at the butt (crossbar along
+# Z at y -12.2, two arms into an iron ferrule at y -8.3), an ash shaft to y 2.8, a riveted iron socket with two straps,
+# a rolled tread across the top of the blade (y 5.4) and a long tapered blade with a rounded point to y 15.2. The blade
+# lies in the XY plane and is dished toward +Z (its edges stand 0.75 forward of its middle). Two other designs (a
+# square trench spade with a T-grip, a pointed shovel with a bone T-grip) were drawn and not kept.
+GS_BLADE = (1, 1, 70, 127)   # planar x / y map of the blade
+GS_SHAFT = (73, 1, 127, 58)
+GS_GRIP = (73, 61, 127, 88)
+GS_IRON = (73, 91, 127, 127)
+GS_BX0, GS_BX1, GS_BY0, GS_BY1 = -3.15, 3.15, 5.0, 15.7
+GS_STATIONS = [(5.3, 2.75), (5.6, 3.0), (7.0, 3.0), (9.0, 2.86), (11.0, 2.62), (12.5, 2.32), (13.5, 1.95), (14.3, 1.42),
+               (14.8, 0.9), (15.1, 0.4), (15.22, 0.08)]  # (y, half width): shared by the geometry and the paint
+GS_DISH, GS_H0, GS_H1 = 0.75, 0.34, 0.13  # dish depth, half thickness at the tread and at the point
+
+
+def gs_blade_rings():
+    y0, y1 = GS_STATIONS[0][0], GS_STATIONS[-1][0]
+    rings = []
+    for y, w in GS_STATIONS:
+        h = lerp(GS_H0, GS_H1, (y - y0) / (y1 - y0))
+        ring = []
+        for j in range(16):
+            c, s = math.cos(TAU * j / 16), math.sin(TAU * j / 16)
+            ring.append((w * c, y, h * s * (1.0 - 0.55 * c * c) + GS_DISH * c * c - GS_DISH * 0.5))
+        rings.append(ring)
+    return rings
+
+
+def loft_ordered(mesh, gid, rings, uv):
+    """A loft whose rings run counter-clockwise seen from the +Y end, wound by that order (the dished blade's ring
+    centroid lies outside its crescent cross-section, which fools loft()'s centroid rule). The end caps are strips that
+    pair the two halves of the ring (j and n - j), not fans from the centroid, for the same reason."""
+    n = len(rings[0])
+    for k in range(len(rings) - 1):
+        for j in range(n):
+            j1 = (j + 1) % n
+            ids = [mesh.vert(p, uv(p, None), (gid, k)) for p in (rings[k][j], rings[k + 1][j], rings[k + 1][j1], rings[k][j1])]
+            mesh.tri(ids[0], ids[1], ids[2])
+            mesh.tri(ids[0], ids[2], ids[3])
+    for end, k in ((0, 0), (1, len(rings) - 1)):
+        vs = [mesh.vert(p, uv(p, None), (gid, "cap", end)) for p in rings[k]]
+        out = (0.0, -1.0 if end == 0 else 1.0, 0.0)
+        h = n // 2
+        mesh.tri_out(vs[0], vs[1], vs[n - 1], out)
+        for j in range(1, h - 1):
+            mesh.tri_out(vs[j], vs[j + 1], vs[n - j - 1], out)
+            mesh.tri_out(vs[j], vs[n - j - 1], vs[n - j], out)
+        mesh.tri_out(vs[h - 1], vs[h], vs[h + 1], out)
+
+
+def build_gravespade():
+    mesh = Mesh()
+    uvb = tex_planar(GS_BLADE, lambda p: ((p[0] - GS_BX0) / (GS_BX1 - GS_BX0), (GS_BY1 - p[1]) / (GS_BY1 - GS_BY0)))
+    loft_ordered(mesh, "blade", gs_blade_rings(), uvb)
+    # the tread: the rolled-over top edge of the blade, following the dish
+    w0 = GS_STATIONS[1][1]
+    xs = [-w0 - 0.05, -w0 + 0.25] + [(-w0 + 0.25) + k * (2 * w0 - 0.5) / 8 for k in range(1, 8)] + [w0 - 0.25, w0 + 0.05]
+    tr = []
+    for i, x in enumerate(xs):
+        k = 0.55 if i in (0, len(xs) - 1) else 1.0
+        cz = GS_DISH * (min(abs(x), w0) / w0) ** 2 - GS_DISH * 0.5 + 0.05
+        tr.append(ring_x(x, 5.42, cz, 0.36 * k, 0.48 * k, 8, 2.2))
+    loft(mesh, "tread", tr, rect=GS_IRON)
+    # the socket, flattening into the blade, and two straps riveted to the shaft (front and back)
+    so = [(2.6, 0.98, 0.98), (3.0, 1.12, 1.1), (4.2, 1.2, 1.1), (5.0, 1.45, 0.9), (5.55, 1.6, 0.6)]
+    loft(mesh, "socket", [ring_y(y, 0.0, 0.0, rx, rz, 10, 2.0) for y, rx, rz in so], rect=GS_IRON)
+    for k, zc in enumerate((0.9, -0.9)):
+        loft(mesh, ("strap", k), [box8_y(y, 0.0, zc, hx, 0.16) for y, hx in ((0.4, 0.28), (0.7, 0.42), (2.6, 0.48), (2.8, 0.42))],
+             rect=GS_IRON, flat=True)
+    # the shaft, an iron ferrule where the D-grip splits off, the two arms and the crossbar
+    sh = [(-8.6, 0.86), (-7.1, 0.84), (-4.0, 0.8), (0.0, 0.84), (2.8, 0.9)]
+    loft(mesh, "shaft", [ring_y(y, 0.0, 0.0, r, r, 10, 2.0) for y, r in sh], rect=GS_SHAFT)
+    fe = [(-9.0, 0.95), (-8.85, 1.08), (-7.6, 1.08), (-7.45, 0.92)]
+    loft(mesh, "ferrule", [ring_y(y, 0.0, 0.0, r, r, 10, 2.0) for y, r in fe], rect=GS_IRON)
+    for s in (1, -1):
+        tube(mesh, ("arm", s), [(0.0, -8.3, 0.25 * s), (0.0, -9.6, 1.25 * s), (0.0, -11.0, 2.15 * s), (0.0, -12.0, 2.3 * s)],
+             [0.55, 0.52, 0.5, 0.48], (1.0, 0.0, 0.0), 8, GS_GRIP)
+    cb = [(-2.75, 0.45), (-2.6, 0.66), (2.6, 0.66), (2.75, 0.45)]
+    loft(mesh, "cross", [ring_z(z, 0.0, -12.2, r, r, 10, 2.0) for z, r in cb], rect=GS_GRIP)
+    return mesh, paint_gravespade()
+
+
+def gs_width_at(y):
+    st = GS_STATIONS
+    if y <= st[0][0]:
+        return st[0][1]
+    for k in range(len(st) - 1):
+        if st[k][0] <= y <= st[k + 1][0]:
+            return lerp(st[k][1], st[k + 1][1], (y - st[k][0]) / ((st[k + 1][0] - st[k][0]) or 1))
+    return 0.0
+
+
+def paint_gravespade():
+    iron = Fbm(301, 5, 9, 4)
+    scratch = Fbm(302, 60, 3, 2)
+    rustn = Fbm(303, 7, 9, 4)
+    clay = Fbm(304, 9, 9, 4)
+    clod = Fbm(305, 18, 18, 3)
+    wood = Fbm(306, 22, 3, 3)
+    fine = Fbm(307, 40, 40, 2)
+    pit = Fbm(308, 16, 16, 3)
+    blood = Fbm(309, 12, 5, 3)
+    ytip = GS_STATIONS[-1][0]
+
+    def blade(a, t):
+        x = GS_BX0 + a * (GS_BX1 - GS_BX0)
+        y = GS_BY1 - t * (GS_BY1 - GS_BY0)
+        w = gs_width_at(y) or 0.01
+        e = clamp((w - abs(x)) / 0.55)  # 0 at the edge, 1 half a unit in
+        col = mix((58, 54, 50), (116, 110, 100), smooth(0.2, 0.85, iron.at(a, t)))  # old dark iron
+        col = shade(col, 0.82 + 0.3 * pit.at(a, t))
+        # rust, mostly up near the tread where the soil does not scour it
+        r = smooth(0.58, 0.72, rustn.at(a, t)) * smooth(12.5, 7.0, y)
+        col = mix(col, mix((150, 74, 30), (96, 46, 20), pit.at(a, t)), 0.85 * r)
+        # scoured bright steel: the lower blade and the cutting edge, long digging scratches
+        scour = clamp(smooth(10.5, ytip - 1.2, y) * smooth(0.25, 0.55, scratch.at(a, t) + 0.3) + (1.0 - e) * 0.95)
+        steel = shade(mix((126, 128, 124), (222, 224, 214), smooth(0.35, 0.75, scratch.at(a, t))), 0.9 + 0.2 * fine.at(a, t))
+        col = mix(col, steel, scour)
+        col = mix(col, (246, 246, 236), 0.85 * smooth(0.35, 0.0, e) * smooth(8.0, 11.0, y))  # the honed edge line
+        # grave soil: wet clay caked in the dish under the tread, clods and smears further down
+        cake = smooth(9.0, 5.8, y) * smooth(0.48, 0.54, clay.at(a, t)) + smooth(0.70, 0.73, clod.at(a, t))
+        cake = clamp(cake * (0.4 + 0.6 * smooth(13.5, 8.0, y)))
+        soil = mix((40, 26, 16), (120, 86, 50), smooth(0.35, 0.75, clod.at(a * 2, t * 2)))
+        col = mix(col, soil, 0.92 * cake)
+        col = mix(col, (40, 28, 20), 0.6 * smooth(0.3, 0.0, abs(y - 5.6)))  # dark line under the tread
+        b = smooth(0.66, 0.78, blood.at(a, t)) * smooth(10.0, 14.0, y)  # a little old blood toward the point
+        return mix(col, (96, 18, 14), 0.75 * b)
+
+    def shaft(a, t):  # ash, grain along the length, dark where it is handled, mud near the socket
+        col = mix((70, 46, 28), (150, 108, 64), smooth(0.3, 0.75, wood.at(a, t)))
+        col = shade(col, 0.82 + 0.3 * fine.at(a, t))
+        col = mix(col, (40, 28, 18), 0.5 * smooth(0.6, 0.8, clay.at(a * 0.3, t)))
+        return mix(col, (70, 50, 32), 0.7 * smooth(0.75, 1.0, t))
+
+    def grip(a, t):  # darker wood polished by palms
+        col = mix((60, 40, 24), (140, 100, 62), smooth(0.3, 0.75, wood.at(a, t)))
+        col = shade(col, 0.85 + 0.35 * fine.at(a, t))
+        return mix(col, (200, 160, 110), 0.35 * smooth(0.6, 0.9, clay.at(a, t)))
+
+    def ironf(a, t):  # socket, straps, tread, ferrule: dark iron, rust, bright worn rims, a row of rivets
+        col = mix((40, 38, 36), (104, 98, 92), iron.at(a, t))
+        col = mix(col, (140, 70, 28), 0.8 * smooth(0.6, 0.72, rustn.at(a, t)))
+        col = mix(col, (190, 188, 178), 0.7 * smooth(0.12, 0.0, min(t, 1 - t)))
+        rv = abs(((a * 6) % 1.0) - 0.5)
+        if abs(t - 0.5) < 0.16 and rv < 0.12:
+            col = mix(col, (210, 206, 194), 0.9)
+        return mix(col, (60, 42, 28), 0.6 * smooth(0.7, 0.8, clod.at(a, t)))
+
+    tex = Texture((70.0, 60.0, 50.0), gain=1.22, sat=1.12)
+    tex.region(GS_BLADE, blade, wrap=False)
+    tex.region(GS_SHAFT, shaft)
+    tex.region(GS_GRIP, grip)
+    tex.region(GS_IRON, ironf)
+    return tex.render()
+
+
+def build_gravespade_hidden():
+    """A closed speck (a 0.04-unit tetrahedron at the origin, inside the worm's fist): the held mesh to name while the
+    client draws the spade itself (wum.draw.mesh at the posed wrists), so the engine's own spade does not hang in the
+    unposed hand. Validated for structure only (its own box, four triangles)."""
+    mesh = Mesh()
+    mesh.begin_part()
+    e = 0.02
+    p = [(e, e, e), (-e, -e, e), (-e, e, -e), (e, -e, -e)]
+    for a, b, c in ((0, 1, 2), (0, 3, 1), (0, 2, 3), (1, 3, 2)):
+        mesh.tri(*[mesh.vert(p[i], (0.5, 0.5), ("speck", a, b, c)) for i in (a, b, c)])
+    mesh.end_part()
+    return mesh, Texture((40.0, 30.0, 24.0)).render()
+
+
 # ================================================================= registry, generator, validator
 MODELS = [
     ("shiv", build_shiv, "BaseballBat"),
     ("gauntlet", build_gauntlet, "BaseballBat"),
     ("railspike", build_railspike, "TailNail"),
+    ("gravespade", build_gravespade, "BaseballBat"),
+    ("gravespade_hidden", build_gravespade_hidden, None),
 ]
+MESH_NAMES = {"gravespade": "GraveSpade", "gravespade_hidden": "GraveSpadeHidden"}
 
 
 def validate_held(stem, gltf, binary, png):
     """make_meshes' strict validator (accessors, normals, winding, no duplicate directed edges, one primitive ...) with
     the reference box and the triangle limits of this group, restored afterwards."""
     saved = (dict(mm.VANILLA), mm.TOL, mm.TRI_MIN, mm.TRI_MAX)
-    mm.VANILLA[stem] = REF[stem]
-    mm.TOL, mm.TRI_MIN, mm.TRI_MAX = TOL, TRI_MIN, TRI_MAX
+    if stem in REF:
+        mm.VANILLA[stem] = REF[stem]
+        mm.TOL, mm.TRI_MIN, mm.TRI_MAX = TOL, TRI_MIN, TRI_MAX
+    else:  # the hidden speck: structure only (its own box, four triangles)
+        mm.VANILLA[stem] = ("itself", (-0.02, -0.02, -0.02), (0.02, 0.02, 0.02), 4)
+        mm.TOL, mm.TRI_MIN, mm.TRI_MAX = 0.01, 4, 4
     try:
         return mm.validate(stem, gltf, binary, png)
     finally:
@@ -560,7 +741,7 @@ def generate(only=None):
         if only and slug not in only:
             continue
         mesh, tex = build()
-        gltf, binary = mm.build_gltf(slug, slug.title(), mesh)
+        gltf, binary = mm.build_gltf(slug, MESH_NAMES.get(slug, slug.title()), mesh)
         png = tex.png()
         stats[slug] = validate_held(slug, gltf, binary, png)
         files[slug + ".gltf"], files[slug + ".bin"], files[slug + ".png"] = gltf, binary, png
@@ -588,6 +769,9 @@ def main():
     for n, d in files.items():
         (OUT / n).write_bytes(d)
     for slug, s in stats.items():
+        if slug not in REF:
+            print(f"{slug}: {s['vertices']} verts, {s['triangles']} tris (structure only)")
+            continue
         dv = deviations(slug, s)
         print(f"{slug}: {s['vertices']} verts, {s['triangles']} tris, box {[round(v, 3) for v in s['min']]} .. "
               f"{[round(v, 3) for v in s['max']]} vs {s['ref']}; size dev % "

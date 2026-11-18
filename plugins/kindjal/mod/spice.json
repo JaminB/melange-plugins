@@ -139,6 +139,9 @@
     },
     {
       "file": "assets/meshes/kindjal.StoneDonkey.xom"
+    },
+    {
+      "file": "assets/meshes/gravespade.xom"
     }
   ],
   "vehicleMeshes": {
@@ -325,8 +328,8 @@
   },
   "weaponIcons": {
     "kWeaponBaseballBat": {
-      "panelIcon": "icons/nail-bat.png",
-      "hudIcon": "kindjal.nail-bat.hud.tga"
+      "panelIcon": "icons/gravespade.png",
+      "hudIcon": "kindjal.gravespade.hud.tga"
     },
     "kWeaponFirePunch": {
       "panelIcon": "icons/hellfist.png",

@@ -1,0 +1,136 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "kindjal make_meshes.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "GraveSpade",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "GraveSpade",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0,
+     "mode": 4
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "GraveSpade",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   }
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 10497,
+   "wrapT": 10497
+  }
+ ],
+ "images": [
+  {
+   "uri": "gravespade.png"
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "gravespade.bin",
+   "byteLength": 70040
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 23736,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 23736,
+   "byteLength": 23736,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 47472,
+   "byteLength": 15824,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 63296,
+   "byteLength": 6744,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 1978,
+   "type": "VEC3",
+   "min": [
+    -3.049999952316284,
+    -12.82769775390625,
+    -2.7746894359588623
+   ],
+   "max": [
+    3.049999952316284,
+    15.220000267028809,
+    2.7746894359588623
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 1978,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 1978,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 3372,
+   "type": "SCALAR"
+  }
+ ]
+}
