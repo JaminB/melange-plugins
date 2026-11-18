@@ -2203,8 +2203,13 @@ local SPADE = (function()
         WORM_R = 17, WORM_TOP = 32,     -- the camera keeps this far from a worm's axis, up to this height over its feet
         OCCLUDE_R = 12,                 -- a sight line this close to a worm's axis is blocked by it
         HEAD_R = 10,                    -- the camera keeps this far from the severed head's middle
-        HEAD_FOLLOW = 130,              -- the camera follows the head while it is this close to the pair
-        CAM_MIN = 58,                   -- the closest the execution's orbit comes (the blade on the chest, the chop)
+        HEAD_FOLLOW = 130,              -- the camera leans toward the head while it is this close to the pair
+        HEAD_LEAN = 0.3,                -- how far toward the head: the stump and the attacker stay in the frame
+        HEAD_AWAY = 0.5,                -- the head flies at least this much (of its speed) away from the eye
+        CAM_MIN = 58,                   -- the closest the execution's orbit comes (the set-up shots before the raise)
+        CAM_HOLD = 92,                  -- the side-on pull-back held from the raise through the chop
+        CAM_AFTER = 112,                -- the wider shot after the chop, more while the head is out
+        CAM_SIDE = 0.45,                -- a side-on sector scoring at least this is held through the chop
         CAM_FLOOR = 30,                 -- land between the pair and the eye pulls it in, but not nearer than this
         CAM_SECTORS = 12,               -- the ring of orbit angles scored for a clear view
         CAM_KEEP = 0.6,                 -- seconds a sector's score is kept before it is probed again
@@ -3029,8 +3034,31 @@ local SPADE = (function()
     end
 
     -- The severed head: thrown from the neck along the victim's head direction, rolling on the land (one ray a frame).
+    -- It never comes at the lens: the part of its direction toward the eye is taken off until it leaves at least HEAD_AWAY
+    -- away from it (seen from the eye, it flies off along the body and away, never into the camera).
+    local function headDir(e, nx, nz)
+        local dx, dz = e.dx, e.dz
+        local p = e.camPos
+        local cx, cz
+        if p then cx, cz = p[1] - nx, p[3] - nz
+        elseif e.orbit and e.orbit.th then cx, cz = sin(e.orbit.th), cos(e.orbit.th) end
+        if cx then
+            local l = sqrt(cx * cx + cz * cz)
+            if l > 1e-3 then
+                cx, cz = cx / l, cz / l
+                local k = dx * cx + dz * cz
+                if k > -GS.HEAD_AWAY then
+                    dx, dz = dx - cx * (k + GS.HEAD_AWAY), dz - cz * (k + GS.HEAD_AWAY)
+                    local m = sqrt(dx * dx + dz * dz)
+                    if m < 1e-3 then dx, dz = -cx, -cz else dx, dz = dx / m, dz / m end
+                end
+            end
+        end
+        return dx, dz
+    end
     local function launchHead(e, nx, ny, nz)
-        local h = { slot = e.v, x = nx, y = ny + 5, z = nz, floorY = e.vy, vx = e.dx * rnd(55, 75), vy = rnd(70, 95), vz = e.dz * rnd(55, 75),
+        local hdx, hdz = headDir(e, nx, nz)
+        local h = { slot = e.v, x = nx, y = ny + 5, z = nz, floorY = e.vy, vx = hdx * rnd(55, 75), vy = rnd(70, 95), vz = hdz * rnd(55, 75),
                     R = IDENT, born = os.clock(), copy = e.posed, gore = e.gore, yaw = e.vYaw or 0, rolled = 0, bounces = 0,
                     preview = e.preview }
         if e.posed and e.vUp then
@@ -3277,7 +3305,24 @@ local SPADE = (function()
         return dx * dx + dz * dz < GS.HEAD_FOLLOW * GS.HEAD_FOLLOW
     end
 
-    -- The camera: an orbit about the pair, closing in for the blade and the chop, held still for a beat at the chop, then
+    -- From the raise (T 4.0) through the chop's beat the orbit is held side-on to the pair: of the two square views, the one
+    -- nearer the eye, eased round to and then kept still. Only when that sector is poorly seen (land, a worm in the way)
+    -- does the ordinary steering take over. Returns true while it holds.
+    local function holdSide(e, o, r, el, T, dt, t)
+        if T < 4.0 or T >= e.chop + 0.45 then return false end
+        local th = math.atan(-e.dz, e.dx)
+        if abs(wrapPi(th + pi - o.th)) < abs(wrapPi(th - o.th)) then th = th + pi end
+        local N = GS.CAM_SECTORS
+        local k = floor(((th % (2 * pi)) / (2 * pi)) * N + 0.5) % N + 1
+        local v = sectorScore(e, o, k, r, el, t)
+        if v ~= nil and v < GS.CAM_SIDE then return false end
+        local d = wrapPi(th - o.th)
+        local step = GS.CAM_SWING * dt
+        o.th = o.th + clamp(d, -step, step)
+        return true
+    end
+
+    -- The camera: an orbit about the pair, held side-on and pulled back for the blade and the chop, held still for a beat at the chop, then
     -- following the head while it is near and pulling out. The target never goes through the land (a ray from the pair
     -- to it) and the eye stays out of the land (a ray from the target to the eye) and out of the worms.
     local function exCamera(e, T, dt, t)
@@ -3287,20 +3332,25 @@ local SPADE = (function()
         if e.focus then cx, cy, cz = e.focus[1], e.focus[2], e.focus[3] end
         -- the close shots stay CAM_MIN out or more: nearer, the eye ends up in a worm's head or helmet. The land ray
         -- does not see level props (a giant onion, leaves, fences' posts): those stand on the ground round the pair, so
-        -- every shot is close and looks down on the pair from well above them rather than across the ground
+        -- every shot looks down on the pair from well above them rather than across the ground
         local speed, r, el, fov = 0.5, 88, 0.62, 52
         if T < 1.3 then speed, r, el, fov = 0.55, 86, 0.66, 52
         elseif T < 2.9 then speed, r, el, fov = 0.42, 72, 0.58, 48
-        elseif T < 4.4 then speed, r, el, fov = 0.2, 62, 0.5, 44
-        elseif T < e.chop then speed, r, el, fov = 0.12, GS.CAM_MIN, 0.44, 42
-        elseif T < e.chop + 0.45 then speed, r, el, fov = 0.0, GS.CAM_MIN + 4, 0.46, 44
-        else speed, r, el, fov = 0.15, 66, 0.56, 48 end
+        elseif T < 4.0 then speed, r, el, fov = 0.2, 66, 0.5, 44
+        -- from the raise through the chop the shot is held side-on and pulled back, above the pair: close in, the
+        -- attacker leaning over the victim filled half the frame and hid the blade on the chest
+        elseif T < e.chop + 0.45 then speed, r, el, fov = 0.0, GS.CAM_HOLD, 0.46, 44
+        else speed, r, el, fov = 0.1, GS.CAM_AFTER, 0.56, 50 end
         -- the mounted pair is low on the ground: look down on it a little more
         if e.posed and T > 1.3 then el = min(el * 1.25, 0.8) end
         local mx, my, mz = cx, cy, cz
         local want = 0
         if T >= e.chop and e.headRef and headFollowable(e, e.headRef, mx, mz) then
-            want = smooth(seg(T, e.chop + 0.15, e.chop + 0.9)) * 0.8
+            -- lean toward the head and widen by how far out it is, so the stump and the attacker stay in the frame
+            want = smooth(seg(T, e.chop + 0.15, e.chop + 0.9)) * GS.HEAD_LEAN
+            local h = e.headRef
+            local hd = sqrt((h.x - mx) ^ 2 + (h.z - mz) ^ 2)
+            r = r + min(60, hd * 0.6)
         end
         -- the follow weight eases both ways, so letting the head go is a glide back, not a cut
         e.headK = (e.headK or 0) + (want - (e.headK or 0)) * (1 - exp(-dt * 3))
@@ -3311,7 +3361,7 @@ local SPADE = (function()
             if hit then cx, cy, cz = lerp(mx, cx, hit * 0.8), lerp(my, cy, hit * 0.8), lerp(mz, cz, hit * 0.8) end
         end
         local kf = 1 - exp(-dt * 2.2)
-        steerOrbit(e, o, r, el, speed, dt, t)
+        if not holdSide(e, o, r, el, T, dt, t) then steerOrbit(e, o, r, el, speed, dt, t) end
         o.r, o.el, o.fov = o.r + (r - o.r) * kf, o.el + (el - o.el) * kf, o.fov + (fov - o.fov) * kf
         if not o.cx then o.cx, o.cy, o.cz = cx, cy, cz end
         o.cx, o.cy, o.cz = o.cx + (cx - o.cx) * kf, o.cy + (cy - o.cy) * kf, o.cz + (cz - o.cz) * kf
@@ -3350,6 +3400,7 @@ local SPADE = (function()
         local ok, res = pcall(wum.render.cameraOverride, spec)
         if not ok or res ~= true then e.camOff = true end
         e.camSet = true
+        e.camPos = spec.pos
     end
 
     -- The execution without poses: both worms stay upright where they are pinned. The spade turns in the attacker's fists:
