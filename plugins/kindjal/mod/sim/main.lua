@@ -35,7 +35,7 @@ STATS = {
     -- MinAimAngle/MaxAimAngle open the aim to nearly straight down and up, so the spade can dig in any direction.
     kWeaponBaseballBat = { WormDamageMagnitude = 10, ImpulseMagnitude = 0.15, Radius = 20,
                            WormCollisionFX = "WXP_ShotgunHit", RetreatTimeOverride = 0,
-                           MinAimAngle = 85, MaxAimAngle = 85 },
+                           MinAimAngle = -85, MaxAimAngle = 85 },
     kWeaponFirePunch   = { WormDamageMagnitude = 40, ImpulseMagnitude = 0.27, Radius = 18,
                            WormCollisionFX = "WXP_Explosion_Small" },
     kWeaponProd        = { WormDamageMagnitude = 10, ImpulseMagnitude = 0.15, Radius = 6,
@@ -240,8 +240,11 @@ end)
 -- no worm in the swing is swallowed (no swing, no ammo, no Weapon.Fired, the turn goes on) and digs instead; a press with
 -- a worm in the swing is the engine's own swing, which ends the turn. So:
 --   tap   one scoop along the aim: a short carveLine from the worm's middle out to SPADE.REACH;
---   hold  another scoop every SPADE.STROKE ticks for as long as fire is held. A scoop that finds nothing left to take
---         reaches SPADE.STEP further (up to SPADE.MAX), so holding still keeps digging forward into the face.
+--   hold  another scoop every SPADE.STROKE ticks for as long as fire is held. A scoop that finds nothing left to take,
+--         or the SPADE.SAME-th along one line, reaches SPADE.STEP further (up to SPADE.MAX), so holding still keeps
+--         digging forward into the face. Walk into the hole and hold again to go deeper.
+-- Voxel land and buildings open into a cave. The heightmap ground some maps stand on is a height field: the engine can
+-- only lower it, so there the spade digs a pit or a trench (aim down to go deeper), never a roof over the worm.
 -- A held dig that reaches a worm stays a dig (the gate decides at the press): a strike is always a fresh press.
 -- A carve never touches water (the sea is a plane, not voxels): dig below the waterline and it is open sea, and a worm that
 -- walks in drowns as usual.
@@ -261,6 +264,7 @@ SPADE = {
     NEAR = 8,           -- a scoop starts this far out along the aim
     REACH = 36,         -- and reaches this far at first
     STEP = 16,          -- a scoop that took nothing reaches this much further next time
+    SAME = 3,           -- and so does the scoop after SAME scoops along one line, whatever they took
     MAX = 84,           -- the furthest a scoop reaches (8 spheres at RADIUS / 2 spacing)
     RADIUS = 22,        -- each sphere's radius: a worm's height across, two thirds of a voxel
     STROKE = 18,        -- ticks between scoops while fire is held (0.36 s; 83 in a 30 s turn, inside the 900-sphere budget)
@@ -319,9 +323,14 @@ local function scoop(slot, tick)
     else
         took = removed
         if d then
-            if removed == 0 then
+            -- Reach further once this line is dug out: a scoop that took nothing, or SPADE.SAME scoops along the same line
+            -- (a voxel whose centre sits just outside every sphere, or a heightmap pit still settling, keeps answering a
+            -- little; Melange counts only what really went, so a 0 is reliable, but a held dig must still move on).
+            d.same = (d.same or 0) + 1
+            if removed == 0 or d.same >= SPADE.SAME then
                 d.reach = reach + SPADE.STEP
                 if d.reach > SPADE.MAX then d.reach = SPADE.MAX end
+                d.same = 0
             end
             d.n = d.n + 1
         end
@@ -459,7 +468,9 @@ else
                 wum.sim.after(1, exStart)
                 return
             end
-            melee.result({ damage = G.shivD or SPADE.SHIV_D, impulse = G.shivI or SPADE.SHIV_I })
+            -- level: the Bat's knockback follows its aim, so a Shiv-sized impulse aimed up lofted the victim into the sea;
+            -- along the ground it is the Shiv's shove (Melange 0.16 drops the vertical part for this hit)
+            melee.result({ damage = G.shivD or SPADE.SHIV_D, impulse = G.shivI or SPADE.SHIV_I, level = true })
             wum.sim.after(1, function() spadeSend(string.format("h,%d,%d,%d", attacker, victim, tick)) end)
         end)
 

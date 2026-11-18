@@ -2197,9 +2197,17 @@ local SPADE = (function()
         GRIP = -11.6, FRONT = -2.0, TIP = 13.0,     -- along the mesh's +Y: the D-grip, the front hand, the blade's point
         STROKE = 0.36,                  -- seconds between scoops while held (sim SPADE.STROKE = 18 ticks)
         FOLLOW = 26,                    -- how fast the drawn spade follows its target pose (1/s)
-        FIST_F, FIST_Y = 5.5, 15,       -- no poses: the fists of the engine's Bat hold, ahead of and above the feet
+        FIST_F = 5.5, FIST_Y = 15,      -- no poses: the fists of the engine's Bat hold, ahead of and above the feet
         NECK_Y = 21,                    -- no poses: an upright worm's neck above its feet
-        WORM_R, WORM_TOP = 17, 32,      -- the camera keeps this far from a worm's axis, up to this height over its feet
+        WORM_R = 17, WORM_TOP = 32,     -- the camera keeps this far from a worm's axis, up to this height over its feet
+        OCCLUDE_R = 12,                 -- a sight line this close to a worm's axis is blocked by it
+        HEAD_R = 10,                    -- the camera keeps this far from the severed head's middle
+        HEAD_FOLLOW = 130,              -- the camera follows the head while it is this close to the pair
+        CAM_MIN = 58,                   -- the closest the execution's orbit comes (the blade on the chest, the chop)
+        CAM_FLOOR = 30,                 -- land between the pair and the eye pulls it in, but not nearer than this
+        CAM_SECTORS = 12,               -- the ring of orbit angles scored for a clear view
+        CAM_KEEP = 0.6,                 -- seconds a sector's score is kept before it is probed again
+        CAM_SWING = 1.4,                -- rad/s the orbit swings round to a clearer sector
         TICK = 50,
         on = false, mesh = nil, tex = nil, head = nil, headTex = nil, headClean = nil, loadedAt = -100,
         material = "soil", aimSign = 1,
@@ -2882,7 +2890,88 @@ local SPADE = (function()
         for slot, s in pairs(W) do
             if slot ~= e.a and slot ~= e.v and s.seen == FR.n and s.alive then push(s.px, s.py, s.pz) end
         end
+        -- and out of the severed head (a ball of HEAD_R round its middle), so the chop's close shot never sits in it
+        local h = e.headRef
+        if h and not h.dead then
+            local dx, dy, dz = px - h.x, py - h.y, pz - h.z
+            local d = sqrt(dx * dx + dy * dy + dz * dz)
+            if d < GS.HEAD_R then
+                if d < 1e-3 then dx, dy, dz, d = 0, 1, 0, 1 end
+                px, py, pz = h.x + dx / d * GS.HEAD_R, h.y + dy / d * GS.HEAD_R, h.z + dz / d * GS.HEAD_R
+            end
+        end
         return px, py, pz
+    end
+
+    -- True when the segment p -> q passes through a worm standing at w (its capsule: OCCLUDE_R round the axis, feet to
+    -- WORM_TOP), short of q itself (the last 15 % is the subject, not in front of it).
+    local function segThroughWorm(px, py, pz, qx, qy, qz, wx, wy, wz)
+        local dx, dy, dz = qx - px, qy - py, qz - pz
+        local dd = dx * dx + dz * dz
+        local t = dd > 1e-6 and ((wx - px) * dx + (wz - pz) * dz) / dd or 0
+        t = clamp(t, 0, 0.85)
+        local cx, cy, cz = px + dx * t - wx, py + dy * t, pz + dz * t - wz
+        if cx * cx + cz * cz > GS.OCCLUDE_R * GS.OCCLUDE_R then return false end
+        return cy >= wy - 2 and cy <= wy + GS.WORM_TOP
+    end
+
+    -- How good a view orbit sector k gives: the land's free share of the ray from the pair to the eye (squared), times a
+    -- penalty when one worm stands between the eye and the other, times a small bonus for a side-on view of the pair.
+    -- One land ray per probe; a score is kept CAM_KEEP seconds.
+    local function sectorScore(e, o, k, r, el, t)
+        local sc = e.sectors[k]
+        if sc and t - sc.at < GS.CAM_KEEP then return sc.v end
+        local th = (k - 1) / GS.CAM_SECTORS * 2 * pi
+        local ex, ey, ez = sin(th) * cos(el), sin(el), cos(th) * cos(el)
+        local cx = o.cx or (e.ax + e.vx) * 0.5
+        local cy = o.cy or (e.ay + e.vy) * 0.5 + 10
+        local cz = o.cz or (e.az + e.vz) * 0.5
+        local px, py, pz = cx + ex * r, cy + ey * r, cz + ez * r
+        local hit, why = castRay(cx, cy, cz, px, py, pz)
+        if hit == nil and why == "budget" then return sc and sc.v or nil end
+        local free = hit or 1
+        local v = free * free
+        if segThroughWorm(px, py, pz, e.vx, e.vy + CENTRE_Y, e.vz, e.ax, e.ay, e.az) then v = v * 0.3 end
+        if segThroughWorm(px, py, pz, e.ax, e.ay + CENTRE_Y, e.az, e.vx, e.vy, e.vz) then v = v * 0.6 end
+        local dot = abs(sin(th) * e.dx + cos(th) * e.dz)
+        v = v * (1 - 0.35 * dot)
+        e.sectors[k] = { v = v, at = t }
+        return v
+    end
+    local function wrapPi(a)
+        a = (a + pi) % (2 * pi)
+        return a - pi
+    end
+    -- Steers the orbit away from a poor view: scores the sector it is in and the next one in its direction (and one
+    -- more round the ring each frame), turns back when the next one is blocked, and swings toward the best known sector
+    -- while the current one is poor. A swing far round the ring has to be clearly better to be taken.
+    local function steerOrbit(e, o, r, el, speed, dt, t)
+        e.sectors = e.sectors or {}
+        local N = GS.CAM_SECTORS
+        local cur = floor(((o.th % (2 * pi)) / (2 * pi)) * N + 0.5) % N + 1
+        o.dir = o.dir or 1
+        local ahead = (cur - 1 + o.dir) % N + 1
+        local sCur = sectorScore(e, o, cur, r, el, t) or 1
+        local sAhead = sectorScore(e, o, ahead, r, el, t) or 1
+        e.probe = (e.probe or 0) % N + 1
+        sectorScore(e, o, e.probe, r, el, t)
+        if sAhead < 0.35 and sCur >= sAhead then o.dir = -o.dir end
+        local best, bestV = cur, sCur
+        for k = 1, N do
+            local sc = e.sectors[k]
+            if sc and k ~= cur then
+                local steps = abs(wrapPi((k - cur) / N * 2 * pi)) / (2 * pi / N)
+                local v = sc.v - 0.04 * steps
+                if v > bestV + 0.15 then best, bestV = k, v end
+            end
+        end
+        if sCur < 0.55 and best ~= cur then
+            local d = wrapPi((best - 1) / N * 2 * pi - o.th)
+            local step = GS.CAM_SWING * dt
+            o.th = o.th + clamp(d, -step, step)
+        else
+            o.th = o.th + speed * o.dir * dt
+        end
     end
 
     -- The head is worth following while it is still in the air or rolling near the pair, above the ground they stand on;
@@ -2890,9 +2979,9 @@ local SPADE = (function()
     local function headFollowable(e, h, cx, cz)
         if not h or h.dead then return false end
         local floor = min(e.vy, e.ay)
-        if h.y < floor - 20 then return false end
+        if h.y < floor - 30 then return false end
         local dx, dz = h.x - cx, h.z - cz
-        return dx * dx + dz * dz < 90 * 90
+        return dx * dx + dz * dz < GS.HEAD_FOLLOW * GS.HEAD_FOLLOW
     end
 
     -- The camera: an orbit about the pair, closing in for the blade and the chop, held still for a beat at the chop, then
@@ -2902,17 +2991,18 @@ local SPADE = (function()
         if not e.cam or e.camOff then return end
         local o = e.orbit
         local cx, cy, cz = (e.ax + e.vx) * 0.5, (e.ay + e.vy) * 0.5 + 10, (e.az + e.vz) * 0.5
+        -- the close shots stay CAM_MIN out or more: nearer, the eye ends up in a worm's head or helmet
         local speed, r, el, fov = 0.5, 105, 0.42, 50
         if T < 1.3 then speed, r, el, fov = 0.55, 100, 0.45, 50
         elseif T < 2.9 then speed, r, el, fov = 0.42, 82, 0.38, 46
-        elseif T < 4.4 then speed, r, el, fov = 0.2, 60, 0.3, 40
-        elseif T < e.chop then speed, r, el, fov = 0.12, 46, 0.2, 36
-        elseif T < e.chop + 0.45 then speed, r, el, fov = 0.0, 50, 0.22, 38
-        else speed, r, el, fov = 0.32, 84, 0.42, 48 end
+        elseif T < 4.4 then speed, r, el, fov = 0.2, 66, 0.32, 42
+        elseif T < e.chop then speed, r, el, fov = 0.12, GS.CAM_MIN, 0.26, 40
+        elseif T < e.chop + 0.45 then speed, r, el, fov = 0.0, GS.CAM_MIN + 4, 0.28, 42
+        else speed, r, el, fov = 0.15, 74, 0.38, 46 end
         local mx, my, mz = cx, cy, cz
         local want = 0
         if T >= e.chop and e.headRef and headFollowable(e, e.headRef, mx, mz) then
-            want = smooth(seg(T, e.chop + 0.2, e.chop + 1.2)) * 0.55
+            want = smooth(seg(T, e.chop + 0.15, e.chop + 0.9)) * 0.8
         end
         -- the follow weight eases both ways, so letting the head go is a glide back, not a cut
         e.headK = (e.headK or 0) + (want - (e.headK or 0)) * (1 - exp(-dt * 3))
@@ -2923,14 +3013,14 @@ local SPADE = (function()
             if hit then cx, cy, cz = lerp(mx, cx, hit * 0.8), lerp(my, cy, hit * 0.8), lerp(mz, cz, hit * 0.8) end
         end
         local kf = 1 - exp(-dt * 2.2)
-        o.th = o.th + speed * dt
+        steerOrbit(e, o, r, el, speed, dt, t)
         o.r, o.el, o.fov = o.r + (r - o.r) * kf, o.el + (el - o.el) * kf, o.fov + (fov - o.fov) * kf
         if not o.cx then o.cx, o.cy, o.cz = cx, cy, cz end
         o.cx, o.cy, o.cz = o.cx + (cx - o.cx) * kf, o.cy + (cy - o.cy) * kf, o.cz + (cz - o.cz) * kf
         local ex, ey, ez = sin(o.th) * cos(o.el), sin(o.el), cos(o.th) * cos(o.el)
         want = o.r
         local hit = castRay(o.cx, o.cy, o.cz, o.cx + ex * want, o.cy + ey * want, o.cz + ez * want)
-        if hit then want = max(want * 0.25, want * hit * 0.85) end
+        if hit then want = max(min(want, GS.CAM_FLOOR), want * hit * 0.85) end
         o.reff = o.reff and (want < o.reff and want or o.reff + (want - o.reff) * (1 - exp(-dt * 1.5))) or want
         local spec = { pos = { o.cx + ex * o.reff, o.cy + ey * o.reff, o.cz + ez * o.reff }, target = { o.cx, o.cy, o.cz },
                        fov = o.fov, frames = 4 }

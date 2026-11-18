@@ -92,9 +92,11 @@ them as well. Melange's weapon clones share their base's code; the ammo, delay, 
 The Baseball Bat's slot (the Nail Bat until 1.3.1) is a gravedigger's spade. It is a tool first:
 
 - **Tap fire** to dig one scoop along your aim; **hold fire** to keep digging, a scoop every 0.36 s. A scoop that finds
-  nothing left in front of it reaches further next time, up to about four worm lengths, so holding still keeps cutting
-  forward; walk into the hole and keep going. A worm can dig itself a cave it can walk into in one 30 s turn. The aim
-  goes nearly straight up and down, so it digs pits and shafts too.
+  nothing left in front of it, or the third along the same line, reaches further next time, up to about four worm
+  lengths, so holding still keeps cutting forward; walk into the hole and keep going. A worm can dig itself a cave it
+  can walk into in one 30 s turn. The aim goes nearly straight up and down, so it digs pits and shafts too.
+- The flat ground some maps stand on (the beach or plain round the island) is a height field, not voxels: the game can
+  only lower it, so there the spade digs a pit or a trench (aim down to go deeper), never a cave with a roof.
 - It digs every land and building voxel the game can destroy (not the indestructible frames of a level). Water is
   never touched: dig below the waterline and you open the sea, and a worm that walks in drowns as usual.
 - **Digging never ends the turn**: dig, then pick another weapon and fire it. A press with a worm in reach is a strike
@@ -172,7 +174,9 @@ All of this is client-side and off by a setting; none of it touches the simulati
   land, dust that hangs over the cut, stone chips and sparks on stone and buildings (by the level's theme), and its own
   scoop and scrape sounds. The execution has a letterbox, the circling camera, a name card and its own sting, chop,
   spurt and rolling-head sounds. The camera keeps out of the land and out of the worms, so it also works inside a dug
-  cave. It follows the head only while the head is near and above the pair's ground.
+  cave: it scores a ring of angles round the pair, turns away from a view the land or the other worm blocks, and stays
+  far enough out that it never sits in a worm or the severed head. It follows the head while the head is near and above
+  the pair's ground.
 - **Melee impact.** A spray of dark sparks at the victim and a short red hit-flash on a spade, prod, punch or nail hit,
   with its own impact sound. Spike glints on the swing are an experimental setting, off by default.
 - **Buddy Bomb.** The sheep's slot is a long, black, curly labradoodle in a vest of dynamite. A few little hearts float
