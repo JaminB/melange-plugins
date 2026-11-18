@@ -2989,7 +2989,7 @@ local SPADE = (function()
         b = bones(a)
         mx, my, mz = bone(b, "main")
         e.aMainY = my and (my - e.ay) or 17
-        e.orbit = { th = math.atan(-dz, dx), r = 110, el = 0.5, fov = 50, cx = nil }
+        e.orbit = { th = math.atan(-dz, dx), r = 90, el = 0.62, fov = 52, cx = nil }
         e.vYaw = (sv and sv.yaw) or 0
         e.aYaw = (sa and sa.yaw) or math.atan(dx, dz)
         e.cam = cfg("cinematic", true) ~= false and wum.render.cameraOverride ~= nil
@@ -3285,16 +3285,18 @@ local SPADE = (function()
         local o = e.orbit
         local cx, cy, cz = (e.ax + e.vx) * 0.5, (e.ay + e.vy) * 0.5 + 10, (e.az + e.vz) * 0.5
         if e.focus then cx, cy, cz = e.focus[1], e.focus[2], e.focus[3] end
-        -- the close shots stay CAM_MIN out or more: nearer, the eye ends up in a worm's head or helmet
-        local speed, r, el, fov = 0.5, 105, 0.42, 50
-        if T < 1.3 then speed, r, el, fov = 0.55, 100, 0.45, 50
-        elseif T < 2.9 then speed, r, el, fov = 0.42, 82, 0.38, 46
-        elseif T < 4.4 then speed, r, el, fov = 0.2, 66, 0.32, 42
-        elseif T < e.chop then speed, r, el, fov = 0.12, GS.CAM_MIN, 0.26, 40
-        elseif T < e.chop + 0.45 then speed, r, el, fov = 0.0, GS.CAM_MIN + 4, 0.28, 42
-        else speed, r, el, fov = 0.15, 74, 0.38, 46 end
+        -- the close shots stay CAM_MIN out or more: nearer, the eye ends up in a worm's head or helmet. The land ray
+        -- does not see level props (a giant onion, leaves, fences' posts): those stand on the ground round the pair, so
+        -- every shot is close and looks down on the pair from well above them rather than across the ground
+        local speed, r, el, fov = 0.5, 88, 0.62, 52
+        if T < 1.3 then speed, r, el, fov = 0.55, 86, 0.66, 52
+        elseif T < 2.9 then speed, r, el, fov = 0.42, 72, 0.58, 48
+        elseif T < 4.4 then speed, r, el, fov = 0.2, 62, 0.5, 44
+        elseif T < e.chop then speed, r, el, fov = 0.12, GS.CAM_MIN, 0.44, 42
+        elseif T < e.chop + 0.45 then speed, r, el, fov = 0.0, GS.CAM_MIN + 4, 0.46, 44
+        else speed, r, el, fov = 0.15, 66, 0.56, 48 end
         -- the mounted pair is low on the ground: look down on it a little more
-        if e.posed and T > 1.3 then el = el * 1.3 end
+        if e.posed and T > 1.3 then el = min(el * 1.25, 0.8) end
         local mx, my, mz = cx, cy, cz
         local want = 0
         if T >= e.chop and e.headRef and headFollowable(e, e.headRef, mx, mz) then

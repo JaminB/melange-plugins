@@ -307,6 +307,9 @@ end
 local function scoop(slot, tick)
     local w = wum.sim.worm(slot)
     if not w or not w:alive() then return end
+    -- Only a worm standing on something digs (state 0). A worm that slides, jumps, flies or falls (a scoop can cut the
+    -- ground from under it) takes nothing, and its held dig does not reach further in mid-air.
+    if w:state() ~= 0 then return "airborne" end
     local x, y, z = w:pos()
     local pitch, yaw, dx, dy, dz = w:aim()
     if not dx then return end
@@ -349,6 +352,13 @@ local function digTick()
     local d = G.dig
     if not d then return digStop() end
     if wum.sim.melee.held(SPADE.WEAPON) ~= d.slot then return digStop() end
+    local w = wum.sim.worm(d.slot)
+    local st = w and w:state()
+    -- jump (1) or flying (2): the dig is over (fire must be pressed again on the ground); a slide (3) only pauses it
+    if st == 1 or st == 2 or st == 7 or st == 8 then
+        spadeSend(string.format("r,%d,%d,%d", d.slot, wum.sim.tick(), d.n))
+        return digStop()
+    end
     scoop(d.slot, wum.sim.tick())
 end
 

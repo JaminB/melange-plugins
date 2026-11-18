@@ -3,7 +3,8 @@
 The Grave Spade, in the Baseball Bat's slot (the Nail Bat is gone). Needs Melange 0.16.0.
 
 - A tool first: tap fire to dig a scoop along your aim, hold it to keep digging. It cuts any land or building the game
-  can destroy; water is never touched. A worm can dig itself a cave in one turn. Digging never ends the turn.
+  can destroy; water is never touched. A worm can dig itself a cave in one turn. Digging never ends the turn, and a
+  worm that falls or jumps stops digging.
 - A press with a worm in reach is a strike, and ends the turn at once.
 - The first spade strike in the match is an execution, whatever the victim's health. The camera circles the pair, the
   victim falls on its back, the attacker climbs on top of it, sets the blade on its chest, raises the spade and takes
