@@ -272,6 +272,18 @@ coloured as it is on the peach (it hides the skin under it), so it stays red on 
 skin's own colour gone purple-red and dark (plum on a fair skin, a deep brown on a dark one), softer than the near-black
 mask the cartoon peach gets.
 
+## With Kindjal's Grave Spade
+
+Kindjal 1.4's Grave Spade takes one head a match, and sends its beats to Bloodsand as the mod event `mod.kindjal.exec`
+(`phase` = `start`, `chop`, `head`, `headRest`, `end`, `abort`). From the `start` the victim's death burst waits for
+the `chop` (the game counts the worm dead at the chop, and an ordinary death burst would come from the middle of the
+body); if no chop comes within its time plus 4 s, it bursts as usual. At the chop: the death burst from the neck and a
+second spray, the gibs and a lens splatter; arterial jets from the stump, in time with a heartbeat that slows and weakens
+over 7, 9 or 12 s (light, heavy, absurd), dribbling between the beats; pools at the neck and the grave and a wider one
+after 2.5 s. The rolling head drops blood behind it, splats where it bounces and leaves a pool where it stops. With Blood
+off none of it happens. Every two seconds Bloodsand also sends `mod.bloodsand.state` (`on`, `amount`, `gibs`,
+`pools`, `stains`), so Kindjal knows whether to leave the blood to it.
+
 ## How it detects hits
 
 The game posts a message the moment a worm is damaged, and another for every explosion with its position, damage and

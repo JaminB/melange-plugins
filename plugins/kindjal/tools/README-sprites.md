@@ -30,7 +30,7 @@ regenerate; commit the PNGs together with the script. This folder (`tools/`) doe
 
 `make_dig_sprites.py` (stdlib Python, deterministic, `--check` like the other generator) adds the digging and execution
 sprites. The solid pieces carry grey shading in RGB so the draw-time tint keeps a lit side and grain; dust and mist are pure
-white with the shape in alpha. `mod/client/spade_fx.lua` draws them.
+white with the shape in alpha. The Grave Spade section of `mod/client/init.lua` (`SpadeFX`) draws them.
 
 | File | Size | Use and look |
 | --- | --- | --- |

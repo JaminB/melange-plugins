@@ -1,3 +1,20 @@
+## 1.4.0
+
+The Grave Spade, in the Baseball Bat's slot (the Nail Bat is gone). Needs Melange 0.16.0.
+
+- A tool first: tap fire to dig a scoop along your aim, hold it to keep digging. It cuts any land or building the game
+  can destroy; water is never touched. A worm can dig itself a cave in one turn. Digging never ends the turn.
+- A press with a worm in reach is a strike, and ends the turn at once.
+- The first spade strike in the match is an execution, whatever the victim's health: the camera circles the pair, the
+  victim falls on its back, the attacker climbs on, sets the blade on its chest and takes its head off; the head rolls
+  away. After that a strike does exactly what the Shiv does.
+- With Bloodsand 1.6 it is the goriest thing in the game (pumping neck jets, gibs, pools, a blood trail behind the head);
+  without it the head comes off in dust and sand.
+- The spade is drawn in the worm's hands, which follow every scoop and strike (MiragePose); new icon, model, severed-head
+  model, dirt and dust sprites and ten sounds.
+- New setting: Grave Spade execution camera. New previews in the Lua menu.
+- Net safe: every dig, the kill and the once-a-match flag are decided in the sim; everything shown is local.
+
 ## 1.3.1
 
 - The Buddy Bomb's panel and HUD icon is now his face: a black curly labradoodle with floppy ears, big brown eyes and

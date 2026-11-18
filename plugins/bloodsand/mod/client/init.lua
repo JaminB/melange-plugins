@@ -4150,6 +4150,11 @@ end
 -- or the disappearance as before. All but the disappearance come in trackWorms, that one at its end. A dead worm (its
 -- grave, while the game still lists it) gets no more skin, guts, vomit or place in the stains pass's worm list.
 local function deathBurst(s)
+    if s.exec and now < s.exec then
+        -- Kindjal's Grave Spade execution: the gore comes with the chop (MEL.execChop), or at s.exec if it never does
+        s.dead, s.execPending = true, true
+        return
+    end
     s.dead = true
     s.credited = 0
     local dx, dy, dz = hitDirection(s)
@@ -4716,6 +4721,7 @@ local function resetAll()
     VIS.reset()
     GIBS.clear()
     PT.reset()
+    if MEL.decapReset then MEL.decapReset() end
     -- A new match seed, so the wounds are not in the same places every match.
     matchSeed = random(0, 1000)
     sendSeed()
@@ -4783,6 +4789,7 @@ local function onWorld()
     GIBS.tick(dt)
     MEL.tick(dt)
     SP.tick(dt)
+    if MEL.decapTick then MEL.decapTick(dt) end
     simulate(dt)
     PT.tick(dt)
     DECALS.update(dt, slots, frameId)
@@ -5886,6 +5893,202 @@ WARM.ids[#WARM.ids + 1] = "bloodsand/gibs"
 wum.timers.every(2, GIBS.checkFx)
 -- == end Gibs ==
 
+-- == The Grave Spade's execution (Kindjal 1.4) ==================================================================
+-- Kindjal plays the execution and sends its beats as the mod event mod.kindjal.exec {phase = ...}; Bloodsand brings the
+-- gore, the heaviest it has:
+--   start     {slot, attacker, chopIn}  the victim is pinned: its death burst (the sim kills it at the chop) waits for the
+--                                       chop instead, or bursts as usual if no chop comes within chopIn + 4 s
+--   chop      {slot, x, y, z, dx, dy, dz}  the head is off at the neck (x, y, z), the stump facing (dx, dy, dz): a death
+--                                       burst from the neck and a second spray, the gibs, a lens splat, the grave pool and
+--                                       a pool at the neck, and the stump pumps arterial jets for several seconds, slowing
+--                                       and weakening with the heartbeat, then dribbles; a wider pool once it has pumped
+--   head      {slot, x, y, z, impact}   the rolling head: drops behind it, and a splat where it bounces
+--   headRest  {slot, x, y, z}           a pool where it comes to rest
+--   end / abort {slot}                  over (abort: nothing was cut, the worm is an ordinary worm again)
+-- It also says whether its gore is on, as mod.bloodsand.state {on, amount, gibs, pools, stains} every two seconds, so
+-- Kindjal knows to leave the blood to it (with Blood off it draws dust and sand instead).
+-- Built inside a function of its own: the main chunk is near Lua's limit of locals.
+do
+local function build()
+    local LV = {
+        light  = { rate = 120, cap = 18, secs = 7,  beads = 3, mist = 1 },
+        heavy  = { rate = 170, cap = 30, secs = 9,  beads = 5, mist = 2 },
+        absurd = { rate = 240, cap = 56, secs = 12, beads = 9, mist = 3 },
+    }
+    local STUMPS = {}
+    local SPURTK, BEADK = MEL.SPURT, MEL.BEAD
+
+    local function level()
+        if preset == AMOUNT.absurd then return LV.absurd elseif preset == AMOUNT.light then return LV.light end
+        return LV.heavy
+    end
+    local function num(p, k, d)
+        local v = type(p) == "table" and tonumber(p[k]) or nil
+        if v == nil or v ~= v then return d end
+        return v
+    end
+    local function slotOf(p)
+        local slot = num(p, "slot", nil)
+        return slot and slots[slot], slot
+    end
+
+    function MEL.execStart(p)
+        local s = slotOf(p)
+        if s then s.exec = now + num(p, "chopIn", 6) + 4 end
+    end
+
+    function MEL.execAbort(p)
+        local s = slotOf(p)
+        if s then s.exec, s.execPending = nil, nil end
+    end
+
+    function MEL.execChop(p)
+        local x, y, z = num(p, "x", nil), num(p, "y", nil), num(p, "z", nil)
+        if not (x and y and z) then return end
+        local dx, dy, dz = num(p, "dx", 0), num(p, "dy", 0.35), num(p, "dz", 1)
+        local s, slot = slotOf(p)
+        if not s and slot then
+            s = newSlot(x, y - CENTRE_Y, z, 0, false)
+            slots[slot] = s
+        end
+        if s then
+            s.exec, s.execPending, s.decap, s.dead = nil, nil, true, true
+            -- the bursts come from the neck, not the middle of the body
+            local ox, oy, oz = s.px, s.py, s.pz
+            s.px, s.py, s.pz = x, y - CENTRE_Y, z
+            burst(s, DEATH_DAMAGE * 1.6, dx, dy + 0.6, dz, true)
+            burst(s, 70, -dx * 0.4, 1, -dz * 0.4, false)
+            s.px, s.py, s.pz = ox, oy, oz
+            PT.death(s)
+        end
+        requestPool(x, y, z, 24)
+        local l = sqrt(dx * dx + dy * dy + dz * dz)
+        if l < 1e-4 then dx, dy, dz, l = 0, 1, 0, 1 end
+        -- the jet leaves the stump along it, lifted
+        local jx, jy, jz = dx / l * 0.8, dy / l * 0.8 + 0.55, dz / l * 0.8
+        l = sqrt(jx * jx + jy * jy + jz * jz)
+        STUMPS[#STUMPS + 1] = { x = x, y = y, z = z, dx = jx / l, dy = jy / l, dz = jz / l, t0 = now, nextAt = now + 0.08,
+                                pStart = 0, pEnd = 0, str = 1, acc = 0, bacc = 0, dacc = 0, pooled = false }
+    end
+
+    function MEL.execHead(p)
+        local x, y, z = num(p, "x", nil), num(p, "y", nil), num(p, "z", nil)
+        if not (x and y and z) or not preset then return end
+        local d = palette.droplet
+        for _ = 1, random(2, 4) do
+            spawn(DROPLET, x + rnd(-1.5, 1.5), y + rnd(1, 4), z + rnd(-1.5, 1.5), rnd(-20, 20), rnd(10, 50), rnd(-20, 20),
+                  rnd(1.0, 1.6), rnd(0.6, 1.0), d[1], d[2], d[3], DROPLET_ALPHA)
+        end
+        if p.impact then requestPool(x, y, z, rnd(4, 6)) end
+    end
+
+    function MEL.execHeadRest(p)
+        local x, y, z = num(p, "x", nil), num(p, "y", nil), num(p, "z", nil)
+        if x and y and z then requestPool(x, y, z, 11) end
+    end
+
+    function MEL.execEnd(p)
+        local s = slotOf(p)
+        if s then s.exec = nil end
+    end
+
+    -- Once a frame: a death whose chop never came, and the stumps' jets.
+    function MEL.decapTick(dt)
+        for _, s in pairs(slots) do
+            if s.execPending and (not s.exec or now > s.exec) then
+                s.execPending, s.exec = nil, nil
+                local hx, hy, hz = hitDirection(s)
+                burst(s, DEATH_DAMAGE, hx, hy, hz, true)
+                PT.death(s)
+            end
+        end
+        if #STUMPS == 0 then return end
+        if not preset then
+            STUMPS = {}
+            return
+        end
+        local lv = level()
+        local budget = min(lv.cap, poolRoom(), BUDGET.SPAWN - BUDGET.spawned)
+        local jc, mc = palette.jet, palette.mist
+        for i = #STUMPS, 1, -1 do
+            local j = STUMPS[i]
+            local age = now - j.t0
+            if age > lv.secs then
+                table.remove(STUMPS, i)
+            else
+                local fade = 1 - age / lv.secs
+                -- the heart: quick, hard beats at first, slower and weaker as it bleeds out
+                if now >= j.nextAt then
+                    local hz = 0.6 + 1.2 * fade
+                    j.pStart, j.pEnd = now, now + 0.16 + 0.12 * fade
+                    j.nextAt = now + rnd(0.9, 1.12) / hz
+                    j.str = (fade ^ 0.6) * rnd(0.85, 1.1)
+                end
+                local pr = 0
+                if now < j.pEnd then
+                    local u = (now - j.pStart) / (j.pEnd - j.pStart)
+                    pr = (u < 0.15 and u / 0.15 or 1 - (u - 0.15) / 0.85) * j.str
+                end
+                if pr > 0.03 and budget > 0 then
+                    local speed = 70 + 150 * pr
+                    j.acc = j.acc + lv.rate * pr * dt
+                    local n = floor(j.acc)
+                    j.acc = j.acc - n
+                    if n > budget then n = budget end
+                    for _ = 1, n do
+                        local ex, ey, ez = j.dx + rnd(-0.07, 0.07), j.dy + rnd(-0.05, 0.07), j.dz + rnd(-0.07, 0.07)
+                        local v = speed * rnd(0.96, 1.03)
+                        local lag, shade = random() * dt, rnd(0.92, 1.08)
+                        spawn(SPURTK, j.x + ex * v * lag, j.y + ey * v * lag, j.z + ez * v * lag, ex * v, ey * v, ez * v,
+                              rnd(2.0, 2.8) * (0.55 + 0.45 * pr), rnd(0.7, 1.0), min(1, jc[1] * shade), min(1, jc[2] * shade),
+                              min(1, jc[3] * shade), DROPLET_ALPHA)
+                    end
+                    budget = budget - n
+                    j.bacc = j.bacc + lv.beads * 4 * pr * dt
+                    local b = floor(j.bacc)
+                    j.bacc = j.bacc - b
+                    if b > budget then b = budget end
+                    for _ = 1, b do
+                        local v = speed * rnd(0.8, 1.1)
+                        spawn(BEADK, j.x, j.y, j.z, (j.dx + rnd(-0.12, 0.12)) * v, (j.dy + rnd(-0.05, 0.1)) * v,
+                              (j.dz + rnd(-0.12, 0.12)) * v, rnd(0.9, 1.5), rnd(0.6, 1.0), jc[1], jc[2], jc[3], DROPLET_ALPHA)
+                    end
+                    budget = budget - b
+                    if budget > 0 and random() < lv.mist * dt * 3 then
+                        spawn(MIST, j.x, j.y + 1, j.z, j.dx * 30 + rnd(-8, 8), j.dy * 30, j.dz * 30 + rnd(-8, 8),
+                              rnd(6, 11), rnd(0.35, 0.6), mc[1], mc[2], mc[3], MIST_ALPHA)
+                        budget = budget - 1
+                    end
+                elseif budget > 0 then
+                    -- between the beats it dribbles over the cut
+                    j.dacc = j.dacc + (1 + 3 * fade) * dt
+                    if j.dacc >= 1 then
+                        j.dacc = j.dacc - 1
+                        spawn(BEADK, j.x + rnd(-0.6, 0.6), j.y, j.z + rnd(-0.6, 0.6), j.dx * rnd(8, 20), rnd(0, 10),
+                              j.dz * rnd(8, 20), rnd(0.8, 1.2), rnd(0.5, 0.9), jc[1], jc[2], jc[3], DROPLET_ALPHA)
+                        budget = budget - 1
+                    end
+                end
+                -- once it has pumped a while the blood under it spreads into a wide pool
+                if not j.pooled and age > 2.5 then
+                    j.pooled = true
+                    requestPool(j.x + j.dx * 8, j.y, j.z + j.dz * 8, 36)
+                end
+            end
+        end
+    end
+
+    function MEL.decapReset() STUMPS = {} end
+
+    function MEL.emitState()
+        if not (wum.events and wum.events.emit) then return end
+        pcall(wum.events.emit, "state", { on = preset ~= nil, amount = tostring(cfg.amount), gibs = cfg.gibs == true,
+                                          pools = cfg.pools == true, stains = cfg.stains == true })
+    end
+end
+build()
+end
+
 -- == Melee hooks ================================================================================================
 -- Kept at the end of the file, below every local the other sections define, so that these names find them.
 --
@@ -5913,6 +6116,19 @@ if wum.draw.hudImage then wum.draw.on("hud", drawSplats) end
 if hasMenu then wum.ui.menu("Preview", preview) end
 -- The same preview for anything that emits the mod event, such as the Lua console.
 if wum.events and wum.events.on then wum.events.on("mod.bloodsand.preview", preview) end
+-- Kindjal's Grave Spade (see "The Grave Spade's execution" above).
+if wum.events and wum.events.on then
+    MEL.EXEC = { start = MEL.execStart, chop = MEL.execChop, head = MEL.execHead, headRest = MEL.execHeadRest,
+                   ["end"] = MEL.execEnd, abort = MEL.execAbort }
+    wum.events.on("mod.kindjal.exec", function(p)
+        local fn = type(p) == "table" and MEL.EXEC[p.phase]
+        if not fn then return end
+        local ok, err = pcall(fn, p)
+        if not ok and wum.log and wum.log.warn then pcall(wum.log.warn, "bloodsand: exec " .. tostring(p.phase) .. ": " .. tostring(err)) end
+    end)
+end
+MEL.emitState()
+wum.timers.every(2, MEL.emitState)
 wum.timers.every(0.5, applySettings)
 wum.timers.every(RESEND_SECS, startResend)
 VIS.checkFx()
