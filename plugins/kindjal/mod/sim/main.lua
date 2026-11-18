@@ -380,8 +380,16 @@ local function exAbort(why)
     if not e.chopped then G.exec = nil end       -- nobody lost a head: the next strike may still execute
 end
 
-local function exFinish()
+-- Each execution carries an id; its timers carry it too, so a timer left over from an aborted execution
+-- (exAbort releases the turn before its exChop/exFinish are due) never acts on the next one.
+local function current(id)
     local e = G.ex
+    if e and e.id == id then return e end
+    return nil
+end
+
+local function exFinish(id)
+    local e = current(id)
     if not e then return end
     unpin(e.a)
     unpin(e.v)
@@ -390,15 +398,15 @@ local function exFinish()
     G.ex = nil
 end
 
-local function exConfirm()
-    local e = G.ex
+local function exConfirm(id)
+    local e = current(id)
     if not e then return end
     local w = wum.sim.worm(e.v)
     if w and w:alive() then exAbort("the kill was not confirmed") end
 end
 
-local function exChop()
-    local e = G.ex
+local function exChop(id)
+    local e = current(id)
     if not e then return end
     local w = wum.sim.worm(e.v)
     if not w or not w:alive() then return exAbort("the victim died first") end
@@ -406,7 +414,7 @@ local function exChop()
     if not ok then return exAbort(why) end
     e.chopped = true
     spadeSend(string.format("c,%d,%d,%d", e.a, e.v, wum.sim.tick()))
-    wum.sim.after(SPADE.CONFIRM, exConfirm)
+    wum.sim.after(SPADE.CONFIRM, function() exConfirm(id) end)
 end
 
 -- Pins a worm that stands (state 0) or lies still (6); a worm in the air stays free (a pin in mid-air would hold it there).
@@ -417,8 +425,8 @@ local function pinIfStill(slot)
     if st == 0 or st == 6 then w:anchor(true) end
 end
 
-local function exStart()
-    local e = G.ex
+local function exStart(id)
+    local e = current(id)
     if not e then return end
     local v = wum.sim.worm(e.v)
     local a = wum.sim.worm(e.a)
@@ -434,8 +442,8 @@ local function exStart()
     -- x,attacker,victim,t0,chop,throes,end,ax,ay,az,vx,vy,vz
     spadeSend(string.format("x,%d,%d,%d,%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f", e.a, e.v, t0, SPADE.CHOP, SPADE.THROES,
         SPADE.END, ax, ay, az, vx, vy, vz))
-    wum.sim.after(SPADE.CHOP, exChop)
-    wum.sim.after(SPADE.END, exFinish)
+    wum.sim.after(SPADE.CHOP, function() exChop(id) end)
+    wum.sim.after(SPADE.END, function() exFinish(id) end)
 end
 
 -- ---------------------------------------------------------------- the claim and the events
@@ -473,9 +481,11 @@ else
             local vw = wum.sim.worm(victim)
             if not G.exec and not G.ex and attacker ~= victim and vw and vw:alive() and vw:state() ~= 8 then
                 G.exec = true
-                G.ex = { a = attacker, v = victim, hit = tick }
+                G.exN = (G.exN or 0) + 1
+                local id = G.exN
+                G.ex = { id = id, a = attacker, v = victim, hit = tick }
                 melee.result({ cancel = true })
-                wum.sim.after(1, exStart)
+                wum.sim.after(1, function() exStart(id) end)
                 return
             end
             -- level: the Bat's knockback follows its aim, so a Shiv-sized impulse aimed up lofted the victim into the sea;

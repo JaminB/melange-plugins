@@ -34,7 +34,6 @@ DEFAULT_GAME_DATA = _paths.default_game_data()
 
 # (source name, resource id, mod section, vanilla mesh whose shader is borrowed)
 BANKS = [
-    ("nail_bat", "kindjal.NailBat", 476, "BaseballBat"),
     ("acid_flask", "kindjal.AcidFlask", 477, "GasCanister"),
     ("acid_round", "kindjal.AcidRound", 478, "Bazooka.Payload"),
     ("crucible", "kindjal.Crucible", 479, "HolyHandGrenade"),

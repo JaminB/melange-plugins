@@ -4,7 +4,6 @@
     python make_meshes.py            write the files
     python make_meshes.py --check    regenerate in memory and compare with the files on disk (the .png by decoded pixels, the rest byte for byte)
 
-nail_bat      replaces BaseballBat      slim dark club, taped band with a loose cloth tail, seven long bent nails
 acid_flask    replaces GasCanister      fat round flask, thick neck, oversized cork, raised skull plaque on two faces
 acid_round    replaces Bazooka.Payload  a stubby shell, a dark band, three large corrosion pits pressed into the body
 crucible      replaces HolyHandGrenade  a black orb with deep carved ember cracks, a heavy rim ring and iron studs
@@ -40,7 +39,6 @@ TAU = math.tau
 # Vanilla reference boxes, measured with xomtool convert <name> --from Bundl09.xom and with the node matrix applied
 # (min, max). Our boxes must agree within TOL on every axis (size and centre).
 VANILLA = {
-    "nail_bat": ("BaseballBat", (-2.887, -12.581, -2.855), (2.887, 13.295, 2.855), 504),
     "acid_flask": ("GasCanister", (-4.519, -6.006, -4.519), (4.519, 6.006, 4.519), 496),
     "acid_round": ("Bazooka.Payload", (-2.513, -2.423, -3.077), (2.512, 2.401, 3.619), 120),
     "crucible": ("HolyHandGrenade", (-5.323, -5.144, -7.076), (5.317, 5.146, 6.800), 575),
@@ -448,128 +446,6 @@ def write_png(raw, w, h):
 
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
-
-
-# ================================================================= NAIL BAT
-# Axis Y, grip knob at -Y, hitting end at +Y, origin where the vanilla bat has it. Built to be read at about 60 px: a
-# slim dark club so the silhouette is broken by seven long bent nails and a loose cloth tail, not by fine detail. The
-# nails (not the barrel) fill the vanilla radius, so the box still agrees with BaseballBat.
-BAT_LO, BAT_HI = -12.58, 13.295
-BAT_SEGS = 12
-BAT_BODY = (1, 1, 95, 127)
-BAT_NAILRECT = (100, 2, 126, 34)  # v runs tip (bright steel) to base (rust)
-BAT_TAILRECT = (100, 40, 126, 100)
-BAT_BARREL = [(-2.65, 1.30), (0.5, 1.50), (3.8, 1.66), (7.0, 1.78), (9.8, 1.80), (11.5, 1.70), (12.6, 1.40),
-              (13.15, 0.80), (BAT_HI, 0.0)]
-BAT_BAND = (-6.6, -2.65)  # the taped band
-
-
-def bat_nails():
-    """(azimuth in turns, y where it enters the wood, axial throw of the tip, radial reach of the tip) for each nail:
-    seven, most of them on the two flanks so they break the silhouette from the side, one thrown downward. Shared by the geometry and the paint (puncture holes)."""
-    return [(0.00, 3.0, 2.0, 2.98), (0.50, 4.4, 1.9, 2.95), (0.26, 5.9, -1.8, 2.85), (0.44, 7.2, 1.9, 2.9),
-            (0.76, 8.4, 1.7, 2.9), (0.96, 9.7, 1.7, 2.9), (0.54, 11.0, 1.5, 2.85)]
-
-
-def build_bat():
-    mesh = Mesh()
-    strips = [
-        dict(pts=[(-12.58, 0.0), (-12.3, 1.2), (-11.5, 1.9), (-10.5, 2.05), (-9.7, 1.6), (-9.0, 0.92)]),
-        dict(pts=[(-9.0, 0.92), (-6.6, 0.92)]),
-        dict(pts=[(-6.6, 0.95), (-6.52, 1.40), (-6.2, 1.50), (-3.2, 1.52), (-2.85, 1.46), (-2.65, 1.30)]),  # the tape band stands proud of the handle and the barrel start
-        dict(pts=BAT_BARREL),
-    ]
-    for s in strips:
-        s["rect"], s["range"] = BAT_BODY, (BAT_LO, BAT_HI)
-    revolve(mesh, "bat", strips, BAT_SEGS, 1)
-    for n, (a, y0, dy, reach) in enumerate(bat_nails()):
-        th = TAU * a
-        radial = (math.cos(th), 0.0, math.sin(th))
-        side = (-math.sin(th), 0.0, math.cos(th))
-        rs = profile_r(BAT_BARREL, y0)
-        jit = (-1) ** n * 0.10
-
-        def at(r, y, tang=0.0):
-            return add(add(mul(radial, r), (0.0, y, 0.0)), mul(side, tang))
-
-        # base sunk in the wood, a short radial stub, then the kink and a long throw to the point
-        base, kink, tip = at(rs - 0.35, y0), at(rs + 0.75, y0 + 0.10 * dy, jit * 0.5), at(reach, y0 + dy, jit)
-        near = add(kink, mul(sub(tip, kink), 0.82))  # the shaft stays fat to here, then the point
-        tube(mesh, ("nail", n), [base, kink, near, tip], [0.75, 0.52, 0.36, 0.0], side, 6, BAT_NAILRECT)
-    # loose cloth tail hanging off the top edge of the band, a little twisted
-    th = TAU * 0.62
-    radial = (math.cos(th), 0.0, math.sin(th))
-    side = (-math.sin(th), 0.0, math.cos(th))
-    tail = [(1.50, -3.25, 0.0), (1.95, -3.7, 0.10), (2.40, -4.55, 0.22), (2.72, -5.65, 0.12), (2.78, -6.75, -0.10)]
-    pts = [add(add(mul(radial, r), (0.0, y, 0.0)), mul(side, s)) for r, y, s in tail]
-    ribbon(mesh, "tail", pts, side, 1.35, 0.16, BAT_TAILRECT)
-    return mesh
-
-
-def paint_bat():
-    grain = Fbm(11, 26, 3, 3)
-    fine = Fbm(12, 70, 5, 2)
-    blood = Fbm(13, 5, 4, 4)
-    spat = Fbm(14, 24, 20, 2)
-    rust = Fbm(15, 6, 6, 4)
-    cloth = Fbm(16, 40, 40, 2)
-    nails = bat_nails()
-    circ = TAU * 2.0
-    span = BAT_HI - BAT_LO
-
-    def body(a, t):
-        y = BAT_HI - t * span
-        g = grain.at(a, t * 0.5)
-        col = mix((44, 25, 13), (122, 72, 38), smooth(0.3, 0.75, g))  # dark wood the nails and tape stand out of, lifted so the final curve keeps grain in it
-        col = shade(col, 0.8 + 0.4 * fine.at(a, t))
-        if y < -9.0:  # knob: worn lighter wood, a dark leather lanyard band
-            col = mix(col, (118, 76, 40), 0.45 * smooth(0.4, 0.7, g))
-            col = mix(col, (14, 9, 6), smooth(1.0, 0.4, abs(y + 9.55) / 0.35))
-        if BAT_BAND[0] - 0.05 < y < BAT_BAND[1] + 0.05:  # wrapped cloth tape: bright diagonal turns, dark gaps between
-            ph = (a * 3.0 + (y - BAT_BAND[0]) * 0.42) % 1.0
-            tape = mix((236, 228, 192), (178, 166, 130), cloth.at(a, t))
-            tape = shade(tape, 0.70 + 0.30 * smooth(0.0, 0.2, ph) * smooth(1.0, 0.8, ph))
-            if ph < 0.07:
-                tape = (22, 17, 12)
-            edge = smooth(0.0, 0.12, min(y - BAT_BAND[0], BAT_BAND[1] - y))
-            col = mix(col, tape, edge)
-            col = mix(col, (130, 20, 14), 0.55 * smooth(0.66, 0.74, blood.at(a, t)))
-        if y > 1.4:  # barrel: dried blood and spatter, thickest where it hits
-            m = smooth(1.4, 5.0, y)
-            b = smooth(0.7, 0.76, blood.at(a, t)) * m
-            col = mix(col, mix((176, 24, 18), (90, 10, 10), spat.at(a, t)), 0.9 * b)
-            col = mix(col, (120, 14, 12), 0.9 * smooth(0.8, 0.86, spat.at(a, t)) * m)
-        if y > 12.4:  # end grain
-            ring = 0.5 + 0.5 * math.sin((13.3 - y) * 24 + 4 * grain.at(a, 0.2))
-            col = mix(col, mix((70, 40, 22), (140, 90, 50), ring), smooth(12.4, 12.9, y))
-        for na, ny, _, _ in nails:  # each nail has a puncture: dark hole, rusty rim, a blood run below it
-            dx, dy = wrapdiff(a, na) * circ, y - ny
-            d = math.hypot(dx, dy)
-            if d < 0.9:
-                col = mix(col, (150, 66, 24), smooth(0.9, 0.5, d))
-                col = mix(col, (6, 4, 3), smooth(0.55, 0.3, d))
-            if abs(dx) < 0.16 and -1.8 < dy < 0:
-                col = mix(col, (130, 16, 12), 0.85 * smooth(0.16, 0.05, abs(dx)) * smooth(-1.8, -0.2, dy))
-        return col
-
-    def nail(a, t):  # t = 0 at the point: bright steel, running to dark rust at the base
-        n = rust.at(a, t)
-        steel = mix((255, 255, 255), (150, 160, 176), smooth(0.05, 0.3, t))  # a bright point, dull iron behind it
-        steel = shade(steel, 0.74 + 0.36 * abs(math.sin(a * math.pi)))  # a lit side and a shaded side, baked in
-        col = mix(steel, mix((128, 60, 24), (70, 34, 16), n), smooth(0.3, 0.62, t + 0.12 * (n - 0.5)))
-        return shade(col, 0.92 + 0.16 * fine.at(a, t))
-
-    def tail(a, t):  # a frayed strip of cloth, a red stripe down each edge
-        col = mix((232, 224, 190), (190, 178, 140), cloth.at(a, t))
-        col = mix(col, (170, 26, 20), 0.9 * smooth(0.12, 0.06, min(a, 1 - a)))
-        col = shade(col, 0.82 + 0.18 * smooth(0.0, 0.1, t))
-        return mix(col, (60, 48, 34), 0.7 * smooth(0.86, 1.0, t) * smooth(0.45, 0.7, cloth.at(a, t * 2)))
-
-    tex = Texture((30.0, 18.0, 10.0), gain=1.22, sat=1.15)  # unused texels are plain dark wood, not a grey block
-    tex.region(BAT_BODY, body)
-    tex.region(BAT_NAILRECT, nail)
-    tex.region(BAT_TAILRECT, tail)
-    return tex.render()
 
 
 # ================================================================= ACID FLASK
@@ -1111,7 +987,6 @@ def validate(stem, gltf_bytes, binary, png_bytes):
 
 # ================================================================= driver
 MESHES = [
-    ("nail_bat", "NailBat", build_bat, paint_bat),
     ("acid_flask", "AcidFlask", build_flask, paint_flask),
     ("acid_round", "AcidRound", build_round, paint_round),
     ("crucible", "Crucible", build_crucible, paint_crucible),

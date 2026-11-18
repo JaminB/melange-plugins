@@ -192,7 +192,7 @@ All of this is client-side and off by a setting; none of it touches the simulati
   synthesised by `tools/make_sounds.py`, played through Melange's `wum.audio` on top of the game's own sounds with
   distance attenuation from the camera.
 - **Icons.** Every renamed weapon has its own panel icon and HUD icon in the game's cel style, drawn by
-  `tools/make_icons.py` and its group modules (`tools/icons_*.py`): a nail bat, a flaming fist, a shiv, a railspike,
+  `tools/make_icons.py` and its group modules (`tools/icons_*.py`): a gravedigger's spade, a flaming fist, a shiv, a railspike,
   a black rocket, a pipe bomb, a powder keg, a profane orb, black bananas, a nail-studded cluster, a bear trap, a
   harpoon, a bomber, a falling carcass, a cracked stone donkey, a black labradoodle's face with dynamite under his collar, a ram in a
   gas mask, a hooded crone with
@@ -201,7 +201,7 @@ All of this is client-side and off by a setting; none of it touches the simulati
 - **Models.** Every renamed weapon and the three new ones have their own held and/or projectile model (the Plantain
   Hell's bananas, the Nail Cluster and its pieces, the Plague Ram, the Hangwoman, the Knifeman, the Gorger and so on),
   and the Airstrike and Super Airstrike helicopters become a black and a bone-white gunship (`vehicleMeshes`). 38
-  banks in all: 19 static meshes built by `tools/make_meshes.py` and `tools/build_meshes.py`, and 19 clones of vanilla
+  banks in all: 18 static meshes and the Grave Spade's bank built by `tools/make_meshes.py` and `tools/build_meshes.py`, and 19 clones of vanilla
   skinned meshes built by `tools/clones_*.py` (see `tools/README-meshes.md`). Seen in play so far: the Nail Bat, Acid
   Flask and Crucible in hand; the rest are only checked by rebuilding them byte for byte, and have not been looked at in a match.
 
@@ -293,14 +293,16 @@ well next to Bloodsand's splat is a judgement for a person to make in play.
   Bat, Acid Flask and Crucible models in hand, and a two-player LocalNet match with identical Wormsign hashes on both
   machines over six turns. Not yet seen in play: the three projectiles in flight, every other model (the other 35
   banks and the two gunships), and whether the Rust Canister's blast and the Gibbet Turret's shot numbers take effect.
-- The Grave Spade has not been played in a match yet: the dig radius and reach, the hands' grip, the pose angles, the
-  camera's distances and the head's roll are tuned on paper and in a stub of the Lua API, and the LocalNet run that
-  proves every machine digs and kills alike is still to do. A held dig that reaches a worm stays a dig (the gate decides
+- The Grave Spade has been played in test matches: offline, a held dig cut a trench a worm walked through in one 30 s
+  turn, the first strike executed a full-health worm and the second did the Shiv's 10; on a two-machine LocalNet
+  match an execution on the joining machine's turn played on both with no freeze and no desync. Not yet seen in
+  play: the hands following a held dig (test automation could not open the weapon panel), and a full match with
+  people at the controls; the dig radius, the camera's distances and the head's roll may still want tuning. A held dig that reaches a worm stays a dig (the gate decides
   at the press), so a strike is always a fresh press. Which hand takes the grip is learned from the worm's bones in the
   first frames it holds the spade. The execution needs the camera override free: with another mod's override (a
   Sandtide tour) it plays under the game's camera, with the game's HUD (the HUD is hidden with Melange's
   `wum.render.hideHud` only while the execution has the camera).
-- The Nail Bat is gone from the panel (its slot is the spade); its model and icon are still in the package, unused.
+- The Nail Bat is gone from the panel (its slot is the spade), and its model and icons are no longer in the package.
 - The Crucible follows the Holy Hand Grenade's ammo and delay: in the Standard style it reads "Delayed" until the
   third turn, like the grenade it is built on.
 
