@@ -116,16 +116,18 @@ How it works: everything that changes the match (every scoop's land, the once-a-
 damage, the kill) is decided in `mod/sim/main.lua` on every machine at the same tick, and sent to the clients as the
 message `Kindjal.Spade`. The cinematic, the poses, the head and the gore are drawn on each machine alone: the sim
 holds the next turn start (`wum.sim.holdTurn`) for the 10.4 s the show takes, pins both worms, and kills the victim
-5.4 s in through the engine's own death (`worm:kill`, no death explosion, with its gravestone; the body goes a few
-ticks after the chop). The engine's held spade is an invisible speck; the real one is drawn by the client.
+5.4 s in through the engine's own death (`worm:kill`, no death explosion, with its gravestone; the body stays down
+for 3 s of throes after the chop). The engine's held spade is an invisible speck; the real one is drawn by the client.
 
-Poses: Worms Ultimate Mayhem (build #1077) skins its worms on the CPU, so Melange 0.16's pose API
-(`wum.render.wormPose`) answers "unsupported" there and Kindjal uses its fallback. The spade turns in the worm's
-fists, where the engine's Bat hold puts them, and every scoop, lever and fling is the spade's own motion. The execution
-is staged upright: the attacker points the spade at the victim, raises it over the shoulder, holds it for the beat and
-swings it through the neck. The plugin's head model flies off and rolls, and the body drops under the burst as the
-grave comes down. On a Melange and game that can pose worms, the hands follow the grip, the victim lies down, the
-attacker climbs on, and the first severed head is the worm's own (`wum.render.wormCopy`).
+Poses: Melange 0.16's worm poses (`wum.render.wormPose`) draw the show. While digging, the worm's hands ride the
+spade's grip and shaft through every scoop, lever and fling. In the execution the victim turns to its killer and falls
+on its back (its hat and shadow go with it), the attacker hops onto its lower body facing its head, hunched over the
+spade, the victim cowers and grabs the shaft, the blade goes onto its chest and slides up to the throat, the attacker
+raises the spade over its head and chops, and the head comes off as the worm's own head (`wum.render.wormCopy`) over a
+neck stump, with the hat hidden. When the body is gone the plugin's head model takes over where it lies. All of it is
+drawn on each machine alone. On a Melange without the pose layers (`wum.render.wormPoseCaps`) the spade turns in the
+worm's fists and the execution is staged upright: the attacker raises the spade over the shoulder and swings it through
+the neck.
 
 ### Tuning the knockback
 
@@ -169,7 +171,7 @@ All of this is client-side and off by a setting; none of it touches the simulati
   blood still shows through acid.
 - **Acid bursts.** Green-yellow smoke and a bubbling puddle at the burst that smokes and dies over about twenty seconds
   (at most three puddles, the Buddy Bomb's pool of blood among them).
-- **The Grave Spade.** The spade in the worm's fists: hanging blade-down at rest, held along the aim while aiming, and a
+- **The Grave Spade.** The spade in the worm's hands: hanging blade-down at rest, held along the aim while aiming, and a
   full scoop (bite, lever, fling over the shoulder, wind up) for every scoop the sim digs, with clods that bounce on the
   land, dust that hangs over the cut, stone chips and sparks on stone and buildings (by the level's theme), and its own
   scoop and scrape sounds. The execution has a letterbox, the circling camera, a name card and its own sting, chop,

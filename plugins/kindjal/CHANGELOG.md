@@ -6,12 +6,13 @@ The Grave Spade, in the Baseball Bat's slot (the Nail Bat is gone). Needs Melang
   can destroy; water is never touched. A worm can dig itself a cave in one turn. Digging never ends the turn.
 - A press with a worm in reach is a strike, and ends the turn at once.
 - The first spade strike in the match is an execution, whatever the victim's health. The camera circles the pair, the
-  attacker raises the spade over the shoulder and swings it through the victim's neck, and the head rolls away. After
-  that a strike does exactly what the Shiv does.
+  victim falls on its back, the attacker climbs on top of it, sets the blade on its chest, raises the spade and takes
+  its head off, and the head rolls away while the body lies there for its throes. After that a strike does exactly
+  what the Shiv does.
 - With Bloodsand 1.6 it is the goriest thing in the game (pumping neck jets, gibs, pools, a blood trail behind the head);
   without it the head comes off in dust and sand.
-- The spade turns in the worm's fists for every scoop and strike. The game skins worms on the CPU, so the hands
-  themselves cannot be posed. New icon, model, severed-head model, dirt and dust sprites, and ten sounds.
+- The worm's hands follow the spade through every scoop and strike (Melange 0.16 worm poses). New icon, model,
+  severed-head model, dirt and dust sprites, and ten sounds.
 - New setting: Grave Spade execution camera. New previews in the Lua menu.
 - Net safe: every dig, the kill and the once-a-match flag are decided in the sim; everything shown is local.
 - On a map's flat height-field ground the spade digs pits and trenches; caves are dug in voxel land and buildings.

@@ -2186,10 +2186,11 @@ SpadeFX.install()
 --   x,a,v,t0,chop,throes,end,ax,ay,az,vx,vy,vz   the execution starts at sim tick t0; chop and end are ticks after t0
 --   c,a,v,tick / e,a,v,tick / a,a,v,tick    the chop's kill was posted / the execution is over / it was aborted
 -- The spade itself: the engine's held mesh is an invisible speck (kindjal.GraveSpadeHidden), and the real one
--- (assets/meshes/gravespade.mesh.txt) is drawn here in the worm's hands. With MiragePose the hands are carried onto its
--- grip, so they follow every scoop. Without poses (build #1077 skins worms on the CPU, so Melange 0.16 answers
--- "unsupported" there) the spade turns in the worm's fists where the engine's Bat hold puts them, and the execution is
--- staged upright: no fall and no mount, the blade raised over the shoulder and swung through the neck.
+-- (assets/meshes/gravespade.mesh.txt) is drawn here in the worm's hands. With MiragePose's palette the hands are carried
+-- onto its grip, so they follow every scoop. The execution is the mount (MT below): the victim on its back, the attacker
+-- on top of it, the blade on its chest, the chop, and the head off as the worm's own head (wormCopy). Without the body
+-- and palette layers (wum.render.wormPoseCaps) the spade turns in the worm's fists where the engine's Bat hold puts them,
+-- and the execution is staged upright: no fall and no mount, the blade raised over the shoulder and swung through the neck.
 local SPADE = (function()
     local GS = {
         WEAPON = 10,                    -- kWeaponBaseballBat in worms()[i].weapon
@@ -2402,10 +2403,29 @@ local SPADE = (function()
         end
         return true
     end
+    -- Which pose layers this Melange has (wum.render.wormPoseCaps), once a match.
+    local function poseCaps()
+        if GS.pose.caps then return GS.pose.caps end
+        local c = {}
+        if wum.render.wormPoseCaps then
+            local ok, r = pcall(wum.render.wormPoseCaps)
+            if ok and type(r) == "table" then c = r end
+        end
+        GS.pose.caps = c
+        return c
+    end
     local function setPose(slot, spec)
         if not poseOk() then return false end
         spec.frames = spec.frames or 4
+        if GS.pose.noClips then spec.clips, spec.sliders = nil, nil end
         local ok, r, why = pcall(wum.render.wormPose, slot, spec)
+        if ok and r ~= true and type(why) == "string" and string.sub(why, 1, 7) == "no clip" then
+            -- a library without one of our clips: the poses go on without clips and sliders
+            log("kindjal: worm pose " .. why .. ": clips and sliders are left out")
+            GS.pose.noClips = true
+            spec.clips, spec.sliders = nil, nil
+            ok, r, why = pcall(wum.render.wormPose, slot, spec)
+        end
         if not ok then
             logErr("wormPose", r)
             GS.pose.bad = true
@@ -2669,11 +2689,8 @@ local SPADE = (function()
         end
         local gx, gy, gz, hx, hy, hz = handPoints(st)
         local rh, lh = handsFor(slot, f, r, gx, gy, gz, hx, hy, hz)
-        -- lean into a bite a little: a turn about the right axis by a negative angle tips the front down
-        local lean = 0
-        if q and q < 1 then lean = -10 * sin(clamp(q, 0, 1) * pi) end
+        -- the palette only: the hands ride the spade. Nothing moves the body or the joints in a normal turn.
         local spec = { rightHand = rh, leftHand = lh }
-        if lean ~= 0 then spec.root = { rot = euler(rotAxis(r[1], r[2], r[3], lean / DEG)) } end
         -- the first frames only track the bones, so the hands can be told apart before they are moved
         if GS.pose.swap[slot] == nil and poseOk() then
             st.learn = (st.learn or 0) + 1
@@ -2681,6 +2698,236 @@ local SPADE = (function()
             spec = {}
         end
         st.posed = setPose(slot, spec)
+    end
+
+    -- ------------------------------------------------------------ the mount (Melange 0.16 worm poses)
+    -- The victim turns to face its killer and falls on its back, head away from him; the attacker hops onto its lower
+    -- body facing its head, sets the blade on its chest, slides it up to the neck, raises the spade over its head and
+    -- chops. The body layer (the drawn mesh's own transform) lays the victim down and carries the attacker, so hats and
+    -- shadows follow; the game's clips and sliders give the hunch, the cower and the looks; the palette puts both
+    -- worms' hands on the shaft. All of it is drawn here only: the sim pins both worms where they stand.
+    local MT = {
+        BACK = 12,          -- the attacker's feet this far from the victim's feet toward him (on its lower body)
+        UP = 5.5,           -- and this high over the victim's feet (on its belly)
+        LEAN = 16,          -- the attacker's lean over the chest (degrees)
+        HOP = 10,           -- the hop on and off
+        LIFT = 4,           -- a worm on its back is raised this much onto the ground
+        HEAD_C = 9,         -- the head's middle from the neck along the lying body
+    }
+    function MT.deg(r) return r * DEG end
+    function MT.wrap(a)
+        a = (a + pi) % (2 * pi)
+        return a - pi
+    end
+    function MT.turn(a, b, u) return a + MT.wrap(b - a) * u end
+    -- A posed worm's up and forward (pitch in degrees, + forward onto its face, about its right axis after the heading).
+    function MT.dirs(pitchDeg, head)
+        local p = pitchDeg / DEG
+        local fx, fz, cp, sp = sin(head), cos(head), cos(p), sin(p)
+        return { sp * fx, cp, sp * fz }, { cp * fx, -sp, cp * fz }
+    end
+    -- The world point h along the posed up and f along the posed forward from the drawn origin o.
+    function MT.pt(o, pitchDeg, head, h, f)
+        local u, g = MT.dirs(pitchDeg, head)
+        return o[1] + u[1] * h + g[1] * f, o[2] + u[2] * h + g[2] * f, o[3] + u[3] * h + g[3] * f
+    end
+    -- Squared distance from a point to the segment a-b.
+    function MT.pointSeg2(x, y, z, a, b)
+        local ux, uy, uz = b[1] - a[1], b[2] - a[2], b[3] - a[3]
+        local uu = ux * ux + uy * uy + uz * uz
+        local s = uu > 1e-6 and clamp(((x - a[1]) * ux + (y - a[2]) * uy + (z - a[3]) * uz) / uu, 0, 1) or 0
+        local dx, dy, dz = x - a[1] - ux * s, y - a[2] - uy * s, z - a[3] - uz * s
+        return dx * dx + dy * dy + dz * dz, a[1] + ux * s, a[2] + uy * s, a[3] + uz * s
+    end
+    -- Does the sight line p -> q (its first 85 %) pass within r of the capsule axis a-b?
+    function MT.blocks(p, q, a, b, r)
+        for i = 0, 8 do
+            local s = i / 8 * 0.85
+            if MT.pointSeg2(p[1] + (q[1] - p[1]) * s, p[2] + (q[2] - p[2]) * s, p[3] + (q[3] - p[3]) * s, a, b) < r * r then
+                return true
+            end
+        end
+        return false
+    end
+    -- The eye pushed out of a capsule (axis a-b, radius r), away from the axis (or from the target when on it).
+    function MT.pushOut(px, py, pz, a, b, r, tx, ty, tz)
+        local d2, qx, qy, qz = MT.pointSeg2(px, py, pz, a, b)
+        if d2 >= r * r then return px, py, pz end
+        local dx, dy, dz = px - qx, py - qy, pz - qz
+        local d = sqrt(d2)
+        if d < 1e-3 then
+            dx, dy, dz = px - tx, py - ty, pz - tz
+            d = sqrt(dx * dx + dy * dy + dz * dz)
+            if d < 1e-3 then dx, dy, dz, d = 0, 1, 0, 1 end
+        end
+        return qx + dx / d * r, qy + dy / d * r, qz + dz / d * r
+    end
+    -- A row vector times a 3x3 given as rows.
+    function MT.vmul(v, m)
+        return v[1] * m[1] + v[2] * m[4] + v[3] * m[7], v[1] * m[2] + v[2] * m[5] + v[3] * m[8],
+               v[1] * m[3] + v[2] * m[6] + v[3] * m[9]
+    end
+
+    -- Poses, spade and the points the beats need, for one frame. `out` eases everything back to rest at the end.
+    function MT.frame(e, T, dt, t, out)
+        local chop = e.chop
+        local hv = math.atan(-e.dx, -e.dz)          -- the victim faces its killer
+        local ha = math.atan(e.dx, e.dz)            -- the attacker faces the victim's head
+        local vout = e.chopped and 1 or out          -- a beheaded victim stays down
+        -- ---------------------------------------------------------------- the victim
+        local fall = seg(T, 0.3, 1.15)
+        local vPitch = -90 * fall * fall
+        if T >= 1.15 and T < 1.35 then vPitch = -90 + 6 * sin(pi * seg(T, 1.15, 1.35)) end    -- the bounce
+        if T >= 2.0 and T < 2.15 then vPitch = -90 + 4 * sin(pi * seg(T, 2.0, 2.15)) end      -- the mount lands on it
+        local vHead = MT.turn(e.vYaw, hv, ease(seg(T, 0, 0.35)))
+        local lift = MT.LIFT * smooth(fall)
+        vPitch, vHead, lift = vPitch * vout, MT.turn(e.vYaw, vHead, vout), lift * vout
+        local vspec = { body = { pitch = vPitch, heading = MT.deg(vHead), move = { 0, lift, 0 } } }
+        local vUp, vFwd = MT.dirs(vPitch, vHead)
+        local oV = { e.vx, e.vy + 3 + lift, e.vz }
+        -- the neck and the chest as drawn (wormBones), else where the lying body puts them
+        local b = bones(e.v)
+        local nx, ny, nz = bone(b, "neck")
+        if not nx then nx, ny, nz = MT.pt(oV, vPitch, vHead, -2, 0.2) end
+        local neck = { nx, ny, nz }
+        local surf = { nx + vFwd[1] * 3.5, ny + vFwd[2] * 3.5, nz + vFwd[3] * 3.5 }        -- the throat's skin
+        local chest = { nx - vUp[1] * 3 + vFwd[1] * 4.3, ny - vUp[2] * 3 + vFwd[2] * 4.3, nz - vUp[3] * 3 + vFwd[3] * 4.3 }
+        e.vUp, e.vFwd, e.neck = vUp, vFwd, neck
+        e.capV = { { oV[1] - vUp[1] * 12, oV[2] - vUp[2] * 12, oV[3] - vUp[3] * 12 },
+                   { oV[1] + vUp[1] * 22, oV[2] + vUp[2] * 22, oV[3] + vUp[3] * 22 } }
+        local clips, sl = {}, {}
+        if T < 1.4 then
+            clips[1] = { name = "Cower", time = min(T, 3.8), weight = 1.5 * vout }
+            sl.HeadRotX = 1 + 0.4 * smooth(seg(T, 0.3, 1.0))
+        elseif T < chop then
+            clips[1] = { name = "Terror", time = (T - 1.4) % 2.0, weight = 1.2 * vout }
+            if T > 3.0 then
+                sl.HeadRotY = 1 + 0.15 * sin(9 * T)
+                -- the tail beats on the ground (the palette: TailAngle would stand a lying worm's tail up)
+                vspec.tail = { rot = { 6 * sin(2 * pi * 3 * T), 0, 0 } }
+            end
+        else
+            -- the throes: the stump's tail twitches, weaker and weaker
+            local k = exp(-(T - chop) * 0.8)
+            vspec.tail = { rot = { 10 * sin(2 * pi * 2.2 * T) * k, 6 * sin(2 * pi * 3.1 * T) * k, 0 } }
+        end
+        -- the tail straightened in line with the body (TailAngle 0), so it lies flat instead of standing up: a worm's tail
+        -- runs back along the ground, which on its back would point at the sky
+        sl.TailAngle = 1 - smooth(fall) * vout
+        vspec.clips, vspec.sliders = clips, sl
+        if T >= chop then vspec.hide = { head = "stump", attachments = "hide" } end
+        if T > 2.2 and T < 4.4 and e.st.gx then
+            -- its hands go to the shaft above the blade and shake there
+            local tx, ty, tz = tipOf(e.st)
+            local gx, gy, gz = e.st.gx, e.st.gy, e.st.gz
+            local sh = sin(T * 31) * 0.5 * smooth(seg(T, 2.2, 2.6))
+            vspec.leftHand = { target = { lerp(tx, gx, 0.3) + sh, lerp(ty, gy, 0.3), lerp(tz, gz, 0.3) } }
+            vspec.rightHand = { target = { lerp(tx, gx, 0.5) - sh, lerp(ty, gy, 0.5), lerp(tz, gz, 0.5) } }
+        end
+        if W[e.v] or e.preview then setPose(e.v, vspec) end
+        if T >= chop and not e.ending then e.vFinal = { body = vspec.body, hide = vspec.hide, sliders = { TailAngle = 0 } } end
+        -- ---------------------------------------------------------------- the attacker
+        local M = { e.vx - e.dx * MT.BACK, e.vy + MT.UP, e.vz - e.dz * MT.BACK }
+        local on, off = ease(seg(T, 1.25, 2.0)), ease(seg(T, 8.4, 9.6))
+        local k = on * (1 - off)
+        local arc = MT.HOP * (sin(pi * seg(T, 1.25, 2.0)) + sin(pi * seg(T, 8.4, 9.6)))
+        local at = { lerp(e.ax, M[1], k), lerp(e.ay, M[2], k) + arc, lerp(e.az, M[3], k) }
+        local aHead = MT.turn(e.aYaw, ha, ease(seg(T, 0, 1.25)) * (1 - off))
+        local aPitch
+        -- a lean over the chest (more and its head would cover the throat), straighter for the raise, a lunge for the chop
+        if T < 1.25 then aPitch = 0
+        elseif T < 2.0 then aPitch = MT.LEAN * on
+        elseif T < 4.4 then aPitch = MT.LEAN
+        elseif T < 5.1 then aPitch = lerp(MT.LEAN, 6, ease(seg(T, 4.4, 5.1)))
+        elseif T < chop then aPitch = lerp(6, 32, seg(T, 5.1, chop) ^ 2)
+        elseif T < 6.0 then aPitch = 32
+        elseif T < 6.6 then aPitch = lerp(32, 10, ease(seg(T, 6.0, 6.6)))
+        else aPitch = 10 * (1 - off) end
+        aPitch, aHead = aPitch * out, MT.turn(e.aYaw, aHead, out)
+        at = { lerp(e.ax, at[1], out), lerp(e.ay, at[2], out), lerp(e.az, at[3], out) }
+        local aspec = { body = { pitch = aPitch, heading = MT.deg(aHead), at = at } }
+        local ac, asl = {}, {}
+        if T < 4.4 then
+            ac[1] = { name = "HoldBat", time = (T * 0.8) % 2.0, weight = 2 * out }
+        elseif T < 5.1 then
+            ac[1] = { name = "Fire2Bat", time = 0.35, weight = 2 * out }
+        elseif T < chop then
+            ac[1] = { name = "Fire2Bat", time = lerp(0.35, 1.0, seg(T, 5.1, chop)), weight = 2 * out }
+        elseif T < 6.6 then
+            ac[1] = { name = "Fire2Bat", time = 1.0, weight = lerp(2, 0.2, seg(T, chop + 0.3, 6.6)) * out }
+            ac[2] = { name = "HoldBat", time = (T * 0.8) % 2.0, weight = lerp(0, 1.5, seg(T, chop + 0.3, 6.6)) * out }
+        else
+            ac[1] = { name = "HoldBat", time = (T * 0.8) % 2.0, weight = 1.5 * (1 - off) * out }
+        end
+        if T > 2.2 and T < 5.1 then asl.HeadRotX = lerp(1, 0.8, smooth(seg(T, 2.2, 2.6))) end
+        aspec.clips, aspec.sliders = ac, asl
+        local oA = { at[1], at[2] + 3, at[3] }
+        local aUp = MT.dirs(aPitch, aHead)
+        e.capA = { { oA[1], oA[2], oA[3] }, { oA[1] + aUp[1] * 26, oA[2] + aUp[2] * 26, oA[3] + aUp[3] * 26 } }
+        e.focus = { (chest[1] + oA[1]) * 0.5, (chest[2] + oA[2]) * 0.5 + 6, (chest[3] + oA[3]) * 0.5 }
+        -- ---------------------------------------------------------------- the spade
+        local cx, cy, cz = MT.pt(oA, aPitch, aHead, 11, 0)
+        local cA = { cx, cy, cz }
+        local hd = { sin(aHead), 0, cos(aHead) }
+        local function carried() setP(cx + hd[1] * 2, cy + 8, cz + hd[3] * 2, cx + hd[1] * 9, cy - 14, cz + hd[3] * 9) end
+        local dx, dy, dz = norm3(e.dx * 0.28, -1, e.dz * 0.28)        -- the blade comes down steep, a little forward
+        local L = (GS.TIP - GS.GRIP) * GS.SCALE
+        if T < 1.25 then
+            readyPose(cA, hd, { hd[1], -0.25, hd[3] })
+        elseif T < 2.2 then
+            carried()
+        elseif T < 3.0 then
+            local u = ease(seg(T, 2.2, 3.0))
+            tipAt(chest[1], chest[2] + 12 * (1 - u), chest[3], dx, dy, dz)
+        elseif T < 3.8 then
+            local tr = sin(T * 41) * 0.25
+            tipAt(chest[1] + tr, chest[2] + 0.3, chest[3] - tr, dx, dy, dz)
+        elseif T < 4.4 then
+            local u = ease(seg(T, 3.8, 4.4))
+            tipAt(lerp(chest[1], surf[1], u), lerp(chest[2], surf[2], u) + 0.3, lerp(chest[3], surf[3], u), dx, dy, dz)
+        else
+            -- raised over the head, the blade's point toward the neck; then down through it
+            local gx, gy, gz = MT.pt(oA, aPitch, aHead, 27, -3)
+            if T < chop then e.raise = { gx, gy, gz } end
+            local G = e.raise or { gx, gy, gz }
+            local sx, sy, sz = norm3(neck[1] - G[1], neck[2] - G[2], neck[3] - G[3])
+            if T < 5.1 then
+                local u = ease(seg(T, 4.4, 5.1))
+                local px, py, pz = lerp(surf[1] - dx * L, G[1], u), lerp(surf[2] - dy * L, G[2], u), lerp(surf[3] - dz * L, G[3], u)
+                setP(px, py, pz, neck[1], neck[2], neck[3])
+            elseif T < chop then
+                local u = seg(T, 5.1, chop) ^ 2
+                local ex, ey, ez = G[1] + sx * L, G[2] + sy * L, G[3] + sz * L
+                tipAt(lerp(ex, neck[1] + sx * 3, u), lerp(ey, neck[2] + sy * 3, u), lerp(ez, neck[3] + sz * 3, u), sx, sy, sz)
+            elseif T < 6.0 then
+                tipAt(neck[1] + sx * 3, neck[2] + sy * 3, neck[3] + sz * 3, sx, sy, sz)
+            elseif T < 6.6 then
+                local u = ease(seg(T, 6.0, 6.6))
+                tipAt(neck[1] + sx * lerp(3, -10, u), neck[2] + sy * lerp(3, -10, u) + 8 * u, neck[3] + sz * lerp(3, -10, u), sx, sy, sz)
+            else
+                carried()
+            end
+        end
+        e.st.fx, e.st.fz = hd[1], hd[3]
+        if T >= chop - 0.3 and T < chop + 0.4 then
+            -- the chop is a snap: no smoothing lag on the blade
+            local kf = GS.FOLLOW
+            GS.FOLLOW = 90
+            follow(e.st, dt)
+            GS.FOLLOW = kf
+        else
+            follow(e.st, dt)
+        end
+        if T >= chop - 0.3 and not e.swung then
+            e.swung = true
+            play("swing", 0.9, cx, cy, cz)
+        end
+        local gx, gy, gz, hx, hy, hz = handPoints(e.st)
+        local r = { -hd[3], 0, hd[1] }
+        aspec.rightHand, aspec.leftHand = handsFor(e.a, hd, r, gx, gy, gz, hx, hy, hz)
+        if W[e.a] or e.preview then setPose(e.a, aspec) end
+        e.mountAt = M
+        return neck[1], neck[2], neck[3], chest[1], chest[2], chest[3], M[1], M[3]
     end
 
     -- ------------------------------------------------------------ the execution
@@ -2744,8 +2991,11 @@ local SPADE = (function()
         e.aMainY = my and (my - e.ay) or 17
         e.orbit = { th = math.atan(-dz, dx), r = 110, el = 0.5, fov = 50, cx = nil }
         e.vYaw = (sv and sv.yaw) or 0
+        e.aYaw = (sa and sa.yaw) or math.atan(dx, dz)
         e.cam = cfg("cinematic", true) ~= false and wum.render.cameraOverride ~= nil
-        e.posed = poseOk() == true
+        -- the mount needs the body layer (the drawn worm laid down and carried) and the palette (hands, the stump)
+        local caps = poseCaps()
+        e.posed = poseOk() == true and caps.body == true and caps.palette == true
         e.st = GS.w[a] or {}
         GS.w[a] = e.st
         GS.ex = e
@@ -2781,8 +3031,18 @@ local SPADE = (function()
     -- The severed head: thrown from the neck along the victim's head direction, rolling on the land (one ray a frame).
     local function launchHead(e, nx, ny, nz)
         local h = { slot = e.v, x = nx, y = ny + 5, z = nz, floorY = e.vy, vx = e.dx * rnd(55, 75), vy = rnd(70, 95), vz = e.dz * rnd(55, 75),
-                    R = e.posed and e.vRot or IDENT, born = os.clock(), copy = e.posed, gore = e.gore, yaw = e.vYaw or 0, rolled = 0, bounces = 0,
+                    R = IDENT, born = os.clock(), copy = e.posed, gore = e.gore, yaw = e.vYaw or 0, rolled = 0, bounces = 0,
                     preview = e.preview }
+        if e.posed and e.vUp then
+            -- the head lies along the body: its middle is HEAD_C out from the neck, and the copy turns about it. The client
+            -- mesh (neck at its origin, +Y up, face +Z) is laid the same way: +Y along the body, the face to the sky.
+            local u, f = e.vUp, e.vFwd
+            h.x, h.y, h.z = nx + u[1] * MT.HEAD_C, ny + u[2] * MT.HEAD_C, nz + u[3] * MT.HEAD_C
+            h.neckOff = { nx - h.x, ny - h.y, nz - h.z }
+            local rx, ry, rz = cross(u[1], u[2], u[3], f[1], f[2], f[3])
+            h.base = { rx, ry, rz, u[1], u[2], u[3], f[1], f[2], f[3] }
+            h.vx, h.vz = h.vx * 0.8, h.vz * 0.8
+        end
         GS.heads[#GS.heads + 1] = h
         return h
     end
@@ -2840,8 +3100,14 @@ local SPADE = (function()
     -- client mesh (assets/meshes/gravespade_head.mesh.txt) in the same place.
     local function drawHead(h, t)
         local okCopy = false
+        -- the neck as drawn: the copy carries the original neck there (turned by R about the head's middle)
+        local px, py, pz = h.x, h.y - 5, h.z
+        if h.neckOff then
+            local ox, oy, oz = MT.vmul(h.neckOff, h.R)
+            px, py, pz = h.x + ox, h.y + oy, h.z + oz
+        end
         if h.copy and wum.render.wormCopy and not GS.pose.bad then
-            local ok, r = pcall(wum.render.wormCopy, h.slot, { pos = { h.x, h.y - 5, h.z }, rot = euler(h.R), frames = 4 })
+            local ok, r = pcall(wum.render.wormCopy, h.slot, { pos = { px, py, pz }, rot = euler(h.R), frames = 4 })
             okCopy = ok and r == true
             if okCopy and h.copyFrom == nil then h.copyFrom = t end
             -- the copy is drawn only while the engine draws the body: once its bones stop coming, the body is gone
@@ -2854,7 +3120,7 @@ local SPADE = (function()
         if okCopy or not (GS.head and wum.draw.mesh) then return end
         -- the mesh: neck at the origin, +Y up, face toward +Z; turned to the victim's old facing, then by the roll
         local yaw = h.yaw
-        local base = { cos(yaw), 0, -sin(yaw), 0, 1, 0, sin(yaw), 0, cos(yaw) }
+        local base = h.base or { cos(yaw), 0, -sin(yaw), 0, 1, 0, sin(yaw), 0, cos(yaw) }
         local m = mul(base, h.R)
         local age = t - (h.restAt or t)
         local alpha = 1 - smooth((age - 40) / 4)
@@ -2863,7 +3129,7 @@ local SPADE = (function()
             return
         end
         local texId = h.gore == "dust" and GS.headClean or GS.headTex
-        local model = { m[1], m[2], m[3], 0, m[4], m[5], m[6], 0, m[7], m[8], m[9], 0, h.x, h.y - 5, h.z, 1 }
+        local model = { m[1], m[2], m[3], 0, m[4], m[5], m[6], 0, m[7], m[8], m[9], 0, px, py, pz, 1 }
         pcall(wum.draw.mesh, GS.head, texId, model, 0xffffff00 | floor(alpha * 255 + 0.5),
               { lit = true, ambient = 0.6, cull = true, depthWrite = alpha >= 1, blend = "alpha" })
     end
@@ -2885,8 +3151,14 @@ local SPADE = (function()
             end
             px, pz = x + dx / d * R, z + dz / d * R
         end
-        push(e.ax, e.ay, e.az)
-        push(e.vx, e.vy, e.vz)
+        if e.capV and e.capA then
+            -- posed: the victim lies along its capsule, the attacker leans along its own
+            px, py, pz = MT.pushOut(px, py, pz, e.capV[1], e.capV[2], R, tx, py, tz)
+            px, py, pz = MT.pushOut(px, py, pz, e.capA[1], e.capA[2], R, tx, py, tz)
+        else
+            push(e.ax, e.ay, e.az)
+            push(e.vx, e.vy, e.vz)
+        end
         for slot, s in pairs(W) do
             if slot ~= e.a and slot ~= e.v and s.seen == FR.n and s.alive then push(s.px, s.py, s.pz) end
         end
@@ -2923,18 +3195,39 @@ local SPADE = (function()
         if sc and t - sc.at < GS.CAM_KEEP then return sc.v end
         local th = (k - 1) / GS.CAM_SECTORS * 2 * pi
         local ex, ey, ez = sin(th) * cos(el), sin(el), cos(th) * cos(el)
-        local cx = o.cx or (e.ax + e.vx) * 0.5
-        local cy = o.cy or (e.ay + e.vy) * 0.5 + 10
-        local cz = o.cz or (e.az + e.vz) * 0.5
+        local cx = o.cx or (e.focus and e.focus[1]) or (e.ax + e.vx) * 0.5
+        local cy = o.cy or (e.focus and e.focus[2]) or (e.ay + e.vy) * 0.5 + 10
+        local cz = o.cz or (e.focus and e.focus[3]) or (e.az + e.vz) * 0.5
         local px, py, pz = cx + ex * r, cy + ey * r, cz + ez * r
         local hit, why = castRay(cx, cy, cz, px, py, pz)
         if hit == nil and why == "budget" then return sc and sc.v or nil end
         local free = hit or 1
         local v = free * free
-        if segThroughWorm(px, py, pz, e.vx, e.vy + CENTRE_Y, e.vz, e.ax, e.ay, e.az) then v = v * 0.3 end
-        if segThroughWorm(px, py, pz, e.ax, e.ay + CENTRE_Y, e.az, e.vx, e.vy, e.vz) then v = v * 0.6 end
+        if e.capA and e.neck then
+            -- posed: the neck (where the blade goes) must be in sight past the attacker leaning over it
+            if MT.blocks({ px, py, pz }, e.neck, e.capA[1], e.capA[2], GS.OCCLUDE_R) then v = v * 0.4 end
+        else
+            if segThroughWorm(px, py, pz, e.vx, e.vy + CENTRE_Y, e.vz, e.ax, e.ay, e.az) then v = v * 0.3 end
+            if segThroughWorm(px, py, pz, e.ax, e.ay + CENTRE_Y, e.az, e.vx, e.vy, e.vz) then v = v * 0.6 end
+        end
         local dot = abs(sin(th) * e.dx + cos(th) * e.dz)
-        v = v * (1 - 0.35 * dot)
+        if e.capV and e.capA then
+            -- posed: the victim lies along the pair's line, so a view along it sees only its head or its tail
+            v = v * (1 - 0.75 * dot)
+            -- where the land would pull the eye in must not be inside a worm: such a sector is poor, and the orbit goes
+            -- round to another instead of pulling in past the worm
+            local pull = max(min(r, GS.CAM_FLOOR), r * free * 0.85)
+            local qx, qy, qz = cx + ex * pull, cy + ey * pull, cz + ez * pull
+            local R2 = GS.WORM_R * GS.WORM_R
+            if MT.pointSeg2(qx, qy, qz, e.capV[1], e.capV[2]) < R2 or MT.pointSeg2(qx, qy, qz, e.capA[1], e.capA[2]) < R2 then
+                v = v * 0.2
+            end
+        else
+            v = v * (1 - 0.35 * dot)
+        end
+        -- from the raise to just after the chop, a side-on view (within 25 degrees of square to the pair) counts thrice
+        local T = e.Tnow or 0
+        if T >= 4.4 and T < 6.0 and dot < 0.42 then v = v * 3 end
         e.sectors[k] = { v = v, at = t }
         return v
     end
@@ -2991,6 +3284,7 @@ local SPADE = (function()
         if not e.cam or e.camOff then return end
         local o = e.orbit
         local cx, cy, cz = (e.ax + e.vx) * 0.5, (e.ay + e.vy) * 0.5 + 10, (e.az + e.vz) * 0.5
+        if e.focus then cx, cy, cz = e.focus[1], e.focus[2], e.focus[3] end
         -- the close shots stay CAM_MIN out or more: nearer, the eye ends up in a worm's head or helmet
         local speed, r, el, fov = 0.5, 105, 0.42, 50
         if T < 1.3 then speed, r, el, fov = 0.55, 100, 0.45, 50
@@ -2999,6 +3293,8 @@ local SPADE = (function()
         elseif T < e.chop then speed, r, el, fov = 0.12, GS.CAM_MIN, 0.26, 40
         elseif T < e.chop + 0.45 then speed, r, el, fov = 0.0, GS.CAM_MIN + 4, 0.28, 42
         else speed, r, el, fov = 0.15, 74, 0.38, 46 end
+        -- the mounted pair is low on the ground: look down on it a little more
+        if e.posed and T > 1.3 then el = el * 1.3 end
         local mx, my, mz = cx, cy, cz
         local want = 0
         if T >= e.chop and e.headRef and headFollowable(e, e.headRef, mx, mz) then
@@ -3121,115 +3417,24 @@ local SPADE = (function()
                 play("swing", 0.9, e.ax, e.ay + CENTRE_Y, e.az)
             end
         else
-            -- the victim
-            local fall = ease(seg(T, 0.15, 1.15))
-            -- a beheaded victim stays down when the show ends (its body may still be drawn); one that kept its head gets up
-            local vout = e.chopped and 1 or out
-            local vrot = blendRot(e.vRot, fall * vout)
-            local vmove = -(e.vMainY - 5) * fall * vout
-            if not e.vMainFixed and e.lastVMove then
-                -- the victim's middle as drawn, less the move it was given, is its real height over the feet
-                local _, my = bone(bones(e.v), "main")
-                if my then
-                    e.vMainY = clamp(my - e.lastVMove - e.vy, 8, 30)
-                    e.vMainFixed = true
-                end
-            end
-            e.lastVMove = vmove
-            local vspec = { root = { rot = euler(vrot), move = { 0, vmove, 0 } } }
-            if T > 2.6 and T < e.chop then
-                -- pinned: it writhes, its tail beats and its hands go to the blade
-                local w = smooth(seg(T, 2.6, 3.2))
-                vspec.tail = { rot = { sin(T * 7.3) * 14 * w, sin(T * 5.1) * 18 * w, 0 } }
-                vspec.head = { rot = { 0, sin(T * 6.1) * 22 * w, sin(T * 4.3) * 8 * w } }
-            end
-            if T >= e.chop then
-                vspec.hide = { head = "stump", attachments = "hide" }
-                local k = exp(-(T - e.chop) * 0.9)
-                vspec.tail = { rot = { sin(T * 23) * 25 * k, sin(T * 17) * 20 * k, 0 } }
-            end
-            vNeckX, vNeckY, vNeckZ, chx, chy, chz = victimPoints(e)
-            if T > 3.0 and T < e.chop and e.st.gx then
-                -- the victim's hands clutch the shaft just above the blade
-                local tx, ty, tz = tipOf(e.st)
-                local gx, gy, gz = e.st.gx, e.st.gy, e.st.gz
-                local k1, k2 = 0.72, 0.62
-                local sh = sin(T * 31) * 0.5
-                vspec.leftHand = { target = { lerp(gx, tx, k1) + sh, lerp(gy, ty, k1), lerp(gz, tz, k1) } }
-                vspec.rightHand = { target = { lerp(gx, tx, k2) - sh, lerp(gy, ty, k2), lerp(gz, tz, k2) } }
-            end
-            if sv or e.preview then setPose(e.v, vspec) end
-            if T >= e.chop and not e.ending then e.vFinal = vspec end
-            -- the attacker: faces the victim's head, hops on to its belly, leans into the blade
-            local hop = ease(seg(T, 1.3, 2.6))
-            local mountY
-            mountX, mountY, mountZ = e.vx - e.dx * 3, e.vy + 7, e.vz - e.dz * 3
-            local lean = 0
-            if T < 2.6 then lean = 0
-            elseif T < 4.4 then lean = 18 * smooth(seg(T, 2.6, 3.4))
-            elseif T < e.chop - 0.15 then lean = lerp(18, 4, smooth(seg(T, 4.4, 4.9)))
-            elseif T < e.chop + 0.3 then lean = 34
-            else lean = lerp(34, 8, smooth(seg(T, e.chop + 0.3, e.chop + 1.4))) end
-            local hd = { e.dx, 0, e.dz }
-            local cl, sl = cos(lean / DEG), sin(lean / DEG)
-            local fA = { e.dx * cl, -sl, e.dz * cl }
-            local uA = { e.dx * sl, cl, e.dz * sl }
-            local rA = { cross(fA[1], fA[2], fA[3], uA[1], uA[2], uA[3]) }
-            local aRot = frameMap(e.aFrame[1], e.aFrame[2], e.aFrame[3], rA, uA, fA)
-            local turn = smooth(seg(T, 0.2, 1.0))
-            local arc = sin(hop * pi) * 14
-            local amove = { (mountX - e.ax) * hop * out, ((mountY - e.ay) * hop + arc) * out, (mountZ - e.az) * hop * out }
-            local aspec = { root = { rot = euler(blendRot(aRot, turn * out)), move = amove } }
-            -- the spade
-            local base = { e.ax + amove[1], e.ay + amove[2], e.az + amove[3] }
-            local cA = { base[1], base[2] + CENTRE_Y, base[3] }
-            if T < 1.3 then
-                readyPose(cA, hd, { e.dx, -0.25, e.dz })
-            elseif T < 2.8 then
-                -- carried across the body, blade down
-                setP(cA[1] + e.dx * 2, cA[2] + 8, cA[3] + e.dz * 2, cA[1] + e.dx * 9, cA[2] - 14, cA[3] + e.dz * 9)
-            else
-                -- the blade set on the chest, then raised for the beat, then driven through the neck into the ground
-                local dx, dy, dz = norm3(e.dx * 0.28, -1, e.dz * 0.28)
-                if T < 4.4 then
-                    local tremble = sin(T * 41) * 0.25
-                    tipAt(chx + tremble, chy + 0.5, chz, dx, dy, dz)
-                elseif T < e.chop - 0.15 then
-                    local u = ease(seg(T, 4.4, 5.0))
-                    tipAt(lerp(chx, vNeckX, u) - dx * 10 * u, lerp(chy, vNeckY, u) - dy * 10 * u, lerp(chz, vNeckZ, u) - dz * 10 * u,
-                          dx, dy, dz)
-                else
-                    local u = smooth(seg(T, e.chop - 0.15, e.chop))
-                    local sink = 4
-                    tipAt(vNeckX + dx * lerp(-10, sink, u), vNeckY + dy * lerp(-10, sink, u), vNeckZ + dz * lerp(-10, sink, u),
-                          dx, dy, dz)
-                end
-            end
-            e.st.fx, e.st.fz = e.dx, e.dz
-            if T >= e.chop - 0.15 and T < e.chop + 0.4 then
-                -- the chop is one frame's snap: no smoothing lag on the blade
-                local k = GS.FOLLOW
-                GS.FOLLOW = 90
-                follow(e.st, dt)
-                GS.FOLLOW = k
-            else
-                follow(e.st, dt)
-            end
-            local gx, gy, gz, hx, hy, hz = handPoints(e.st)
-            local ra = e.aFrame[1]
-            aspec.rightHand, aspec.leftHand = handsFor(e.a, hd, ra, gx, gy, gz, hx, hy, hz)
-            if sa or e.preview then setPose(e.a, aspec) end
+            vNeckX, vNeckY, vNeckZ, chx, chy, chz, mountX, mountZ = MT.frame(e, T, dt, t, out)
         end
         -- the beats
-        if T >= 1.0 and not e.fell and e.posed then
+        if T >= 1.15 and not e.fell and e.posed then
+            -- it hits the ground on its back: a thud and dust at its back and down its body
             e.fell = true
             play("impact_bat", 0.6, e.vx, e.vy, e.vz)
             SpadeFX.settle(e.vx, e.vy, e.vz, 18, GS.material)
-            SpadeFX.shake(1.0, 0.25)
+            SpadeFX.settle(e.vx + e.dx * 14, e.vy, e.vz + e.dz * 14, 14, GS.material)
+            SpadeFX.shake(1.2, 0.25)
         end
-        if T >= 2.55 and not e.mounted then
+        if T >= (e.posed and 2.0 or 2.55) and not e.mounted then
             e.mounted = true
             SpadeFX.settle(mountX, e.vy, mountZ, 12, GS.material)
+            if e.posed then
+                play("impact_bat", 0.45, mountX, e.vy + 6, mountZ)
+                SpadeFX.shake(0.8, 0.2)
+            end
         end
         if T >= 3.0 and not e.set and e.posed then
             e.set = true
@@ -3421,6 +3626,7 @@ local SPADE = (function()
         if GS.linger then clearPose(GS.linger.slot) end
         GS.w, GS.heads, GS.linger = {}, {}, nil
         GS.pose.swap = {}
+        GS.pose.caps, GS.pose.noClips = nil, nil
         SpadeFX.clear()
     end
 
@@ -3429,9 +3635,11 @@ local SPADE = (function()
         SpadeFX.setQuality(pre and pre.strength or 0)
     end
 
-    -- Menu: the execution on the active worm and the nearest other (no kill, no sim: it only plays here), and a dig.
-    function GS.preview(what)
+    -- Menu: the execution on the active worm and the nearest other (no kill, no sim: it only plays here), and a dig. The
+    -- event mod.kindjal.preview {what = "spade", attacker =, victim =} picks the pair (tests).
+    function GS.preview(what, pa, pv)
         local v, a = previewTarget()
+        if pa and pv and pa ~= pv and W[pa] and W[pv] then a, v = pa, pv end
         if not v or not a or v == a then return end
         if what == "dig" then
             local s = W[a]
@@ -3443,7 +3651,7 @@ local SPADE = (function()
         end
         local sa, sv = W[a], W[v]
         if GS.ex then return end
-        GS.exStart(a, v, nil, 270, 230, 520, sa.px, sa.py, sa.pz, sv.px, sv.py, sv.pz, true)
+        GS.exStart(a, v, nil, 270, 150, 520, sa.px, sa.py, sa.pz, sv.px, sv.py, sv.pz, true)
     end
 
     return GS
@@ -3601,7 +3809,7 @@ subscribe("mod.sunstone.skin", COMPAT.hearSkin)
 subscribe("mod.kindjal.preview", function(p)
     local what = type(p) == "table" and p.what
     if what == "acid" then previewAcid(p.target) elseif what == "melee" then previewMelee() elseif what == "age" then previewAge()
-    elseif what == "spade" then SPADE.preview("execution") elseif what == "dig" then SPADE.preview("dig") end
+    elseif what == "spade" then SPADE.preview("execution", tonumber(p.attacker), tonumber(p.victim)) elseif what == "dig" then SPADE.preview("dig") end
 end)
 
 wum.draw.on("world", onWorld)
