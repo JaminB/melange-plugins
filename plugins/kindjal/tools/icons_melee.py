@@ -7,7 +7,7 @@ import math
 import random
 
 from make_icons import *  # noqa: F401,F403  (primitives, Canvas, cel, stroke, palettes)
-from make_icons import (Canvas, SIZE, OUTLINE, G0, G1, G2, G3, R0, R1, R2, E0, E1, E2, E3, B0, B1, B2, B3,
+from make_icons import (_sh, Canvas, SIZE, OUTLINE, G0, G1, G2, G3, R0, R1, R2, E0, E1, E2, E3, B0, B1, B2, B3,
                         C0, C1, C2, cel, stroke, place, rot_pt, circle, ellipse, rbox, box, capsule, ring,
                         polygon, grow, shift, inter, sub, union, smooth_union)
 
@@ -469,6 +469,84 @@ def draw_gibbet_turret():
     return cv
 
 
+# ---------------------------------------------------------------- grave spade
+# grave soil
+M0, M1, M2, M3 = (0x1C, 0x12, 0x0A), (0x3A, 0x26, 0x16), (0x5E, 0x40, 0x26), (0x86, 0x62, 0x3C)
+# old iron
+I0, I1, I2, I3 = (0x16, 0x15, 0x14), (0x2E, 0x2C, 0x2A), (0x4C, 0x48, 0x44), (0x74, 0x6E, 0x66)
+SPADE_EDGE = (0xE8, 0xEA, 0xE0)
+
+
+def draw_gravespade():
+    """A gravedigger's spade: D-grip, ash shaft, riveted socket, a long tapered iron blade with a rounded point. Soil is
+    caked along the tread, the lower blade is scoured bright with a honed edge, clods fall off the point."""
+    cv = Canvas(SIZE, SIZE)
+    O, ANG, K = (132, 126), -45, 1.12
+    rng = random.Random(41)
+
+    def scaled(f):
+        def g(x, y):
+            return f(x / K, y / K) * K
+        return _sh(g, tuple(c * K for c in f.bb))
+
+    def T(f):
+        return place(scaled(f), O[0], O[1], ANG)
+
+    def P(x, y):
+        return rot_pt((x * K, y * K), O[0], O[1], ANG)
+
+    # the D-grip: two arms from a ferrule to a crossbar
+    outer = polygon([(-80, -6), (-100, -21), (-112, -24), (-112, 24), (-100, 21), (-80, 6)], 3)
+    inner = polygon([(-88, -3), (-101, -12), (-104, -13), (-104, 13), (-101, 12), (-88, 3)], 2)
+    cel(cv, T, sub(outer, inner), [W0, W1, W2], [(-1.5, -2), (-3, -4)], ow=3.0)
+    cel(cv, T, rbox(-110, 0, 6.5, 25, 4), [W0, W1, W2, W3], [(-1, -3), (-2, -6), (-3, -9)], ow=3.0)
+    cel(cv, T, rbox(-79, 0, 5, 9, 2), [I0, I1, I2, I3], [(-1, -2), (-2, -4), (-3, -6)], ow=2.8)
+    shaft = rbox(-31, 0, 47, 6.5, 4)
+    cel(cv, T, shaft, [W0, W1, W2, W3], [(0, -2.5), (0, -4.5), (0, -6)], ow=3.0)
+    for _ in range(6):  # grain
+        gx = rng.uniform(-74, 4)
+        stroke(cv, [P(gx, rng.uniform(-3, 3)), P(gx + rng.uniform(12, 24), rng.uniform(-3, 3))], 1.3, W0, 0.6, clip=T(shaft))
+    # socket with two rivets
+    cel(cv, T, polygon([(6, -8), (40, -13), (40, 13), (6, 8)], 2), [I0, I1, I2, I3], [(0, -3), (0, -6), (0, -9)], ow=3.0)
+    for rx in (14, 26):
+        cv.paint(circle(*P(rx, -1.5), 2.2), I0)
+        cv.paint(circle(*P(rx - 0.7, -2.2), 1.0), I3)
+    # the blade
+    pts = [(36, -29), (62, -30), (84, -28), (100, -23), (112, -15), (119, -6), (121, 0), (119, 6), (112, 15), (100, 23),
+           (84, 28), (62, 30), (36, 29)]
+    blade = polygon(pts, 4)
+    cel(cv, T, blade, [I0, I1, I2, I3], [(0, -7), (0, -13), (0, -19)], ow=3.4)
+    # scoured steel: the lower half and the cutting edge, long digging scratches
+    scour = inter(T(blade), T(box(76, -40, 140, 40)))
+    cv.paint(inter(scour, T(shift(blade, -2, -6))), G2, 0.9)
+    edge = sub(blade, grow(blade, -5))
+    cv.paint(inter(T(edge), T(box(60, -40, 140, 40))), SPADE_EDGE)
+    for _ in range(7):
+        y = rng.uniform(-20, 20)
+        x = rng.uniform(70, 92)
+        stroke(cv, [P(x, y), P(x + rng.uniform(16, 28), y * 0.85)], 1.3, G3, 0.85, clip=T(blade))
+    # rust where the soil does not scour
+    for rx, ry, rr in ((50, -14, 7), (58, 12, 6), (44, 4, 4)):
+        cv.paint(inter(T(ellipse(rx, ry, rr * 1.4, rr)), T(blade)), R1, 0.8)
+    # grave soil caked along the tread, a few lumps
+    smear = inter(polygon([(38, -30), (52, -27), (58, -18), (54, -8), (62, 2), (57, 12), (64, 22), (52, 30), (38, 30)], 3), blade)
+    cv.paint(T(smear), M1)
+    cv.paint(T(inter(smear, shift(smear, -1.5, -3))), M2)
+    for rx, ry, rr in ((48, -12, 6), (50, 14, 5.5), (66, -6, 3.5)):
+        cel(cv, T, inter(ellipse(rx, ry, rr * 1.3, rr), blade), [M1, M2, M3], [(-1, -1.5), (-2, -3)], ow=1.4)
+    cel(cv, T, rbox(37, 0, 4.5, 31, 2.5), [I0, I1, I2, I3], [(-1, -2), (-2, -4), (-3, -6)], ow=3.0)  # the tread
+    cv.paint(inter(T(ellipse(109, 6, 9, 5)), T(blade)), D1, 0.75)  # old blood near the point
+    # clods falling off the point
+    tip = P(99, 24)
+    for dx, dy, r in ((-2, 22, 6.5), (12, 34, 4.5), (-12, 42, 3.5), (16, 16, 3.0)):
+        x, y = tip[0] + dx, tip[1] + dy
+        cel(cv, ident, polygon([(x - r, y - r * 0.4), (x + r * 0.2, y - r), (x + r, y + r * 0.1), (x - r * 0.1, y + r)], r * 0.35),
+            [M0, M1, M2, M3], [(-1, -1.5), (-1.8, -2.6), (-2.6, -3.4)], ow=2.4)
+    fleck(cv, tip[0] - 4, tip[1] - 8, 2.2)
+    cv.shadow_under(5, 8, 3, 0.30)
+    return cv
+
+
 ICONS = [
     ("nail-bat", draw_nail_bat),
     ("hellfist", draw_hellfist),
@@ -477,4 +555,5 @@ ICONS = [
     ("slug-gun", draw_slug_gun),
     ("elephant-gun", draw_elephant_gun),
     ("gibbet-turret", draw_gibbet_turret),
+    ("gravespade", draw_gravespade),
 ]

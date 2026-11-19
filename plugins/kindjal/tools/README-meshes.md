@@ -1,10 +1,11 @@
 # Weapon meshes
 
-Kindjal ships 38 mesh banks in `mod/assets/meshes/` (`mod/spice.json` lists them under `meshes`; the weapon definitions
+Kindjal ships 39 mesh banks in `mod/assets/meshes/` (`mod/spice.json` lists them under `meshes`; the weapon definitions
 use them as `WeaponGraphicsResourceID` / `PayloadGraphicsResourceID` and the like, and `vehicleMeshes` swaps the two
 helicopters). 19 are static meshes: `make_meshes.py` builds them as glTF + texture into `meshes/` (the editable source)
 and `build_meshes.py` packs them (see "Building the banks" and "All static banks"). 19 are clones of vanilla skinned
-meshes, built by the `clones_*.py` scripts (see "Clone banks"). This page starts with the first four static meshes, the
+meshes, built by the `clones_*.py` scripts (see "Clone banks"). The 39th, `gravespade.xom`, holds two meshes (see "The Grave
+Spade"). This page starts with the first four static meshes, the
 original set.
 
 **Where the scripts find xomtool and the game.** Nothing is hard-coded. Every script that runs xomtool reads
@@ -211,6 +212,51 @@ clone banks, are ignored). xomtool accepted every material below, so no substitu
 | `stone_donkey` | `kindjal.StoneDonkey` | 492 | `Donkey` | 1390 | 129587 |
 | `plague_arrow` | `kindjal.PlagueArrow` | 493 | `Arrow` | 660 | 93389 |
 | `inflated_knifeman` | `kindjal.InflatedKnifeman` | 494 | `InflatedScouser` | 1144 | 101484 |
+
+## The Grave Spade
+
+The spade is a static held mesh like the others, in the BaseballBat's frame (it replaces the bat in the worm's hand),
+built by `meshes_held.py` (`build_gravespade`): a D-grip (crossbar along Z at y -12.2, two arms into an iron ferrule),
+an ash shaft, a riveted socket with two straps, a rolled tread at y 5.4 and a long dished iron blade with a rounded point
+to y 15.2. 1124 triangles, box -3.05 .. 3.05 x -12.83 .. 15.22 x -2.77 .. 2.77 (x +5.6%, y +8.4%, z -2.8% against the
+bat). The blade's ring centroid lies outside its crescent cross-section, so it is lofted with `loft_ordered` (winding
+by ring order, strip caps) instead of `loft`. Texture: dark old iron with rust under the tread, the lower blade scoured
+bright with long scratches and a honed edge line, grave clay caked under the tread, a little old blood toward the point.
+Two other designs (a square trench spade with a T-grip, a pointed shovel with a bone T-grip) were drawn and not kept.
+
+`gravespade_hidden` is a closed 0.04-unit tetrahedron at the origin, validated for structure only. Name it as the held
+mesh (`WeaponGraphicsResourceID = "kindjal.GraveSpadeHidden"`) while the client draws the spade itself at the posed
+wrists (`wum.render.wormBones`), so the engine's copy does not hang in the unposed hand.
+
+`build_meshes.py` puts both in **one** bank, `../mod/assets/meshes/gravespade.xom` (section 495, resource ids
+`kindjal.GraveSpade` and `kindjal.GraveSpadeHidden`): each is converted on its own with `--material-from BaseballBat`,
+then the two are joined by `merge_docs`, a Python port of Melange's `tools/erg-mcp/bench/caldera/meshes/merge.mjs`
+(over `xomtool unpack` / `pack`), so the pair costs one of the 44 mod sections. Read back with `xomtool convert
+kindjal.GraveSpade --from gravespade.xom` it gives the same 1978 vertices and the same box.
+
+It also writes the spade for the client to draw with `wum.draw.mesh`: `gravespade.mesh.txt` and `gravespade.png`. The
+mesh is text because the store accepts no binary data files (format `KJM1`, see `build_meshes.kjm_text`): a header
+line `KJM1 <floats per vertex> <vertex count> <index count>`, one line per vertex (`x y z nx ny nz u v`, plus `r g b a`
+when there are 12), then the 0-based indices three per line; v is measured down from the top row of the PNG. The
+client reads it with `wum.mod.readFile` (needs `permissions.filesystem: "own-folder"`), `string.gmatch("%S+")` and
+`tonumber`, and adds 1 to each index.
+
+### The severed head (`meshes_head.py`)
+
+`gravespade_head.mesh.txt` (12 floats per vertex, with a vertex colour that darkens the skin into a bruise toward the cut),
+`gravespade_head.png` (raw neck face, for Bloodsand on) and `gravespade_head_clean.png` (the same face dried and
+crusted with sand, no blood, for Bloodsand off), 512x256, one layout. It is the fallback for Melange 0.16's
+`wum.render.wormCopy`, which draws the worm's real head.
+
+**Derived from the game**: `xomtool clone W4.Worm --from Bundl474.xom --out-gltf` gives the worm in bind pose; the body
+shape is clipped exactly at a plane through the neck blend band (through y -1.2, tilted 14 degrees so the throat is cut
+higher than the nape), the neck loop is closed with a fan (its UVs map a painted cut: muscle, fat, skin rim, the gullet
+and windpipe at the front, a vertebra and the cord at the back), and the two eyes and the teeth are added. The atlas
+holds the worm's body texture (left half), the eye baked from its white, pupil and half-shut lid layers, the teeth and
+the neck face. xomtool's glTF has v up, so every vanilla v is flipped. Result: 593 vertices, 942 triangles; the neck
+centre is the origin, +Y up the head, the face looks along +Z, worm units (the head is 21 tall).
+
+    python meshes_head.py [--check]    needs xomtool and Bundl474.xom ($KINDJAL_GAME_DATA, or --bundl474 / $KINDJAL_BUNDL474)
 
 ## Clone banks (19)
 

@@ -25,3 +25,17 @@ regenerate; commit the PNGs together with the script. This folder (`tools/`) doe
 | `kj_glint.png` | 64x64 | Glint: four-point star with needle tips and a soft glow at the centre, for blade and spike flashes. |
 | `kj_drop.png` | 64x64 | Droplet: teardrop pointing up, brighter skin, specular dot and a dim bounce light. |
 | `kj_heart.png` | 64x64 | Heart, point down, with a solid rim and a slightly lighter body: the Buddy Bomb's launch hearts. |
+
+## Grave Spade sprites (`make_dig_sprites.py`)
+
+`make_dig_sprites.py` (stdlib Python, deterministic, `--check` like the other generator) adds the digging and execution
+sprites. The solid pieces carry grey shading in RGB so the draw-time tint keeps a lit side and grain; dust and mist are pure
+white with the shape in alpha. The Grave Spade section of `mod/client/init.lua` (`SpadeFX`) draws them.
+
+| File | Size | Use and look |
+| --- | --- | --- |
+| `kj_dirt1.png` to `kj_dirt4.png` | 64x64 | Soil clods: lumpy, shaded, with grain, crevices and embedded pebbles. Tint soil brown, sand or rock grey. |
+| `kj_dust1.png`, `kj_dust2.png` | 128x128 | Dry dust puffs: thin, ragged, grainy (not the acid smoke). |
+| `kj_stonechip.png` | 64x64 | Flaked rock shard, flat facets with lit bevels. Stone and building debris. |
+| `kj_bloodmist.png` | 128x128 | Fine droplet spray over a faint haze. White, tinted red. |
+| `kj_gore_chunk.png` | 64x64 | Wet lump of meat with fibre striations and a specular highlight. Grey, tinted deep red. |

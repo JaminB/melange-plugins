@@ -1,3 +1,28 @@
+## 1.4.0
+
+The Grave Spade, a new weapon. Needs Melange 0.16.0.
+
+- It takes the Binoculars' panel cell (41): the Binoculars are not on the panel while Kindjal is on. The Nail Bat is
+  unchanged.
+
+- A tool first: tap fire to dig a scoop along your aim, hold it to keep digging. It cuts any land or building the game
+  can destroy; water is never touched. A worm can dig itself a cave in one turn. Digging never ends the turn, and a
+  worm that falls or jumps stops digging.
+- A press with a worm in reach is a strike, and ends the turn at once.
+- The first spade strike in the match is an execution, whatever the victim's health. The camera circles the pair, the
+  victim falls on its back, the attacker climbs on top of it, sets the blade on its chest, raises the spade and takes
+  its head off, and the head rolls away while the body lies there for its throes. After that a strike does exactly
+  what the Shiv does.
+- With Bloodsand 1.6 it is the goriest thing in the game (pumping neck jets, gibs, pools, a blood trail behind the head);
+  without it the head comes off in dust and sand.
+- The worm's hands follow the spade through every scoop and strike (Melange 0.16 worm poses). New icon, model,
+  severed-head model, dirt and dust sprites, and ten sounds.
+- New setting: Grave Spade execution camera. New previews in the Lua menu.
+- Net safe: every dig, the kill and the once-a-match flag are decided in the sim; everything shown is local. The head
+  comes off only when the sim's kill does: a victim that dies first (drowned, eaten by the sands) keeps its head.
+- The execution frees only the worms it pinned and the turn hold it armed, so Sandtide's curse and tour are untouched.
+- On a map's flat height-field ground the spade digs pits and trenches; caves are dug in voxel land and buildings.
+
 ## 1.3.1
 
 - The Buddy Bomb's panel and HUD icon is now his face: a black curly labradoodle with floppy ears, big brown eyes and

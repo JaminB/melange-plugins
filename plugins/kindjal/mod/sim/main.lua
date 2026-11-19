@@ -1,4 +1,5 @@
 -- Kindjal, the sim side (Lua 5.0, the match VM; no "#", no "%"). Runs identically on every peer.
+-- Needs Melange 0.16 (spice.json range): the Grave Spade at the end uses wum.sim.melee, carve and worm:kill.
 --
 -- Everything here happens in this top-level chunk at match Init: wum.sim.weapon(name):set is only allowed then, and
 -- a value written here is the same number on every machine, so there is nothing for Wormsign to disagree on. The
@@ -97,12 +98,18 @@ STATS = {
     kWeaponAcidSpitter     = { ImpulseMagnitude = 0.28, ImpulseRadius = 110 },
     kWeaponAcidFlask       = { ImpulseMagnitude = 0.22, ImpulseRadius = 100 },
     kWeaponCrucible        = { ImpulseMagnitude = 0.62, ImpulseRadius = 185 },
+    -- The Grave Spade (a clone of the Bat on cell 41, see the end of this file). Its manifest "set" holds the Shiv's
+    -- numbers, so a strike the spade code does not see still lands as the Shiv would, its reach (Radius 20), a strike
+    -- that ends the turn at once (RetreatTimeOverride 0) and an aim open to nearly straight down and up.
+    kWeaponGraveSpade      = { ImpulseMagnitude = 0.15 },
 }
 
 -- Each re-skinned weapon's own models (assets/meshes/*.xom, declared in spice.json "meshes"): W = held,
 -- P = in flight, P2 = second payload, F = flying. Merged into STATS below, so they apply at Init like the numbers.
 MESHES = {
     kWeaponBaseballBat     = { W = "kindjal.NailBat" },
+    -- The engine's held spade is an invisible speck: the client draws the real one in the worm's (posed) hands.
+    kWeaponGraveSpade      = { W = "kindjal.GraveSpadeHidden" },
     kWeaponProd            = { W = "kindjal.Shiv" },
     kWeaponFirePunch       = { W = "kindjal.Gauntlet" },
     kWeaponNoMoreNails     = { W = "kindjal.Railspike" },
@@ -157,7 +164,7 @@ REACH     = sane(REACH, 0, 3, "REACH")
 MELEE     = sane(MELEE, 0, 3, "MELEE")
 
 local MELEE_WEAPONS = { kWeaponBaseballBat = true, kWeaponFirePunch = true, kWeaponProd = true,
-                        kWeaponNoMoreNails = true }
+                        kWeaponNoMoreNails = true, kWeaponGraveSpade = true }
 
 -- Rounded to a fixed step (0.001 for knockback, 1 unit for reach) so the number written is a plain function of the
 -- inputs, with no string formatting in between.
@@ -228,3 +235,301 @@ end)
 wum.sim.weapons.on("explosion", "kWeaponCrucible", function(event, name, tick, x, y, z)
     burst(x, y, z, 243, 2)
 end)
+
+-- ================================================================ the Grave Spade
+-- The Grave Spade is a weapon clone of the Bat (spice.json "weapons", cell 41), a tool first; the Nail Bat is untouched.
+-- Melange 0.16's wum.sim.melee gate takes the fire button: a press with no worm in the swing is swallowed (no swing, no
+-- ammo, no Weapon.Fired, the turn goes on) and digs instead; a press with a worm in the swing is the engine's own swing,
+-- which ends the turn. So:
+--   tap   one scoop along the aim: a short carveLine from the worm's middle out to SPADE.REACH;
+--   hold  another scoop every SPADE.STROKE ticks for as long as fire is held. A scoop that finds nothing left to take,
+--         or the SPADE.SAME-th along one line, reaches SPADE.STEP further (up to SPADE.MAX), so holding still keeps
+--         digging forward into the face. Walk into the hole and hold again to go deeper.
+-- Voxel land and buildings open into a cave. The heightmap ground some maps stand on is a height field: the engine can
+-- only lower it, so there the spade digs a pit or a trench (aim down to go deeper), never a roof over the worm.
+-- A held dig that reaches a worm stays a dig (the gate decides at the press): a strike is always a fresh press.
+-- A carve never touches water (the sea is a plane, not voxels): dig below the waterline and it is open sea, and a worm that
+-- walks in drowns as usual.
+--
+-- The first spade hit on a worm in the whole match is an execution: the hit is cancelled in the hit handler (nothing that
+-- calls the engine is allowed there), and from the next tick the sim holds the next turn start, pins both worms, tells the
+-- clients (Kindjal.Spade "x,...") and kills the victim SPADE.CHOP ticks later through the engine's own death (no
+-- explosion; the gravestone stays). The clients play the cinematic over that fixed timeline; everything they draw is
+-- theirs alone. After the execution a spade hit does exactly what the Shiv does: its damage and knockback, read from the
+-- Shiv's container once every mod's top-level chunk has run (so Kindjal Heavy's or Brutal's Shiv is the one copied).
+--
+-- All state is in wum.sim.storage.spade (hashed by Wormsign every tick the script runs). Times are sim ticks (50 a
+-- second), the same on every machine; nothing here reads a clock, a random number or anything a machine keeps alone.
+SPADE = {
+    WEAPON = "kWeaponGraveSpade",
+    CENTRE = 12,        -- the worm's middle above its feet
+    NEAR = 8,           -- a scoop starts this far out along the aim
+    REACH = 36,         -- and reaches this far at first
+    STEP = 16,          -- a scoop that took nothing reaches this much further next time
+    SAME = 3,           -- and so does the scoop after SAME scoops along one line, whatever they took
+    MAX = 84,           -- the furthest a scoop reaches (8 spheres at RADIUS / 2 spacing)
+    RADIUS = 22,        -- each sphere's radius: a worm's height across, two thirds of a voxel
+    STROKE = 18,        -- ticks between scoops while fire is held (0.36 s; 83 in a 30 s turn, inside the 900-sphere budget)
+    HOLD = 800,         -- the turn-start hold armed for the execution (released at END)
+    CHOP = 270,         -- ticks after the execution starts: the blade comes down
+    -- The victim's throes after the chop: its body is drawn this long (3 s), lying where the clients laid it, with its
+    -- neck cut to a stump, and their copy of its head (wum.render.wormCopy) is drawn from it while it flies. A constant:
+    -- no client choice reaches the sim. A client without poses hides the upright body under the chop's burst.
+    THROES = 150,
+    END = 520,          -- the cinematic is over: pins released, the next turn may start
+    CONFIRM = 30,       -- a kill not confirmed by then (the victim still alive) aborts the execution
+    SHIV_D = 10,        -- the Shiv's numbers if its container cannot be read (Kindjal's own)
+    SHIV_I = 0.15,
+}
+
+local STORE = wum.sim.storage
+STORE.spade = STORE.spade or {}
+local G = STORE.spade         -- exec: true once the match's execution is used; ex: the running one; dig: the held dig
+local digTimer = nil
+
+local function spadeSend(text)
+    local ok, why = wum.sim.sendString("Kindjal.Spade", text)
+    if not ok then wum.log.warn("kindjal: Kindjal.Spade not sent:", why) end
+end
+
+-- The Shiv's live numbers, read one tick in (after every mod's chunk set its own).
+local function readShiv()
+    local d, i = SPADE.SHIV_D, round(SPADE.SHIV_I * KNOCKBACK * MELEE, 1000)
+    local ok, w = pcall(wum.sim.weapon, "kWeaponProd")
+    if ok and w then
+        local okD, vd = pcall(w.get, w, "WormDamageMagnitude")
+        local okI, vi = pcall(w.get, w, "ImpulseMagnitude")
+        if okD and type(vd) == "number" then d = vd end
+        if okI and type(vi) == "number" then i = round(vi, 1000) end
+    end
+    G.shivD, G.shivI = d, i
+end
+
+-- One scoop by the worm in `slot` along its aim; tells the clients where it dug and how much it took.
+local function scoop(slot, tick)
+    local w = wum.sim.worm(slot)
+    if not w or not w:alive() then return end
+    -- Only a worm standing on something digs (state 0). A worm that slides, jumps, flies or falls (a scoop can cut the
+    -- ground from under it) takes nothing, and its held dig does not reach further in mid-air.
+    if w:state() ~= 0 then return "airborne" end
+    local x, y, z = w:pos()
+    local pitch, yaw, dx, dy, dz = w:aim()
+    if not dx then return end
+    local d = G.dig
+    if d and d.slot ~= slot then d = nil end
+    local reach = (d and d.reach) or SPADE.REACH
+    local cy = y + SPADE.CENTRE
+    local x0, y0, z0 = x + dx * SPADE.NEAR, cy + dy * SPADE.NEAR, z + dz * SPADE.NEAR
+    local x1, y1, z1 = x + dx * reach, cy + dy * reach, z + dz * reach
+    local removed, n = wum.sim.carveLine(x0, y0, z0, x1, y1, z1, SPADE.RADIUS)
+    local took = -1
+    if removed == nil then
+        if n ~= "budget" then wum.log.warn("kindjal: spade carve refused:", n) end
+    else
+        took = removed
+        if d then
+            -- Reach further once this line is dug out: a scoop that took nothing, or SPADE.SAME scoops along the same line
+            -- (a voxel whose centre sits just outside every sphere, or a heightmap pit still settling, keeps answering a
+            -- little; Melange counts only what really went, so a 0 is reliable, but a held dig must still move on).
+            d.same = (d.same or 0) + 1
+            if removed == 0 or d.same >= SPADE.SAME then
+                d.reach = reach + SPADE.STEP
+                if d.reach > SPADE.MAX then d.reach = SPADE.MAX end
+                d.same = 0
+            end
+            d.n = d.n + 1
+        end
+    end
+    -- d,slot,tick,x0,y0,z0,x1,y1,z1,removed (-1: refused, the turn's carve budget is spent)
+    spadeSend(string.format("d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%d", slot, tick, x0, y0, z0, x1, y1, z1, took))
+end
+
+local function digStop()
+    if digTimer then wum.sim.cancel(digTimer) end
+    digTimer = nil
+    G.dig = nil
+end
+
+local function digTick()
+    local d = G.dig
+    if not d then return digStop() end
+    if wum.sim.melee.held(SPADE.WEAPON) ~= d.slot then return digStop() end
+    local w = wum.sim.worm(d.slot)
+    local st = w and w:state()
+    -- jump (1) or flying (2): the dig is over (fire must be pressed again on the ground); a slide (3) only pauses it
+    if st == 1 or st == 2 or st == 7 or st == 8 then
+        spadeSend(string.format("r,%d,%d,%d", d.slot, wum.sim.tick(), d.n))
+        return digStop()
+    end
+    scoop(d.slot, wum.sim.tick())
+end
+
+-- ---------------------------------------------------------------- the execution
+-- The turn-start hold and the anchors are shared with every other sim mod (Sandtide anchors its cursed worms and arms
+-- its own hold at the turn end, which may be the execution's turn end). So the execution frees only what is still its
+-- own: the worms it pinned itself (not ones already anchored), and the hold only while it is the one it armed (e.hold:
+-- armed, then deferred at e.hold.since for SPADE.HOLD ticks). A hold another mod re-armed or set is left to run.
+local function unpinOwn(e)
+    for slot in pairs(e.pins or {}) do
+        local w = wum.sim.worm(slot)
+        if w and w:anchored() then w:anchor(false) end
+    end
+    e.pins = nil
+end
+
+local function holdIsOwn(e)
+    local h = e.hold
+    if not h or not wum.sim.turnHold then return false end
+    local left, armed = wum.sim.turnHold()
+    if not h.since then return left == 0 and armed == SPADE.HOLD end
+    local want = SPADE.HOLD - (wum.sim.tick() - h.since)
+    return armed == 0 and left > 0 and math.abs(left - want) <= 2
+end
+
+local function releaseOwn(e)
+    unpinOwn(e)
+    if holdIsOwn(e) then
+        wum.sim.releaseTurn()
+    elseif e.hold then
+        wum.log.info("kindjal: the turn-start hold is another mod's now; left to run")
+    end
+    e.hold = nil
+end
+
+local function exAbort(why)
+    local e = G.ex
+    if not e then return end
+    wum.log.info("kindjal: execution aborted:", why)
+    releaseOwn(e)
+    spadeSend(string.format("a,%d,%d,%d", e.a, e.v, wum.sim.tick()))
+    G.ex = nil
+    if not e.chopped then G.exec = nil end       -- nobody lost a head: the next strike may still execute
+end
+
+-- Each execution carries an id; its timers carry it too, so a timer left over from an aborted execution
+-- (exAbort releases the turn before its exChop/exFinish are due) never acts on the next one.
+local function current(id)
+    local e = G.ex
+    if e and e.id == id then return e end
+    return nil
+end
+
+local function exFinish(id)
+    local e = current(id)
+    if not e then return end
+    releaseOwn(e)
+    spadeSend(string.format("e,%d,%d,%d", e.a, e.v, wum.sim.tick()))
+    G.ex = nil
+end
+
+local function exConfirm(id)
+    local e = current(id)
+    if not e then return end
+    local w = wum.sim.worm(e.v)
+    if w and w:alive() then exAbort("the kill was not confirmed") end
+end
+
+local function exChop(id)
+    local e = current(id)
+    if not e then return end
+    local w = wum.sim.worm(e.v)
+    if not w or not w:alive() then return exAbort("the victim died first") end
+    local ok, why = w:kill({ explode = false, grave = true, throes = SPADE.THROES })
+    if not ok then return exAbort(why) end
+    e.chopped = true
+    spadeSend(string.format("c,%d,%d,%d", e.a, e.v, wum.sim.tick()))
+    wum.sim.after(SPADE.CONFIRM, function() exConfirm(id) end)
+end
+
+-- Pins a worm that stands (state 0) or lies still (6); a worm in the air stays free (a pin in mid-air would hold it there).
+-- A worm already anchored (another mod's pin) is left as it is, and not recorded as the execution's.
+local function pinIfStill(e, slot)
+    local w = wum.sim.worm(slot)
+    if not w or not w:alive() or w:anchored() then return end
+    local st = w:state()
+    if (st == 0 or st == 6) and w:anchor(true) then
+        e.pins = e.pins or {}
+        e.pins[slot] = true
+    end
+end
+
+local function exStart(id)
+    local e = current(id)
+    if not e then return end
+    local v = wum.sim.worm(e.v)
+    local a = wum.sim.worm(e.a)
+    if not v or not a or not v:alive() or v:state() == 8 then return exAbort("the victim is gone") end
+    local t0 = wum.sim.tick()
+    e.t0 = t0
+    local ok, why = wum.sim.holdTurn(SPADE.HOLD)
+    if ok then e.hold = {} else wum.log.warn("kindjal: execution hold refused:", why) end
+    pinIfStill(e, e.a)
+    pinIfStill(e, e.v)
+    local ax, ay, az = a:pos()
+    local vx, vy, vz = v:pos()
+    -- x,attacker,victim,t0,chop,throes,end,ax,ay,az,vx,vy,vz
+    spadeSend(string.format("x,%d,%d,%d,%d,%d,%d,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f", e.a, e.v, t0, SPADE.CHOP, SPADE.THROES,
+        SPADE.END, ax, ay, az, vx, vy, vz))
+    wum.sim.after(SPADE.CHOP, function() exChop(id) end)
+    wum.sim.after(SPADE.END, function() exFinish(id) end)
+end
+
+-- ---------------------------------------------------------------- the claim and the events
+local melee = wum.sim.melee
+if not (melee and wum.sim.carveLine and wum.sim.holdTurn) then
+    wum.log.warn("kindjal: this Melange has no wum.sim.melee/carveLine: the Grave Spade is a plain Shiv-strength swing")
+else
+    local okClaim, whyClaim = melee.claim(SPADE.WEAPON, { dig = true, mode = "auto" })
+    if not okClaim then
+        wum.log.warn("kindjal: the Grave Spade could not claim", SPADE.WEAPON, whyClaim)
+    else
+        wum.sim.after(1, readShiv)
+
+        melee.on("press", SPADE.WEAPON, function(ev, w, tick, slot, mode)
+            if mode == "dig" then
+                digStop()
+                G.dig = { slot = slot, reach = SPADE.REACH, n = 0 }
+                scoop(slot, tick)
+                digTimer = wum.sim.every(SPADE.STROKE, digTick)
+            else
+                spadeSend(string.format("w,%d,%d", slot, tick))          -- a swing: the clients start the strike
+            end
+        end)
+
+        melee.on("release", SPADE.WEAPON, function(ev, w, tick, slot, heldTicks, mode)
+            local d = G.dig
+            if d and d.slot == slot then
+                spadeSend(string.format("r,%d,%d,%d", slot, tick, d.n))
+                digStop()
+            end
+        end)
+
+        -- Inside the engine's strike: decide only (result), and do the rest from the next tick.
+        melee.on("hit", SPADE.WEAPON, function(ev, w, tick, attacker, victim, x, y, z, damage, impulse)
+            local vw = wum.sim.worm(victim)
+            if not G.exec and not G.ex and attacker ~= victim and vw and vw:alive() and vw:state() ~= 8 then
+                G.exec = true
+                G.exN = (G.exN or 0) + 1
+                local id = G.exN
+                G.ex = { id = id, a = attacker, v = victim, hit = tick }
+                melee.result({ cancel = true })
+                wum.sim.after(1, function() exStart(id) end)
+                return
+            end
+            -- level: the Bat's knockback follows its aim, so a Shiv-sized impulse aimed up lofted the victim into the sea;
+            -- along the ground it is the Shiv's shove (Melange 0.16 drops the vertical part for this hit)
+            melee.result({ damage = G.shivD or SPADE.SHIV_D, impulse = G.shivI or SPADE.SHIV_I, level = true })
+            wum.sim.after(1, function() spadeSend(string.format("h,%d,%d,%d", attacker, victim, tick)) end)
+        end)
+
+        -- A new turn: whatever dig was held is over (the release normally said so already).
+        wum.events.on("sim.turnStarted", function() digStop() end)
+        -- The turn start is deferred: the execution's own hold only when it is still SPADE.HOLD long (another mod's
+        -- turn-end hold replaces it)
+        wum.events.on("sim.turnHold", function(name, ticks)
+            local e = G.ex
+            if not (e and e.hold) or e.hold.since then return end
+            if ticks == SPADE.HOLD then e.hold.since = wum.sim.tick() else e.hold = nil end
+        end)
+    end
+end

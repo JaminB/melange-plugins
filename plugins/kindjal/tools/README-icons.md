@@ -18,3 +18,8 @@ The style follows the vanilla HUD icons: thin near-black outline, three-tone cel
 pose that fills the frame, a faint soft shadow; the palette is darker and grittier. Shapes are signed-distance functions
 with 1px anti-aliased coverage. Palette constants sit at the top of the script. The art is original and drawn by code;
 nothing is copied from the game. Edit the geometry or colours there and regenerate; commit the images with the script.
+
+The Grave Spade's icon (`draw_gravespade` in `icons_melee.py`; `../mod/assets/icons/gravespade.png` and
+`../mod/assets/loose/kindjal.gravespade.hud.tga`, registered for `kWeaponBaseballBat` in `spice.json`) is a
+gravedigger's spade on the same diagonal as the shiv: D-grip, ash shaft, riveted socket, a dark iron blade scoured
+bright toward the point with a honed edge, grave soil caked under the tread and clods falling off the point.

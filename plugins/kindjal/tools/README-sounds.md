@@ -1,6 +1,6 @@
 # Kindjal sounds
 
-`make_sounds.py` synthesises every sound effect into `../mod/sounds/` (15 WAVs, PCM16 mono 44.1 kHz, about 1.3 MB in
+`make_sounds.py` synthesises every sound effect into `../mod/sounds/` (25 WAVs, PCM16 mono 44.1 kHz, about 2.2 MB in
 total, each under 300 KB). It is stdlib-only Python 3 (the `wave` module, no numpy) and deterministic: every random
 source is a seeded `random.Random`, so re-running gives identical bytes.
 
@@ -42,3 +42,18 @@ the owner to audition. Every recipe has gain and tuning constants in one place, 
 
 The boom family shares one recipe (`boom()`), so small, medium and large differ only in pitch range, decay times, debris
 count and reflections; that keeps them recognisably one family at three sizes.
+
+## Grave Spade sounds
+
+Mastered like Sandtide's: one-shots peak at -6 dBFS (not -1), the loop sits at -24 dBFS RMS. Same synthesis blocks as above.
+
+| File | Length | What it is |
+|---|---|---|
+| `kj_dig_scoop1.wav` / `2` / `3` | 0.28 / 0.32 / 0.24 s | Wet earth crunch in three variants (medium, deeper and wetter, drier and grittier): soft thump, dirt body, grain crunch, squelch. |
+| `kj_dig_stone.wav` | 0.5 s | Spade on stone: gritty rising scrape, hard tick, scattered grains, short iron ring. |
+| `kj_dig_loop.wav` | 2.0 s | Loop, -24 dBFS RMS. Four rhythmic dig strokes (scrape, thud, crunch, toss), crossfaded so the loop point is seamless; play with `loop=true`. |
+| `kj_spade_ring.wav` | 1.4 s | Blade ring: detuned iron partials that beat. |
+| `kj_chop.wav` | 0.7 s | The decapitation: heavy wet thud, bone and meat grains, bubbles, iron ring behind it. |
+| `kj_neck_spurt.wav` | 1.6 s | Wet arterial hiss, pulsing about 2.8 per second and slowing, with bubbles. |
+| `kj_head_roll.wav` | 1.2 s | Soft tumbling thuds with shrinking gaps, each duller and quieter. |
+| `kj_exec_sting.wav` | 2.0 s | Low ominous hit: sub boom to 28 Hz, detuned drone, noise swell, dull iron chord. |

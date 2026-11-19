@@ -1,3 +1,17 @@
+## 1.6.0
+
+Gore for Kindjal 1.4's Grave Spade execution, the heaviest in the game.
+
+- When the spade takes a head, the death burst comes from the neck at the chop (not when the game first counts the
+  worm dead), with a second spray, the gibs and a lens splatter. The stump then pumps arterial jets in time with a
+  slowing, weakening heartbeat (7, 9 or 12 s by the Blood setting) and dribbles between the beats.
+- Pools under the neck and the grave, and a wider one once the stump has pumped a while; drops and splats behind the
+  rolling head, and a pool where it stops.
+- Bloodsand now says whether its gore is on (the mod event `mod.bloodsand.state`), so Kindjal leaves the blood to it, or
+  draws dust and sand when Blood is off.
+- A victim that dies before the chop (the execution is called off) still gets its death burst.
+- Nothing changes without Kindjal 1.4. With Blood off, Bloodsand ignores the execution.
+
 ## 1.5.0
 
 Three gore fixes and additions.
