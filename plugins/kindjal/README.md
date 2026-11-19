@@ -199,7 +199,7 @@ All of this is client-side and off by a setting; none of it touches the simulati
   synthesised by `tools/make_sounds.py`, played through Melange's `wum.audio` on top of the game's own sounds with
   distance attenuation from the camera.
 - **Icons.** Every renamed weapon has its own panel icon and HUD icon in the game's cel style, drawn by
-  `tools/make_icons.py` and its group modules (`tools/icons_*.py`): a gravedigger's spade, a flaming fist, a shiv, a railspike,
+  `tools/make_icons.py` and its group modules (`tools/icons_*.py`): a nail bat, a gravedigger's spade, a flaming fist, a shiv, a railspike,
   a black rocket, a pipe bomb, a powder keg, a profane orb, black bananas, a nail-studded cluster, a bear trap, a
   harpoon, a bomber, a falling carcass, a cracked stone donkey, a black labradoodle's face with dynamite under his collar, a ram in a
   gas mask, a hooded crone with

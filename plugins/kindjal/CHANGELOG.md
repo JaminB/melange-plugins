@@ -18,7 +18,9 @@ The Grave Spade, a new weapon. Needs Melange 0.16.0.
 - The worm's hands follow the spade through every scoop and strike (Melange 0.16 worm poses). New icon, model,
   severed-head model, dirt and dust sprites, and ten sounds.
 - New setting: Grave Spade execution camera. New previews in the Lua menu.
-- Net safe: every dig, the kill and the once-a-match flag are decided in the sim; everything shown is local.
+- Net safe: every dig, the kill and the once-a-match flag are decided in the sim; everything shown is local. The head
+  comes off only when the sim's kill does: a victim that dies first (drowned, eaten by the sands) keeps its head.
+- The execution frees only the worms it pinned and the turn hold it armed, so Sandtide's curse and tour are untouched.
 - On a map's flat height-field ground the spade digs pits and trenches; caves are dug in voxel land and buildings.
 
 ## 1.3.1

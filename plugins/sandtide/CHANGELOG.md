@@ -1,3 +1,9 @@
+## 1.0.2
+
+- A cursed worm stays cursed even when another mod frees it. Kindjal 1.4's Grave Spade execution pins both worms and
+  frees them at its end; on the turn end where the curse struck, that freed a cursed worm too. Every alive cursed worm
+  is now anchored again at each turn start.
+
 ## 1.0.1
 
 Fixes the false "desync at tick 9004" that Wormsign reported against one player at 3:00 in every online Sandworms match.

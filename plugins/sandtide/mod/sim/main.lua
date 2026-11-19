@@ -300,9 +300,17 @@ wum.events.on("GameLogic.Turn.Ended", function()
     if S.phase == 1 then strike() end
 end)
 
--- Late or reloaded clients pick the state up at the next turn start.
+-- Late or reloaded clients pick the state up at the next turn start. The curse is for the rest of the match, and an
+-- anchor has no owner: another mod that pinned a cursed worm for its own reasons (Kindjal's execution, on the very turn
+-- end of the curse) and freed it afterwards freed the curse too. So every alive cursed worm is anchored again here.
 wum.events.on("sim.turnStarted", function()
     if not sandworms() then return end
+    if S.phase == 2 then
+        for i = 1, table.getn(S.cursed) do
+            local w = wum.sim.worm(S.cursed[i])
+            if w and w:alive() and not w:anchored() then w:anchor(true) end
+        end
+    end
     sendLine()
     if S.phase == 2 then sendCurse() end
 end)

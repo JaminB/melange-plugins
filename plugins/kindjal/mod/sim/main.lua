@@ -365,18 +365,42 @@ local function digTick()
 end
 
 -- ---------------------------------------------------------------- the execution
-local function unpin(slot)
-    local w = wum.sim.worm(slot)
-    if w and w:anchored() then w:anchor(false) end
+-- The turn-start hold and the anchors are shared with every other sim mod (Sandtide anchors its cursed worms and arms
+-- its own hold at the turn end, which may be the execution's turn end). So the execution frees only what is still its
+-- own: the worms it pinned itself (not ones already anchored), and the hold only while it is the one it armed (e.hold:
+-- armed, then deferred at e.hold.since for SPADE.HOLD ticks). A hold another mod re-armed or set is left to run.
+local function unpinOwn(e)
+    for slot in pairs(e.pins or {}) do
+        local w = wum.sim.worm(slot)
+        if w and w:anchored() then w:anchor(false) end
+    end
+    e.pins = nil
+end
+
+local function holdIsOwn(e)
+    local h = e.hold
+    if not h or not wum.sim.turnHold then return false end
+    local left, armed = wum.sim.turnHold()
+    if not h.since then return left == 0 and armed == SPADE.HOLD end
+    local want = SPADE.HOLD - (wum.sim.tick() - h.since)
+    return armed == 0 and left > 0 and math.abs(left - want) <= 2
+end
+
+local function releaseOwn(e)
+    unpinOwn(e)
+    if holdIsOwn(e) then
+        wum.sim.releaseTurn()
+    elseif e.hold then
+        wum.log.info("kindjal: the turn-start hold is another mod's now; left to run")
+    end
+    e.hold = nil
 end
 
 local function exAbort(why)
     local e = G.ex
     if not e then return end
     wum.log.info("kindjal: execution aborted:", why)
-    unpin(e.a)
-    unpin(e.v)
-    wum.sim.releaseTurn()
+    releaseOwn(e)
     spadeSend(string.format("a,%d,%d,%d", e.a, e.v, wum.sim.tick()))
     G.ex = nil
     if not e.chopped then G.exec = nil end       -- nobody lost a head: the next strike may still execute
@@ -393,9 +417,7 @@ end
 local function exFinish(id)
     local e = current(id)
     if not e then return end
-    unpin(e.a)
-    unpin(e.v)
-    wum.sim.releaseTurn()
+    releaseOwn(e)
     spadeSend(string.format("e,%d,%d,%d", e.a, e.v, wum.sim.tick()))
     G.ex = nil
 end
@@ -420,11 +442,15 @@ local function exChop(id)
 end
 
 -- Pins a worm that stands (state 0) or lies still (6); a worm in the air stays free (a pin in mid-air would hold it there).
-local function pinIfStill(slot)
+-- A worm already anchored (another mod's pin) is left as it is, and not recorded as the execution's.
+local function pinIfStill(e, slot)
     local w = wum.sim.worm(slot)
-    if not w or not w:alive() then return end
+    if not w or not w:alive() or w:anchored() then return end
     local st = w:state()
-    if st == 0 or st == 6 then w:anchor(true) end
+    if (st == 0 or st == 6) and w:anchor(true) then
+        e.pins = e.pins or {}
+        e.pins[slot] = true
+    end
 end
 
 local function exStart(id)
@@ -436,9 +462,9 @@ local function exStart(id)
     local t0 = wum.sim.tick()
     e.t0 = t0
     local ok, why = wum.sim.holdTurn(SPADE.HOLD)
-    if not ok then wum.log.warn("kindjal: execution hold refused:", why) end
-    pinIfStill(e.a)
-    pinIfStill(e.v)
+    if ok then e.hold = {} else wum.log.warn("kindjal: execution hold refused:", why) end
+    pinIfStill(e, e.a)
+    pinIfStill(e, e.v)
     local ax, ay, az = a:pos()
     local vx, vy, vz = v:pos()
     -- x,attacker,victim,t0,chop,throes,end,ax,ay,az,vx,vy,vz
@@ -498,5 +524,12 @@ else
 
         -- A new turn: whatever dig was held is over (the release normally said so already).
         wum.events.on("sim.turnStarted", function() digStop() end)
+        -- The turn start is deferred: the execution's own hold only when it is still SPADE.HOLD long (another mod's
+        -- turn-end hold replaces it)
+        wum.events.on("sim.turnHold", function(name, ticks)
+            local e = G.ex
+            if not (e and e.hold) or e.hold.since then return end
+            if ticks == SPADE.HOLD then e.hold.since = wum.sim.tick() else e.hold = nil end
+        end)
     end
 end

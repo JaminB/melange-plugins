@@ -5906,7 +5906,8 @@ wum.timers.every(2, GIBS.checkFx)
 --                                       instead of the neck: the body went down or away at the chop
 --   head      {slot, x, y, z, impact}   the rolling head: drops behind it, and a splat where it bounces
 --   headRest  {slot, x, y, z}           a pool where it comes to rest
---   end / abort {slot}                  over (abort: nothing was cut, the worm is an ordinary worm again)
+--   end / abort {slot[, chopped]}       over (abort: nothing was cut, or with chopped the cut was taken back: the
+--                                       worm is an ordinary worm again; a death it deferred bursts now)
 -- It also says whether its gore is on, as mod.bloodsand.state {on, amount, gibs, pools, stains} every two seconds, so
 -- Kindjal knows to leave the blood to it (with Blood off it draws dust and sand instead).
 -- Built inside a function of its own: the main chunk is near Lua's limit of locals.
@@ -5939,9 +5940,18 @@ local function build()
         if s then s.exec = now + num(p, "chopIn", 6) + 4 end
     end
 
+    -- A death deferred for the chop (execPending) is kept: with s.exec cleared, decapTick bursts it on the next frame.
+    -- {chopped = true}: the sim took the kill back after the chop, so the worm lives and its stump is forgotten.
     function MEL.execAbort(p)
-        local s = slotOf(p)
-        if s then s.exec, s.execPending = nil, nil end
+        local s, slot = slotOf(p)
+        if not s then return end
+        s.exec = nil
+        if p.chopped and s.decap then
+            s.decap, s.dead = nil, false
+            for i = #STUMPS, 1, -1 do
+                if STUMPS[i].slot == slot then table.remove(STUMPS, i) end
+            end
+        end
     end
 
     function MEL.execChop(p)
@@ -5970,7 +5980,7 @@ local function build()
         local jx, jy, jz = dx / l * 0.8, dy / l * 0.8 + 0.55, dz / l * 0.8
         l = sqrt(jx * jx + jy * jy + jz * jz)
         local sx, sy, sz = num(p, "sx", x), num(p, "sy", y), num(p, "sz", z)
-        STUMPS[#STUMPS + 1] = { x = sx, y = sy, z = sz, dx = jx / l, dy = jy / l, dz = jz / l, t0 = now, nextAt = now + 0.08,
+        STUMPS[#STUMPS + 1] = { slot = slot, x = sx, y = sy, z = sz, dx = jx / l, dy = jy / l, dz = jz / l, t0 = now, nextAt = now + 0.08,
                                 pStart = 0, pEnd = 0, str = 1, acc = 0, bacc = 0, dacc = 0, pooled = false }
     end
 

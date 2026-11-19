@@ -2786,7 +2786,8 @@ local SPADE = (function()
         local chop = e.chop
         local hv = math.atan(-e.dx, -e.dz)          -- the victim faces its killer
         local ha = math.atan(e.dx, e.dz)            -- the attacker faces the victim's head
-        local vout = e.chopped and 1 or out          -- a beheaded victim stays down
+        local cut = e.chopped and not e.aborted
+        local vout = cut and 1 or out                -- a beheaded victim stays down
         -- ---------------------------------------------------------------- the victim
         local fall = seg(T, 0.3, 1.15)
         local vPitch = -90 * fall * fall
@@ -2828,7 +2829,7 @@ local SPADE = (function()
         -- runs back along the ground, which on its back would point at the sky
         sl.TailAngle = 1 - smooth(fall) * vout
         vspec.clips, vspec.sliders = clips, sl
-        if T >= chop then vspec.hide = { head = "stump", attachments = "hide" } end
+        if cut then vspec.hide = { head = "stump", attachments = "hide" } end
         if T > 2.2 and T < 4.4 and e.st.gx then
             -- its hands go to the shaft above the blade and shake there
             local tx, ty, tz = tipOf(e.st)
@@ -2838,7 +2839,7 @@ local SPADE = (function()
             vspec.rightHand = { target = { lerp(tx, gx, 0.5) - sh, lerp(ty, gy, 0.5), lerp(tz, gz, 0.5) } }
         end
         if W[e.v] or e.preview then setPose(e.v, vspec) end
-        if T >= chop and not e.ending then e.vFinal = { body = vspec.body, hide = vspec.hide, sliders = { TailAngle = 0 } } end
+        if cut and not e.ending then e.vFinal = { body = vspec.body, hide = vspec.hide, sliders = { TailAngle = 0 } } end
         -- ---------------------------------------------------------------- the attacker
         local M = { e.vx - e.dx * MT.BACK, e.vy + MT.UP, e.vz - e.dz * MT.BACK }
         local on, off = ease(seg(T, 1.25, 2.0)), ease(seg(T, 8.4, 9.6))
@@ -3035,7 +3036,16 @@ local SPADE = (function()
         if not e or e.ending then return end
         e.ending = os.clock()
         e.endFrom = e.T or 0
-        if abort and not e.chopped and not e.preview then emitExec({ phase = "abort", slot = e.v }) end
+        if abort and not e.preview then
+            if not e.chopped then
+                emitExec({ phase = "abort", slot = e.v })
+            elseif e.aborted then
+                -- the sim took the kill back after the chop: the worm lives, so its head is back on and Bloodsand
+                -- forgets the stump
+                if e.headRef then e.headRef.dead = true end
+                emitExec({ phase = "abort", slot = e.v, chopped = true })
+            end
+        end
     end
 
     -- The victim's posed points: the neck (the head bone) and the chest, from its bones as drawn, or from the lying frame.
@@ -3728,7 +3738,9 @@ local SPADE = (function()
             e.set = true
             play("spade_ring", 0.45, chx, chy, chz)
         end
-        if T >= e.chop and not e.chopped then
+        -- the chop waits for the sim's kill ("c"): an execution the sim aborted (the victim died first, the kill was
+        -- refused) never takes a head
+        if T >= e.chop and not e.chopped and not e.ending and (e.killed or e.preview) then
             e.chopped = true
             play("chop", 1.0, vNeckX, vNeckY, vNeckZ)
             SpadeFX.shake(4.5, 0.6)
@@ -3749,7 +3761,7 @@ local SPADE = (function()
             end
             e.banner = t
         end
-        if e.gore == "own" and e.chopped and T < e.chop + 6 and S.preset then
+        if e.gore == "own" and e.chopped and not e.aborted and T < e.chop + 6 and S.preset then
             -- an older Bloodsand cannot take the beats: a pulse of mist and drops from the stump, twice a second
             if not e.pulseAt or t - e.pulseAt > 0.55 then
                 e.pulseAt = t
@@ -3766,9 +3778,9 @@ local SPADE = (function()
             if e.camSet then pcall(wum.render.cameraOverride, nil) end
             clearPose(e.a)
             clearPose(e.v)
-            if e.chopped and not e.preview then emitExec({ phase = "end", slot = e.v }) end
+            if e.chopped and not e.aborted and not e.preview then emitExec({ phase = "end", slot = e.v }) end
             -- a body still drawn (its throes outlast the show) keeps its stump and stays down until it is gone
-            if e.chopped and e.vFinal then GS.linger = { slot = e.v, spec = e.vFinal, untilT = t + 6, seen = t } end
+            if e.chopped and not e.aborted and e.vFinal then GS.linger = { slot = e.v, spec = e.vFinal, untilT = t + 6, seen = t } end
             GS.ex = nil
         end
     end
@@ -3895,7 +3907,10 @@ local SPADE = (function()
         elseif kind == "x" and n >= 12 then
             if GS.ex then GS.exEnd(true) GS.ex = nil end
             GS.exStart(v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], false)
+        elseif kind == "c" and n >= 2 then
+            if GS.ex and GS.ex.v == v[2] then GS.ex.killed = true end
         elseif kind == "a" then
+            if GS.ex and GS.ex.chopped then GS.ex.aborted = true end
             GS.exEnd(true)
         elseif kind == "e" then
             GS.exEnd(false)

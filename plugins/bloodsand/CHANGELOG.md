@@ -9,6 +9,7 @@ Gore for Kindjal 1.4's Grave Spade execution, the heaviest in the game.
   rolling head, and a pool where it stops.
 - Bloodsand now says whether its gore is on (the mod event `mod.bloodsand.state`), so Kindjal leaves the blood to it, or
   draws dust and sand when Blood is off.
+- A victim that dies before the chop (the execution is called off) still gets its death burst.
 - Nothing changes without Kindjal 1.4. With Blood off, Bloodsand ignores the execution.
 
 ## 1.5.0
