@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 59,
+  "serial": 60,
   "plugins": [
     {
       "id": "bloodsand",
@@ -684,6 +684,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.5.0",
+          "released": "2026-11-19",
+          "melange": ">=0.16.0",
+          "kind": "content",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "own-folder"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kindjal-v1.5.0/kindjal-1.5.0.zip",
+          "sha256": "c8eb8aee6e6f86a07f7316d1af5bd0cc78c78ccebd972a356bec809e84df7660",
+          "size": 7172071,
+          "unpackedSize": 18949219,
+          "files": 158,
+          "changelog": "- The Grave Spade's victim begs for its life while the blade is over it, in the voice the game gives it: a gasp as it is hit and as it lands on its back, then pleas while the blade rests on its chest, and a last scream as the spade goes up, cut off dead at the chop. The lines are the game's own speech for that voice, picked line by line for every one of the game's 31 voices (\"Oh, leave me alone!\", \"Can ye noo leave me be?\", \"A thousand apologies\", \"'Tis but a scratch\"), plus new ones remixed from them: stuttered and repeated \"No\"s, pleas said twice and cut short, sobs and shaking breaths. Nothing is shipped: Melange 0.17 reads the lines from the player's own install. With an older Melange the execution is silent as before. A new setting turns it off."
+        },
         {
           "version": "1.4.1",
           "released": "2026-11-19",
