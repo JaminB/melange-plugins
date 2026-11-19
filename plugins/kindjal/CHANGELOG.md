@@ -1,3 +1,10 @@
+## 1.4.1
+
+- Every team gets its own Grave Spade execution: each team's first spade strike on a worm in a match is the one-shot
+  execution (the cinematic, the kill and the gore), instead of only the first strike in the whole match. In a four-team
+  match there can be four. After a team's execution its strikes do what the Shiv does. Still decided in the sim, so
+  every online player sees the same.
+
 ## 1.4.0
 
 The Grave Spade, a new weapon. Needs Melange 0.16.0.
