@@ -1,6 +1,9 @@
 ## 1.4.0
 
-The Grave Spade, in the Baseball Bat's slot (the Nail Bat is gone). Needs Melange 0.16.0.
+The Grave Spade, a new weapon. Needs Melange 0.16.0.
+
+- It takes the Binoculars' panel cell (41): the Binoculars are not on the panel while Kindjal is on. The Nail Bat is
+  unchanged.
 
 - A tool first: tap fire to dig a scoop along your aim, hold it to keep digging. It cuts any land or building the game
   can destroy; water is never touched. A worm can dig itself a cave in one turn. Digging never ends the turn, and a

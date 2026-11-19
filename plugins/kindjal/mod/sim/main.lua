@@ -29,13 +29,9 @@ local function vanilla(f) return { vanilla = f } end
 -- banana keeps five.
 STATS = {
     -- melee (MeleeWeaponPropertiesContainer)
-    -- The Grave Spade (the Bat's slot, see the end of this file). Its own numbers are the Shiv's, so a strike the spade
-    -- code does not see still lands as the Shiv would; every hit it does see is set from the Shiv's live numbers. Radius
-    -- is the swing's reach (a spade is longer than a knife). RetreatTimeOverride 0: a strike ends the turn at once.
-    -- MinAimAngle/MaxAimAngle open the aim to nearly straight down and up, so the spade can dig in any direction.
-    kWeaponBaseballBat = { WormDamageMagnitude = 10, ImpulseMagnitude = 0.15, Radius = 20,
-                           WormCollisionFX = "WXP_ShotgunHit", RetreatTimeOverride = 0,
-                           MinAimAngle = -85, MaxAimAngle = 85 },
+    -- The held mesh is the plugin's own (assets/meshes/kindjal.NailBat.xom, declared in spice.json "meshes").
+    kWeaponBaseballBat = { WormDamageMagnitude = 45, ImpulseMagnitude = 0.30, Radius = 24,
+                           WormCollisionFX = "WXP_ShotgunBlast" },
     kWeaponFirePunch   = { WormDamageMagnitude = 40, ImpulseMagnitude = 0.27, Radius = 18,
                            WormCollisionFX = "WXP_Explosion_Small" },
     kWeaponProd        = { WormDamageMagnitude = 10, ImpulseMagnitude = 0.15, Radius = 6,
@@ -102,13 +98,18 @@ STATS = {
     kWeaponAcidSpitter     = { ImpulseMagnitude = 0.28, ImpulseRadius = 110 },
     kWeaponAcidFlask       = { ImpulseMagnitude = 0.22, ImpulseRadius = 100 },
     kWeaponCrucible        = { ImpulseMagnitude = 0.62, ImpulseRadius = 185 },
+    -- The Grave Spade (a clone of the Bat on cell 41, see the end of this file). Its manifest "set" holds the Shiv's
+    -- numbers, so a strike the spade code does not see still lands as the Shiv would, its reach (Radius 20), a strike
+    -- that ends the turn at once (RetreatTimeOverride 0) and an aim open to nearly straight down and up.
+    kWeaponGraveSpade      = { ImpulseMagnitude = 0.15 },
 }
 
 -- Each re-skinned weapon's own models (assets/meshes/*.xom, declared in spice.json "meshes"): W = held,
 -- P = in flight, P2 = second payload, F = flying. Merged into STATS below, so they apply at Init like the numbers.
 MESHES = {
+    kWeaponBaseballBat     = { W = "kindjal.NailBat" },
     -- The engine's held spade is an invisible speck: the client draws the real one in the worm's (posed) hands.
-    kWeaponBaseballBat     = { W = "kindjal.GraveSpadeHidden" },
+    kWeaponGraveSpade      = { W = "kindjal.GraveSpadeHidden" },
     kWeaponProd            = { W = "kindjal.Shiv" },
     kWeaponFirePunch       = { W = "kindjal.Gauntlet" },
     kWeaponNoMoreNails     = { W = "kindjal.Railspike" },
@@ -163,7 +164,7 @@ REACH     = sane(REACH, 0, 3, "REACH")
 MELEE     = sane(MELEE, 0, 3, "MELEE")
 
 local MELEE_WEAPONS = { kWeaponBaseballBat = true, kWeaponFirePunch = true, kWeaponProd = true,
-                        kWeaponNoMoreNails = true }
+                        kWeaponNoMoreNails = true, kWeaponGraveSpade = true }
 
 -- Rounded to a fixed step (0.001 for knockback, 1 unit for reach) so the number written is a plain function of the
 -- inputs, with no string formatting in between.
@@ -236,9 +237,10 @@ wum.sim.weapons.on("explosion", "kWeaponCrucible", function(event, name, tick, x
 end)
 
 -- ================================================================ the Grave Spade
--- The Bat's slot is the Grave Spade, a tool first. Melange 0.16's wum.sim.melee gate takes the fire button: a press with
--- no worm in the swing is swallowed (no swing, no ammo, no Weapon.Fired, the turn goes on) and digs instead; a press with
--- a worm in the swing is the engine's own swing, which ends the turn. So:
+-- The Grave Spade is a weapon clone of the Bat (spice.json "weapons", cell 41), a tool first; the Nail Bat is untouched.
+-- Melange 0.16's wum.sim.melee gate takes the fire button: a press with no worm in the swing is swallowed (no swing, no
+-- ammo, no Weapon.Fired, the turn goes on) and digs instead; a press with a worm in the swing is the engine's own swing,
+-- which ends the turn. So:
 --   tap   one scoop along the aim: a short carveLine from the worm's middle out to SPADE.REACH;
 --   hold  another scoop every SPADE.STROKE ticks for as long as fire is held. A scoop that finds nothing left to take,
 --         or the SPADE.SAME-th along one line, reaches SPADE.STEP further (up to SPADE.MAX), so holding still keeps
@@ -259,7 +261,7 @@ end)
 -- All state is in wum.sim.storage.spade (hashed by Wormsign every tick the script runs). Times are sim ticks (50 a
 -- second), the same on every machine; nothing here reads a clock, a random number or anything a machine keeps alone.
 SPADE = {
-    WEAPON = "kWeaponBaseballBat",
+    WEAPON = "kWeaponGraveSpade",
     CENTRE = 12,        -- the worm's middle above its feet
     NEAR = 8,           -- a scoop starts this far out along the aim
     REACH = 36,         -- and reaches this far at first

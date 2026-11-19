@@ -52,6 +52,85 @@ def fleck(cv, x, y, r):
     cv.paint(circle(x - r * 0.3, y - r * 0.3, r * 0.45), D2)
 
 
+# ---------------------------------------------------------------- nail bat
+def draw_nail_bat():
+    cv = Canvas(SIZE, SIZE)
+    O, ANG = (124, 132), -42
+
+    def T(f):
+        return place(f, O[0], O[1], ANG)
+
+    def P(x, y):
+        return rot_pt((x, y), O[0], O[1], ANG)
+
+    rng = random.Random(5)
+    bat = polygon([(-96, -10), (-30, -13), (30, -23), (80, -29), (100, -20), (104, 0), (100, 20), (80, 29), (30, 23),
+                   (-30, 13), (-96, 10)], 3)
+    knob = rbox(-102, 0, 9, 16, 6)
+    # nails behind the bat first (the lower side), then the bat, then upper nails
+    nails_dn = [(36, 1), (56, 0), (76, 1), (94, 0)]
+    nails_up = [(30, 0), (50, 1), (70, 0), (90, 1)]
+
+    def nail(x, side, k):
+        base = side * 24
+        bend = (6 + 3 * k) * (1 if k % 2 else -1)
+        pts = [(x, base - side * 3), (x + bend * 0.3, base + side * 20), (x + bend, base + side * 33 + k * 2),
+               (x + bend + (11 if k % 2 else -11), base + side * 38 + k * 2)]
+        body = polyline(pts, 4.2)
+        cv.paint(T(grow(body, 2.4)), OUTLINE)
+        cv.paint(T(body), G2)
+        cv.paint(T(polyline([(p[0] - 1.0, p[1] - 1.0) for p in pts[:3]], 1.3)), G3, 0.95)
+        cv.paint(inter(T(polyline(pts[2:], 3.4)), T(box(-300, -300, 300, 300))), R1, 0.0)
+        tp = pts[3]
+        cv.paint(T(polyline([(tp[0] + (pts[2][0] - tp[0]) * 0.4, tp[1] + (pts[2][1] - tp[1]) * 0.4), tp], 3.4)), R1, 0.95)
+
+    for k, (x, _) in enumerate(nails_dn):
+        nail(x, 1, k)
+    cel(cv, T, knob, [W0, W1, W2], [(-2, -3), (-4, -6)])
+    cel(cv, T, bat, [W0, W1, W2, W3], [(0, -5), (0, -9), (0, -13)])
+    # grain
+    for _ in range(7):
+        gx = rng.uniform(-10, 85)
+        gy = rng.uniform(-14, 14) * (0.4 + gx / 150)
+        stroke(cv, [P(gx, gy), P(gx + rng.uniform(14, 28), gy + rng.uniform(-1.5, 1.5))], 1.6, W0, 0.6, clip=T(bat))
+    # tape on the grip: grimy bands with diagonal edges, loose end at the top
+    for k in range(5):
+        x0 = -92 + k * 14
+        band = polygon([(x0, -16), (x0 + 11, -16), (x0 + 15, 16), (x0 + 4, 16)], 0)
+        cv.paint(inter(T(band), T(bat)), T1)
+        cv.paint(inter(T(band), T(shift(bat, 0, 0))), T0, 0.0)
+        cv.paint(inter(T(box(x0 - 2, -16, x0 + 18, -3)), inter(T(band), T(bat))), T2, 0.9)
+        cv.paint(inter(T(box(x0 - 2, 7, x0 + 18, 14)), inter(T(band), T(bat))), T0, 0.9)
+    cv.paint(T(inter(box(-92, -1, -22, 1.2), bat)), OUTLINE, 0.0)
+    flap = polygon([(-26, -10), (-12, -13), (-10, -3), (-24, -2)], 1)
+    cel(cv, T, flap, [T0, T1, T2], [(-1.2, -1.5), (-2.5, -3)], ow=2.2)
+    # head hits: dents, nail heads on the wood, blood
+    for k, (x, _) in enumerate(nails_up):
+        pass
+    for k, (x, _) in enumerate(nails_dn):
+        cv.paint(T(ellipse(x, 21, 4.6, 3.2)), G0)
+    # upper nails drawn in front, base on the top edge
+    for k, (x, _) in enumerate(nails_up):
+        nail(x, -1, k + 1)
+    for k, (x, _) in enumerate(nails_up):
+        cv.paint(T(ellipse(x, -21, 4.8, 3.2)), G0)
+        cv.paint(T(circle(x - 0.8, -21.5, 1.4)), G2, 0.9)
+    # end-grain nails poking from the face of the head
+    for ny in (-11, 11):
+        cv.paint(T(circle(103, ny, 3.8)), OUTLINE)
+        cv.paint(T(circle(103, ny, 2.6)), G2)
+    # blood
+    for (bx, by, br) in ((84, -6, 6), (66, 8, 4.6), (92, 6, 3.2), (48, -9, 3.6)):
+        e = T(inter(ellipse(bx, by, br * 1.5, br), bat))
+        cv.paint(e, D1)
+        cv.paint(inter(e, shift(e, -1.5, -1.5)), D2, 0.8)
+    fleck(cv, 215, 200, 4.4)
+    fleck(cv, 226, 186, 2.6)
+    fleck(cv, 202, 214, 2.4)
+    cv.shadow_under(5, 8, 3, 0.30)
+    return cv
+
+
 # ---------------------------------------------------------------- hellfist
 def flame(pts, r=2):
     return polygon(pts, r)
@@ -469,6 +548,7 @@ def draw_gravespade():
 
 
 ICONS = [
+    ("nail-bat", draw_nail_bat),
     ("hellfist", draw_hellfist),
     ("shiv", draw_shiv),
     ("railspike", draw_railspike),

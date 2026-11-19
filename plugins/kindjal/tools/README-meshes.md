@@ -30,6 +30,7 @@ next step (`build_meshes.py`). The clone banks are different: see "Clone banks".
 
 | file set | replaces | vertices | triangles | texture |
 | --- | --- | --- | --- | --- |
+| `nail_bat.*` | `BaseballBat` | 590 | 720 | 128x128 near-black wood, blood, bright cloth tape and tail, steel-tipped rusty nails |
 | `acid_flask.*` | `GasCanister` (the Acid Flask's payload) | 530 | 820 | 128x128 bright toxic-green glass, acid with bubbles, a dark liquid line, skull plaque, cork |
 | `acid_round.*` | `Bazooka.Payload` (the Acid Spitter's round) | 596 | 836 | 128x128 olive steel, yellow and dark bands, rust, three pits with bright acid seeping in them |
 | `crucible.*` | `HolyHandGrenade` | 617 | 792 | 128x128 charred black, bright ember-orange cracks, iron rim ring and studs, glowing bowl |
@@ -65,6 +66,7 @@ Ours, from the generator's output:
 
 | mesh | x | y | z | size |
 | --- | --- | --- | --- | --- |
+| `nail_bat` | -3.157 .. 3.167 | -12.580 .. 13.295 | -3.139 .. 3.090 | 6.32 x 25.88 x 6.23 |
 | `acid_flask` | -4.6 .. 4.6 | -6.0 .. 6.0 | -4.915 .. 4.915 | 9.2 x 12.0 x 9.83 |
 | `acid_round` | -2.62 .. 2.62 | -2.593 .. 2.593 | -3.074 .. 3.619 | 5.24 x 5.19 x 6.69 |
 | `crucible` | -5.033 .. 4.816 | -5.022 .. 4.851 | -6.928 .. 6.800 | 9.85 x 9.87 x 13.73 |
@@ -84,6 +86,18 @@ of the enclosed volume. Normals are area-weighted per (group, position), so seam
 should be. The paint is computed per pixel from periodic value noise (wraps around the axis) and from the **same
 analytic description** the geometry was carved with, so painted features line up with the relief.
 
+- **nail_bat** (12 segments, Y axis). Profile: a rounded grip knob, a thin handle, a taped band that stands proud
+  (r 1.5 against a 0.92 handle, its own strip so the edges are creased) at y -6.6 .. -2.65, and a slim barrel growing
+  to r 1.8 near y 9.8 with a rounded end. **Seven nails**, each a closed 6-sided tube in the plane of the nail: sunk
+  into the wood, a short radial stub (r 0.75, 2.5x the old 0.30), a kink, then a long throw to the point (about 2.9
+  long in all against the old 0.96); six are thrown up the barrel and one down. Most sit on the two flanks (azimuth
+  about 0 and 0.5) so they break the silhouette from the side; their positions come from one function that the texture
+  also reads (a puncture hole, rusty rim and blood run at each). A **loose cloth tail** (a thin flat ribbon, 1.35 wide,
+  with its own flat-shaded faces) hangs off the top edge of the band and flares away from the wood. Texture: much
+  darker wood (so the nails and tape stand out), bright off-white tape with dark gaps between the turns, dried blood on
+  the barrel, end-grain rings, a lanyard band on the knob; the nail texture runs bright steel at the point (v = 0)
+  through dull iron to rust at the base, with a lit and a shaded side baked in; the tail is cloth with a red stripe on
+  each edge.
 - **acid_flask** (16 segments, Y axis). A fat round bulb (r 4.6 at y -0.7, nearly a sphere), a short thick neck (r 2.05
   against the old 1.5), a flared lip and an **oversized cork** (r 2.5, wider than the neck) on top. **Skull plaque**:
   on the +Z and -Z faces a 9x9 grid of cells (0.4 each) is pushed out of the bulb by a height function: a round plaque
@@ -124,12 +138,13 @@ and replaces the one texture it reaches with ours. Use a tiny container as the t
     set X=xomtool.exe
     set DATA=C:\path\to\Worms Ultimate Mayhem\Data
 
+    %X% convert meshes\nail_bat.gltf   --into %DATA%\Tweak\EMPTY.XOM --as kindjal.NailBat   --material-from BaseballBat     --material-file %DATA%\Bundles\Bundl09.xom --texture meshes\nail_bat.png   -o kindjal.NailBat.xom
     %X% convert meshes\acid_flask.gltf --into %DATA%\Tweak\EMPTY.XOM --as kindjal.AcidFlask  --material-from GasCanister     --material-file %DATA%\Bundles\Bundl09.xom --texture meshes\acid_flask.png -o kindjal.AcidFlask.xom
     %X% convert meshes\acid_round.gltf --into %DATA%\Tweak\EMPTY.XOM --as kindjal.AcidRound  --material-from Bazooka.Payload --material-file %DATA%\Bundles\Bundl09.xom --texture meshes\acid_round.png -o kindjal.AcidRound.xom
     %X% convert meshes\crucible.gltf   --into %DATA%\Tweak\EMPTY.XOM --as kindjal.Crucible   --material-from HolyHandGrenade --material-file %DATA%\Bundles\Bundl09.xom --texture meshes\crucible.png   -o kindjal.Crucible.xom
 
-All of them were run against testenv/A and exit 0; reading each result back with
-`xomtool convert kindjal.AcidFlask --from kindjal.AcidFlask.xom --out check.gltf` gives the same vertex and triangle counts,
+All four were run against testenv/A and exit 0; reading each result back with
+`xomtool convert kindjal.NailBat --from kindjal.NailBat.xom --out check.gltf` gives the same vertex and triangle counts,
 the same box and the same UVs as the input, and `inspect --type XImage` shows the replaced texture as 128x128 RGB
 (the vanilla ones are 64x64 or 64x128; xomtool accepted the larger image). Each output is about 85 to 93 KB.
 
@@ -154,6 +169,7 @@ The `--into` recipe above is superseded by `xomtool convert --bundle`, which wri
 
 | bank | section | material borrowed from (Bundl09) | texture |
 | --- | --- | --- | --- |
+| `kindjal.NailBat.xom` | 476 | `BaseballBat` | `meshes/nail_bat.png` |
 | `kindjal.AcidFlask.xom` | 477 | `GasCanister` (one texture stage, so it works) | `meshes/acid_flask.png` |
 | `kindjal.AcidRound.xom` | 478 | `Bazooka.Payload` | `meshes/acid_round.png` |
 | `kindjal.Crucible.xom` | 479 | `HolyHandGrenade` (first shape's shader) | `meshes/crucible.png` |
@@ -177,6 +193,7 @@ clone banks, are ignored). xomtool accepted every material below, so no substitu
 
 | slug | resource id | section | vanilla reference / material | triangles | bank bytes |
 | --- | --- | --- | --- | --- | --- |
+| `nail_bat` | `kindjal.NailBat` | 476 | `BaseballBat` | 720 | 91476 |
 | `acid_flask` | `kindjal.AcidFlask` | 477 | `GasCanister` | 820 | 90160 |
 | `acid_round` | `kindjal.AcidRound` | 478 | `Bazooka.Payload` | 836 | 92371 |
 | `crucible` | `kindjal.Crucible` | 479 | `HolyHandGrenade` | 792 | 92790 |

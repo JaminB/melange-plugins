@@ -96,9 +96,11 @@ local COATK = { RAMP = 1.5, HOLD_END = 21.5, FADE_END = 70, SPREAD_SECS = 10, SP
                 WISP_CAP = 8, POS_EPS = 0.02, SEND_EPS = 1 / 256, SEND_EVERY = 0.25, TOKENS = 240, FOLLOW = 10 }
 
 -- The melee weapons (ids as in worms()[i].weapon; the same as Bloodsand's MEL.SIG): how far a hit reaches, which sound
--- goes with it, whether the swing whooshes and whether it has spikes for the glints.
+-- goes with it, whether the swing whooshes and whether it has spikes for the glints. The Grave Spade is a clone of the
+-- Bat (worms()[i].weapon 10 and .clone "kWeaponGraveSpade"): its worms carry the key "spade" instead of 10.
 local MELEE = {
-    [10] = { reach = 44, hit = "spade_ring",   swing = true,  spikes = false },   -- baseball bat: the Grave Spade
+    [10] = { reach = 52, hit = "impact_bat",   swing = true,  spikes = true },    -- baseball bat
+    spade = { reach = 44, hit = "spade_ring",  swing = true,  spikes = false },   -- the Grave Spade
     [11] = { reach = 42, hit = "impact_stab",  swing = true,  spikes = false },   -- prod
     [12] = { reach = 48, hit = "firepunch",    swing = false, spikes = false },   -- fire punch
     [25] = { reach = 44, hit = "impact_spike", swing = true,  spikes = true },    -- no more nails
@@ -623,6 +625,7 @@ local function trackWorms()
             follow(s, x, y, z)
             s.px, s.py, s.pz, s.hp, s.alive, s.yaw, s.seen = x, y, z, health, alive, yaw or s.yaw or 0, FR.n
             local wid = tonumber(w.weapon)
+            if wid and w.clone == "kWeaponGraveSpade" then wid = "spade" end
             s.weapon = wid
             s.aim = tonumber(w.aim)
             if wid and slot == ACT.slot then MEL.heldWeapon, MEL.heldSlot, MEL.heldAt = wid, slot, now end
@@ -2176,7 +2179,7 @@ end)()
 SpadeFX.install()
 
 -- ---------------------------------------------------------------- the Grave Spade
--- The spade in the Bat's slot (sim/main.lua digs, strikes and kills; this only shows it). Everything here is drawn on this
+-- The Grave Spade, a clone of the Bat in cell 41 (sim/main.lua digs, strikes and kills; this only shows it). Everything here is drawn on this
 -- machine alone: poses (wum.render.wormPose), the head copy (wormCopy), the camera, sounds and particles never reach the
 -- match. What it shows is driven by the sim's Kindjal.Spade messages, which every machine gets at the same tick:
 --   d,slot,tick,x0,y0,z0,x1,y1,z1,removed   a scoop (removed -1: the turn's carve budget is spent)
@@ -2193,7 +2196,7 @@ SpadeFX.install()
 -- and the execution is staged upright: no fall and no mount, the blade raised over the shoulder and swung through the neck.
 local SPADE = (function()
     local GS = {
-        WEAPON = 10,                    -- kWeaponBaseballBat in worms()[i].weapon
+        WEAPON = "spade",               -- the Grave Spade clone, as the worm loop keys it (MELEE)
         SCALE = 0.85,                   -- the held mesh is the Bat's size; a worm holds it a little smaller
         GRIP = -11.6, FRONT = -2.0, TIP = 13.0,     -- along the mesh's +Y: the D-grip, the front hand, the blade's point
         STROKE = 0.36,                  -- seconds between scoops while held (sim SPADE.STROKE = 18 ticks)

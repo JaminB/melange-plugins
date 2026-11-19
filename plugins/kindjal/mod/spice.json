@@ -28,6 +28,9 @@
   ],
   "meshes": [
     {
+      "file": "assets/meshes/kindjal.NailBat.xom"
+    },
+    {
       "file": "assets/meshes/kindjal.AcidRound.xom"
     },
     {
@@ -216,12 +219,34 @@
         "name": "Crucible",
         "help": "No choir, no pause. Melts the ground it lands on and throws everything nearby clear of it."
       }
+    },
+    {
+      "name": "kWeaponGraveSpade",
+      "base": "kWeaponBaseballBat",
+      "cell": 41,
+      "replaces": "kUtilityBinoculars",
+      "set": {
+        "WormDamageMagnitude": 10,
+        "ImpulseMagnitude": 0.15,
+        "Radius": 20,
+        "WormCollisionFX": "WXP_ShotgunHit",
+        "RetreatTimeOverride": 0,
+        "MinAimAngle": -85,
+        "MaxAimAngle": 85,
+        "WeaponGraphicsResourceID": "kindjal.GraveSpadeHidden"
+      },
+      "panelIcon": "icons/gravespade.png",
+      "hudIcon": "kindjal.gravespade.hud.tga",
+      "text": {
+        "name": "Grave Spade",
+        "help": "Tap to dig, hold to keep digging where you aim; digging never ends the turn. A strike on a worm does, and the match's first strike is an execution."
+      }
     }
   ],
   "weaponText": {
     "kWeaponBaseballBat": {
-      "name": "Grave Spade",
-      "help": "Tap to dig, hold to keep digging where you aim; digging never ends the turn. A strike on a worm does, and the match's first strike is an execution."
+      "name": "Nail Bat",
+      "help": "A bat studded with nails. Hits harder and knocks the victim back."
     },
     "kWeaponFirePunch": {
       "name": "Hellfist",
@@ -326,8 +351,8 @@
   },
   "weaponIcons": {
     "kWeaponBaseballBat": {
-      "panelIcon": "icons/gravespade.png",
-      "hudIcon": "kindjal.gravespade.hud.tga"
+      "panelIcon": "icons/nail-bat.png",
+      "hudIcon": "kindjal.nail-bat.hud.tga"
     },
     "kWeaponFirePunch": {
       "panelIcon": "icons/hellfist.png",
