@@ -1,6 +1,6 @@
 {
   "indexVersion": 1,
-  "serial": 57,
+  "serial": 58,
   "plugins": [
     {
       "id": "bloodsand",
@@ -19,6 +19,24 @@
       ],
       "screenshots": [],
       "versions": [
+        {
+          "version": "1.6.0",
+          "released": "2026-11-19",
+          "melange": ">=0.3.5",
+          "kind": "client-only",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/bloodsand-v1.6.0/bloodsand-1.6.0.zip",
+          "sha256": "4a4605d985ef5750c74954c50284aea3365c4f33003ab16688802c60734302a3",
+          "size": 460685,
+          "unpackedSize": 832545,
+          "files": 36,
+          "changelog": "Gore for Kindjal 1.4's Grave Spade execution, the heaviest in the game.\n\n- When the spade takes a head, the death burst comes from the neck at the chop (not when the game first counts the worm dead), with a second spray, the gibs and a lens splatter. The stump then pumps arterial jets in time with a slowing, weakening heartbeat (7, 9 or 12 s by the Blood setting) and dribbles between the beats.\n- Pools under the neck and the grave, and a wider one once the stump has pumped a while; drops and splats behind the rolling head, and a pool where it stops.\n- Bloodsand now says whether its gore is on (the mod event `mod.bloodsand.state`), so Kindjal leaves the blood to it, or draws dust and sand when Blood is off.\n- A victim that dies before the chop (the execution is called off) still gets its death burst.\n- Nothing changes without Kindjal 1.4. With Blood off, Bloodsand ignores the execution."
+        },
         {
           "version": "1.5.0",
           "released": "2026-10-18",
