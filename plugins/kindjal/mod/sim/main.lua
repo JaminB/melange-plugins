@@ -251,7 +251,7 @@ end)
 -- A carve never touches water (the sea is a plane, not voxels): dig below the waterline and it is open sea, and a worm that
 -- walks in drowns as usual.
 --
--- The first spade hit on a worm in the whole match is an execution: the hit is cancelled in the hit handler (nothing that
+-- Each team's first spade hit on a worm in a match is an execution: the hit is cancelled in the hit handler (nothing that
 -- calls the engine is allowed there), and from the next tick the sim holds the next turn start, pins both worms, tells the
 -- clients (Kindjal.Spade "x,...") and kills the victim SPADE.CHOP ticks later through the engine's own death (no
 -- explosion; the gravestone stays). The clients play the cinematic over that fixed timeline; everything they draw is
@@ -284,7 +284,7 @@ SPADE = {
 
 local STORE = wum.sim.storage
 STORE.spade = STORE.spade or {}
-local G = STORE.spade         -- exec: true once the match's execution is used; ex: the running one; dig: the held dig
+local G = STORE.spade         -- execT: per team, "t<team>" = true once that team's execution is used; ex: the running one; dig: the held dig
 local digTimer = nil
 
 local function spadeSend(text)
@@ -403,7 +403,7 @@ local function exAbort(why)
     releaseOwn(e)
     spadeSend(string.format("a,%d,%d,%d", e.a, e.v, wum.sim.tick()))
     G.ex = nil
-    if not e.chopped then G.exec = nil end       -- nobody lost a head: the next strike may still execute
+    if not e.chopped and e.tk and G.execT then G.execT[e.tk] = nil end   -- nobody lost a head: that team keeps its execution
 end
 
 -- Each execution carries an id; its timers carry it too, so a timer left over from an aborted execution
@@ -507,11 +507,15 @@ else
         -- Inside the engine's strike: decide only (result), and do the rest from the next tick.
         melee.on("hit", SPADE.WEAPON, function(ev, w, tick, attacker, victim, x, y, z, damage, impulse)
             local vw = wum.sim.worm(victim)
-            if not G.exec and not G.ex and attacker ~= victim and vw and vw:alive() and vw:state() ~= 8 then
-                G.exec = true
+            local aw = wum.sim.worm(attacker)
+            local tn = aw and aw:team()
+            local tk = tn and ("t" .. tn)                    -- each team gets one execution a match: its first strike
+            G.execT = G.execT or {}
+            if tk and not G.execT[tk] and not G.ex and attacker ~= victim and vw and vw:alive() and vw:state() ~= 8 then
+                G.execT[tk] = true
                 G.exN = (G.exN or 0) + 1
                 local id = G.exN
-                G.ex = { id = id, a = attacker, v = victim, hit = tick }
+                G.ex = { id = id, a = attacker, v = victim, hit = tick, tk = tk }
                 melee.result({ cancel = true })
                 wum.sim.after(1, function() exStart(id) end)
                 return

@@ -1,7 +1,7 @@
 {
   "spiceVersion": 1,
   "id": "kindjal",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "name": "Kindjal",
   "authors": [
     "Melange"
@@ -239,7 +239,7 @@
       "hudIcon": "kindjal.gravespade.hud.tga",
       "text": {
         "name": "Grave Spade",
-        "help": "Tap to dig, hold to keep digging where you aim; digging never ends the turn. A strike on a worm does, and the match's first strike is an execution."
+        "help": "Tap to dig, hold to keep digging where you aim; digging never ends the turn. A strike on a worm does, and each team's first strike is an execution."
       }
     }
   ],

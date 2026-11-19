@@ -11,7 +11,7 @@
 --   Sounds         Swing, impact, launch and explosion sounds through wum.audio (Melange 0.9 and later). Every audio call
 --                  is guarded, so an older Melange simply plays none.
 --   Grave Spade    The spade drawn in the worm's hands, which MiragePose carries along every scoop and strike; dirt, dust,
---                  chips and sparks where it digs; and the once-a-match execution: the camera circles the pair, the victim
+--                  chips and sparks where it digs; and each team's once-a-match execution: the camera circles the pair, the victim
 --                  falls on its back, the attacker climbs on, sets the blade on its chest and takes its head off. The head
 --                  rolls away. With Bloodsand 1.6 the gore is Bloodsand's (mod.kindjal.exec); without it, dust and sand.
 --   Buddy Bomb     The labradoodle in the sheep's slot sends up a few little hearts when he is set down, barks while he

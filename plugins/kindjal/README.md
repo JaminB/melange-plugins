@@ -108,10 +108,10 @@ first:
   never touched: dig below the waterline and you open the sea, and a worm that walks in drowns as usual.
 - **Digging never ends the turn**: dig, then pick another weapon and fire it. A press with a worm in reach is a strike
   instead, and a strike ends the turn at once (no retreat time).
-- **The execution.** The first spade strike on a worm in the whole match, by anyone, kills it outright, whatever its
+- **The execution.** Each team's first spade strike on a worm in a match kills it outright, whatever its
   health: the camera circles the pair, the victim falls on its back, the attacker climbs on, sets the blade on its
   chest, raises it, and takes its head off; the head rolls away and the body stays down for its throes, then its
-  gravestone. Only once a match: after that a spade strike does exactly what the Shiv does (its damage and knockback,
+  gravestone. Once per team a match: after a team's execution, its spade strikes do exactly what the Shiv does (its damage and knockback,
   read from the Shiv at match start, so Kindjal Heavy's or Brutal's Shiv is the one copied).
 - **With Bloodsand 1.6** the execution is the goriest thing in the game: Bloodsand throws the death burst from the neck,
   gibs, a lens splatter, arterial jets that pump from the stump with a slowing heartbeat for up to twelve seconds, a
@@ -119,7 +119,7 @@ first:
   its Blood set to off) the head still comes off and rolls, in a burst of dust and sand, with no blood. An older
   Bloodsand gets Kindjal's own mist and drops.
 
-How it works: everything that changes the match (every scoop's land, the once-a-match flag, the hit's cancel or Shiv
+How it works: everything that changes the match (every scoop's land, the per-team execution flags, the hit's cancel or Shiv
 damage, the kill) is decided in `mod/sim/main.lua` on every machine at the same tick, and sent to the clients as the
 message `Kindjal.Spade`. The cinematic, the poses, the head and the gore are drawn on each machine alone: the sim
 holds the next turn start (`wum.sim.holdTurn`) for the 10.4 s the show takes, pins both worms, and kills the victim
