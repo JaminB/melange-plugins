@@ -941,6 +941,26 @@
       "screenshots": [],
       "versions": [
         {
+          "version": "1.0.2",
+          "released": "2026-11-19",
+          "melange": ">=0.11.0",
+          "kind": "content",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "none"
+          },
+          "dependencies": [
+            "kindjal >=1.3.1"
+          ],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/sandtide-v1.0.2/sandtide-1.0.2.zip",
+          "sha256": "32113c457e136c0bafd45ee95a38f55edf54634390b89dfec27f0f42481881b3",
+          "size": 9078812,
+          "unpackedSize": 9839212,
+          "files": 100,
+          "changelog": "- A cursed worm stays cursed even when another mod frees it. Kindjal 1.4's Grave Spade execution pins both worms and frees them at its end; on the turn end where the curse struck, that freed a cursed worm too. Every alive cursed worm is now anchored again at each turn start."
+        },
+        {
           "version": "1.0.1",
           "released": "2026-10-25",
           "melange": ">=0.11.0",
