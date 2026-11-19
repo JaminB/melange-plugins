@@ -186,6 +186,15 @@ All of this is client-side and off by a setting; none of it touches the simulati
   cave: it scores a ring of angles round the pair, turns away from a view the land or the other worm blocks, and stays
   far enough out that it never sits in a worm or the severed head. It follows the head while the head is near and above
   the pair's ground.
+- **The victim begs.** While the spade is over it, the execution's victim pleads for its life in the voice the game
+  speaks it with (Melange 0.17): a gasp as it is struck and as it lands on its back, pleas while the blade rests on its
+  chest, a last scream as the spade goes up, cut off dead at the chop. The lines are the game's own speech, read at run
+  time from the player's install by `wum.audio.voice` (Kindjal ships none of it), picked for each of the game's 31 voices
+  by what is actually said in them (a line's name often says nothing about it: the cad's "nooo" is "Now look here").
+  The extra lines are remixes of the same voice: stuttered "N-n-n-NOOO", "No! No! NOOO!", a plea said twice and cut
+  short, sobs and shaking breaths, all pitched up a little. The table is `VOICES` in `client/init.lua`; a voice with no
+  table there (two of the game's speech banks have no sound file) begs in the classic voice. The victim's mouth does not
+  move with these lines. Without Melange 0.17 the execution is silent, as in 1.4.
 - **Melee impact.** A spray of dark sparks at the victim and a short red hit-flash on a spade, prod, punch or nail hit,
   with its own impact sound. Spike glints on the swing are an experimental setting, off by default.
 - **Buddy Bomb.** The sheep's slot is a long, black, curly labradoodle in a vest of dynamite. A few little hearts float
@@ -222,6 +231,7 @@ All of this is client-side and off by a setting; none of it touches the simulati
 | Kindjal sound volume | 0.8 | Volume of the plugin's own sounds, 0 to 1 |
 | Spike glints | off | Experimental billboards near the hand during a swing |
 | Grave Spade execution camera | on | The circling camera of the execution (off: the poses and effects play under the game's own camera) |
+| Grave Spade victims beg for their lives | on | The victim pleads in its own voice while the spade is over it (needs Melange 0.17) |
 
 These are all client-side; the knockback is tuned in the sim script instead (see "Tuning the knockback").
 

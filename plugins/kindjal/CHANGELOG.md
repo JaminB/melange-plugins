@@ -1,3 +1,13 @@
+## 1.5.0
+
+- The Grave Spade's victim begs for its life while the blade is over it, in the voice the game gives it: a gasp as it is
+  hit and as it lands on its back, then pleas while the blade rests on its chest, and a last scream as the spade goes
+  up, cut off dead at the chop. The lines are the game's own speech for that voice, picked line by line for every one of
+  the game's 31 voices ("Oh, leave me alone!", "Can ye noo leave me be?", "A thousand apologies", "'Tis but a
+  scratch"), plus new ones remixed from them: stuttered and repeated "No"s, pleas said twice and cut short, sobs and
+  shaking breaths. Nothing is shipped: Melange 0.17 reads the lines from the player's own install. With an older
+  Melange the execution is silent as before. A new setting turns it off.
+
 ## 1.4.1
 
 - Every team gets its own Grave Spade execution: each team's first spade strike on a worm in a match is the one-shot

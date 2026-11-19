@@ -181,6 +181,344 @@ local function stopVoice(v)
     if v and wum.audio and wum.audio.stop then pcall(wum.audio.stop, v) end
 end
 
+-- ---------------------------------------------------------------- begging (Melange 0.17)
+-- The execution's victim begs for its life in its own team's voice while the spade is over it. Nothing here is shipped
+-- audio: the clips are the game's own speech, read from the player's install with wum.audio.voice (Melange 0.17), and the
+-- extra lines are remixes of them: cut, stuttered, repeated, pitched and trembled. Presentation only (the sim never hears
+-- it), and without wum.audio.voice it is silent. VOICES says, per speech bank, which of the bank's own lines play which
+-- part (they were picked by listening to every bank: a line's name often says nothing about what is said in it):
+--   no      a drawn-out "Nooo" (its first syllable, cut, is the short "No!" of the stutters)
+--   scream  a wordless scream for the raise
+--   gasp    short gasps          sob    sighs and whimpers
+--   plea    real pleas, each { line, from, len } (seconds; from/len cut a phrase out of a longer line)
+local Beg = {}
+do
+    local VOICES = {} -- filled below (one entry per bank)
+    -- VOICES begin (generated from the game's speech categories and the curated pleas)
+    VOICES.voalien = { no = { "nooo1", "nooo4" }, scream = { "shriek 2", "shriek 1" }, gasp = { "gasp 3", "gasp 2", "gasp 1" }, startle = { "startled", "startled 2" }, sob = { "sad sigh 3", "sad sigh 2", "sad sigh 1", "clutch chest 1", "clutch chest 2", "clutch chest 3" }, plea = { { "beam me up" }, { "tell my three hundred childre" }, { "i wish id stuck to recon" } } }
+    VOICES.voastro = { no = { "nooo1" }, scream = { "aaa1" }, gasp = { "gasp 1" }, startle = { "startled", "startled 2" }, sob = { "sad sigh 1", "sad sigh 2", "clutch chest 1", "clutch chest 2" }, plea = { { "houston do you copy" }, { "errm we have a problem 1" }, { "weve lost contact" }, { "were under attack and ive los" } } }
+    VOICES.vobarre = { no = { "nooo1" }, scream = { "shriek 1", "shriek 2", "aaa1" }, gasp = { "gasp 1" }, startle = { "startled 1", "startled 2" }, sob = { "sad sigh 1", "sad sigh 2", "clutch chest 1", "clutch chest 2" }, plea = { { "leave me alone im going strai" }, { "ive been set up" }, { "it ad to be like this" } } }
+    VOICES.voblues = { no = { "nooo 2", "nooo" }, scream = { "shriek", "shriek 2", "aaa" }, gasp = { "gasp" }, startle = { "startled" }, sob = { "sad sigh 1", "sad sigh 2", "clutch chest 2" }, plea = { { "oh mama im feeling blue", 0.00, 0.50 }, { "this blues brother is in deep" }, { "no one will clean my grave" } } }
+    VOICES.vobobby = { no = { "nooo 2" }, scream = { "aaa 1", "shriek 1", "shriek 2" }, gasp = { "gasp 1", "gasp 2" }, startle = { "startled 1", "startled 2" }, sob = { "sad sigh", "sad sigh 2", "clutch chest 2" }, plea = { { "bladdy ell" } } }
+    VOICES.vobuild = { no = { "nooo1", "clutch chest 1" }, scream = { "shriek 1", "shriek 2", "aaa1" }, gasp = { "gasp", "gasp 2" }, startle = { "startled", "startled 2" }, sob = { "sad sigh 1", "sad sigh 2", "clutch chest 1", "clutch chest 32" }, plea = { { "im still gonna need paying" }, { "ah me thumb" }, { "oi im on my paid lunch break" } } }
+    VOICES.vocad = { scream = { "ow1", "ow3" }, gasp = { "jump1" }, startle = { "UH" }, sob = { "OOFF3" }, plea = { { "nooo" }, { "goaway" }, { "OHDEAR" } } }
+    VOICES.vocave = { scream = { "alarmed" }, gasp = { "gasp 1", "gasp 2" }, startle = { "startled", "startled 2" }, sob = { "sad sigh", "sad sigh 2", "clutch chest 1", "clutch chest 2" }, plea = { { "oohyoo despairing" }, { "ooga booga despairing" }, { "oggie despairing" }, { "groan" }, { "uh-oh" } } }
+    VOICES.voclassi = { no = { "no" }, scream = { "shriek1", "aaah" }, gasp = { "gasp2", "gasp1" }, startle = { "startled2", "startled1" }, sob = { "sadsigh1", "clutchchest2" }, plea = { { "leavemealone" }, { "goaway" }, { "ohdear" }, { "uhoh" } } }
+    VOICES.vocowbo = { no = { "nooo1" }, scream = { "startled", "aaa1" }, gasp = { "gasp 1" }, startle = { "startled", "startled 2" }, sob = { "sad sigh 1", "sad sigh 2", "clutch chest 2", "clutch chest" }, plea = { { "shallow drown 2" }, { "git outta here" }, { "im all at sea" } } }
+    VOICES.vocyber = { no = { "nooo" }, scream = { "shriek", "nooo 2" }, gasp = { "gasp", "gasp 2" }, startle = { "gasp 2" }, sob = { "clutch chest 2", "clutch chest 1" }, plea = { { "please deviate" }, { "shutdown no not restart", 1.22, 1.20 }, { "major malfunction please retu", 0.00, 0.85 }, { "calling repair ship" }, { "switch to safe mode" } } }
+    VOICES.vodevvo = { scream = { "Shriek_01", "Shriek_02", "Nooo_01" }, gasp = { "Gasp_01", "Gasp_02" }, startle = { "Startled_01", "Startled_02" }, sob = { "SadSigh_01", "SadSigh_02", "ClutchChest_01", "ClutchChest_02" }, plea = { { "FriendlyDeath_01" }, { "GrenadeLanded_02" }, { "StartTurn_01", 0.00, 0.80 } } }
+    VOICES.vodino = { no = { "nooo" }, scream = { "shriek 1", "shriek 2" }, gasp = { "gasp" }, startle = { "startled 1", "startled 2" }, sob = { "sad sigh 1", "sad sigh 2", "clutch chest 1" }, plea = { { "leave dino alone", 1.24, 1.45 }, { "pain" }, { "dino say run" } } }
+    VOICES.vodisco = { scream = { "shriek 1", "shriek 2", "shriek 3" }, gasp = { "gasp 1", "gasp 2" }, startle = { "startled" }, sob = { "sad sigh 2", "sad sigh 1", "clutch chest" }, plea = { { "i aint stayin alive this time" }, { "no way jose" }, { "would you just watch the hair" }, { "hey get off my boogie" } } }
+    VOICES.vodoubl = { no = { "nooo" }, scream = { "shriek", "aaa1" }, gasp = { "gasp 1", "gasp 2" }, startle = { "startled" }, sob = { "sad sigh 1", "clutch chest", "clutch chest 2" }, plea = { { "oh please dont not on my acco", 0.00, 1.06 }, { "oh heaven forbid" }, { "you expect me to talk wormfin" } } }
+    VOICES.vofighter = { scream = { "Shriek_01", "Shriek_02" }, gasp = { "ShallowDrown_01" }, startle = { "Startled_01", "Startled_02" }, sob = { "SadSigh_01", "SadSigh_02", "ClutchChest_01", "ClutchChest_02" }, plea = { { "FirstBlood" }, { "Traitor" }, { "UhOh" }, { "GoAway" } } }
+    VOICES.vogshow = { no = { "nooo 1" }, scream = { "shriek 1", "shriek 2", "aaa 1" }, gasp = { "gasp 1", "gasp 2" }, startle = { "startled 1", "startled 3", "startled 2" }, sob = { "sad sigh 2", "clutch chest 1", "clutch chest 2" }, plea = { { "hey this is supposed to be a ", 0.00, 1.55 }, { "this isnt in the script", 0.00, 1.20 }, { "hey" } } }
+    VOICES.vohorro = { no = { "noo 1" }, scream = { "aaa 1" }, gasp = { "gasp 1" }, startle = { "startled", "startled 2" }, sob = { "sad sigh 1", "clutch chest 1", "clutch chest 2" }, plea = { { "leave me to my despair" }, { "mortal terror" }, { "we are discovered" }, { "i have failed the master" } } }
+    VOICES.voklein = { no = { "Noooo_01" }, scream = { "Shriek_01", "Shriek_02", "Noooo_02" }, gasp = { "Gasp_01", "Gasp_02" }, startle = { "Startled_01", "Startled_02" }, sob = { "SadSigh_01", "SadSigh_02", "ClutchChest_01", "ClutchChest_02" }, plea = { { "DamageInflicted_B_01" }, { "DamageInflicted_B_04", 0.00, 0.95 }, { "Missed_01" }, { "FriendlyDeath_02", 0.00, 1.00 } } }
+    VOICES.voknigh = { no = { "nooo 1" }, scream = { "shriek", "aaa 1" }, gasp = { "gasp 1", "gasp 2" }, startle = { "startled 2", "startled 1" }, sob = { "sad sigh 1", "sad sigh 21", "clutch chest 1", "clutch chest 2" }, plea = { { "its just a flesh wound" }, { "tis but a scratch" }, { "oh dear 1" }, { "run away" } } }
+    VOICES.vol33t = { scream = { "ow1", "ow2" }, gasp = { "jump2", "ooff1" }, startle = { "ooff1" }, sob = { "ooff3" }, plea = { { "hurry" }, { "ohdear" }, { "whatthe" } } }
+    VOICES.vomeme = { scream = { "shriek", "nooo" }, gasp = { "ooff1" }, startle = { "startled" }, sob = { "sad sigh", "clutch chest 2" }, plea = { { "go away" }, { "leave me alone" }, { "shallowdrown" } } }
+    VOICES.vopirate = { scream = { "scared1", "scared2" }, gasp = { "oof1", "oof2" }, startle = { "scared1", "scared2" }, sob = { "sad1", "sad2", "scared1" }, plea = { { "pray" } } }
+    VOICES.voprofe = { no = { "nooo1" }, scream = { "shriek 1", "shriek 2", "aaa1" }, gasp = { "gasp 1", "gasp 3" }, startle = { "startled 1", "startled 2" }, sob = { "sad sigh 2", "clutch chest 1", "clutch chest 2" }, plea = { { "just leave me to finish this " }, { "my work my lifes work gone" }, { "a time machine would be handy" } } }
+    VOICES.vorock = { scream = { "Shriek_01", "Shriek_02", "Noooo_02" }, gasp = { "Gasp_01", "Gasp_02" }, startle = { "Startled_01", "Startled_02" }, sob = { "SadSigh_01", "ClutchChest_01", "ClutchChest_02" }, plea = { { "DamageInflicted_B_04" }, { "FriendlyDeath_02" }, { "GrenadeLanded_01" }, { "GrenadeLanded_03" } } }
+    VOICES.vorussian = { scream = { "Shriek_1", "Shriek_2", "Noooo!_1" }, gasp = { "Gasp_1", "Gasp_2" }, startle = { "Startled_1", "Startled_2" }, sob = { "Clutch Chest_1", "Clutch Chest_2" }, plea = { { "Shallow Drown_2" } } }
+    VOICES.voscot = { no = { "nooo1" }, scream = { "shriek 1", "shriek 2" }, gasp = { "gasp" }, startle = { "startled" }, sob = { "sad sigh 1", "sad sigh 2", "clutch chest 1" }, plea = { { "can ye noo leave me bee" }, { "im close to tears pal" }, { "oh ma" }, { "noo that is a shame" } } }
+    VOICES.voscous = { no = { "nooo" }, scream = { "shriek 1", "shriek 2" }, gasp = { "gasp 1", "gasp 3", "gasp 2" }, startle = { "startled 1", "startled 3", "startled 2" }, sob = { "sad sigh 1", "sad sigh 2", "clutch chest 1", "clutch chest 2" }, plea = { { "no not me biftas lah", 0.00, 0.62 }, { "not me trackies" }, { "scram" }, { "nooo" } } }
+    VOICES.vosuper = { no = { "no" }, scream = { "scared1", "scared2" }, gasp = { "oof1", "oof2" }, startle = { "scared1", "scared2" }, sob = { "sad1", "scared1" }, plea = { { "leavemealone", 0.00, 0.50 } } }
+    VOICES.vothief = { no = { "nooo1" }, scream = { "shriek 1", "aaa1" }, gasp = { "gasp 1", "gasp 2" }, startle = { "startled 1", "startled 2" }, sob = { "sad sigh 1", "clutch chest 1", "clutch chest 2" }, plea = { { "a thousand apologies" }, { "i am but a humble thief" }, { "i am not a street rat" }, { "for once im not actually stea" } } }
+    VOICES.vowizar = { no = { "nooo1", "nooo3" }, scream = { "shriek", "shriek 2", "aaa1" }, gasp = { "gasp" }, startle = { "startled 1", "startled 2" }, sob = { "sad sigh 1", "sad sigh 2", "clutch chest" }, plea = { { "hey watch the hat", 0.00, 1.15 }, { "you broke my walking stick" }, { "what manner of sorcery is thi" } } }
+    -- VOICES end
+
+    local B = { bank = nil, h = {}, cuts = {}, retry = 0 }
+    Beg.B = B
+
+    local function api() return wum.audio and wum.audio.voice and wum.audio.voice.load and wum.audio.cut and wum.audio.set end
+
+    -- The victim's speech bank: the one the game speaks it with (wum.game.worms()[i].voice, Melange 0.17), else its
+    -- team's; the classic voice when the bank has no table here (or no file: the game lists two banks it has no sound for).
+    local function bankOf(slot)
+        local team
+        local okW, ws = pcall(wum.game.worms)
+        if okW and type(ws) == "table" then
+            for i = 1, #ws do
+                local w = ws[i]
+                if type(w) == "table" and w.slot == slot then
+                    team = w.team
+                    if type(w.voice) == "string" and VOICES[w.voice:lower()] then return w.voice:lower() end
+                end
+            end
+        end
+        local okT, ts = pcall(wum.game.teams)
+        if team and okT and type(ts) == "table" then
+            for i = 1, #ts do
+                local t = ts[i]
+                if type(t) == "table" and t.slot == team and type(t.voice) == "string" then
+                    local v = t.voice:lower()
+                    if VOICES[v] then return v end
+                end
+            end
+        end
+        return "voclassi"
+    end
+
+    -- A clip of the current bank, loaded once: nil when it cannot be.
+    local function clip(name)
+        local h = B.h[name]
+        if h == nil then
+            local ok, got = pcall(wum.audio.voice.load, B.bank, name)
+            h = (ok and got) or false
+            B.h[name] = h
+        end
+        return h or nil
+    end
+    -- seconds of a loaded clip (from wum.audio.voice.lines)
+    local function secs(name) return B.len and B.len[name] or 1 end
+    local function cutOf(name, from, len)
+        local k = name .. "|" .. from .. "|" .. len
+        local h = B.cuts[k]
+        if h == nil then
+            local src = clip(name)
+            local ok, got = false, nil
+            if src then ok, got = pcall(wum.audio.cut, src, from, len, 0.012) end
+            h = (ok and got) or false
+            B.cuts[k] = h
+        end
+        return h or nil
+    end
+
+    -- Switches to `bank`: the last bank's clips are dropped (a mod holds 64 sounds at most, and Kindjal's own take half).
+    local function useBank(bank)
+        if B.bank == bank then return true end
+        if wum.audio.unload then
+            for _, h in pairs(B.h) do if h then pcall(wum.audio.unload, h) end end
+            for _, h in pairs(B.cuts) do if h then pcall(wum.audio.unload, h) end end
+        end
+        B.bank, B.h, B.cuts, B.len = bank, {}, {}, {}
+        local ok, lines = pcall(wum.audio.voice.lines, bank)
+        if ok and type(lines) == "table" then
+            for i = 1, #lines do if type(lines[i]) == "table" then B.len[lines[i].name] = lines[i].seconds end end
+        end
+        return true
+    end
+
+    local function pick(list, k)
+        if not list or #list == 0 then return nil end
+        return list[((k or random(1, 1000)) - 1) % #list + 1]
+    end
+
+    -- ---- the lines: each returns the steps { at, h, pitch, vol, trem, len } and how long it lasts
+    -- (a step's len, when set, ends it early: a word cut off by the next one)
+    local R = {}
+    local function plea(v)
+        local p = pick(v.plea)
+        if not p then return nil end
+        if p[2] then return cutOf(p[1], p[2], p[3]), p[3] end
+        return clip(p[1]), secs(p[1])
+    end
+    local function short(v)
+        local n = pick(v.no)
+        if not n then return nil end
+        local L = v.noCut or 0.3
+        return cutOf(n, 0, L), L, n
+    end
+    -- "N-n-n-NOOO!"
+    function R.stutter(v)
+        local s, _, n = nil, nil, nil
+        local nn = pick(v.no)
+        if not nn then return nil end
+        s = cutOf(nn, 0, v.stut or 0.11)
+        n = clip(nn)
+        if not s or not n then return nil end
+        return { { 0, s, 1.0, 0.9 }, { 0.17, s, 1.03, 0.95 }, { 0.34, s, 1.05, 1.0 }, { 0.5, n, 1.07, 1.0 } }, 0.5 + secs(nn) / 1.07
+    end
+    -- "No! No! NOOO!"
+    function R.nonono(v)
+        local s, L, nn = short(v)
+        local n = nn and clip(nn)
+        if not s or not n then return nil end
+        local g = L + 0.08
+        return { { 0, s, 1.0, 1.0 }, { g, s, 1.05, 1.0 }, { 2 * g, n, 1.1, 1.05 } }, 2 * g + secs(nn) / 1.1
+    end
+    -- a gasp, then a plea, quick and high: panic
+    function R.plea(v, bare)
+        local p, L = plea(v)
+        if not p then return nil end
+        local gn = not bare and pick(v.gasp)
+        local g = gn and clip(gn)
+        local steps, t = {}, 0
+        if g then
+            steps[1] = { 0, g, 1.04, 0.85 }
+            t = secs(gn) * 0.85
+        end
+        steps[#steps + 1] = { t, p, 1.05, 1.0 }
+        return steps, t + L / 1.05
+    end
+    -- the plea twice, the second cut short and higher: "Please don't, please d-"
+    function R.again(v)
+        local p, L = plea(v)
+        if not p then return nil end
+        local t2 = L / 1.02 + 0.12
+        return { { 0, p, 1.02, 1.0 }, { t2, p, 1.1, 1.05, nil, L * 0.6 } }, t2 + L * 0.6 / 1.1
+    end
+    -- whimpering: a sob, trembling (the volume shakes 7 times a second), a sharp breath after
+    function R.sob(v)
+        local sn = pick(v.sob)
+        local s = sn and clip(sn)
+        if not s then return nil end
+        local L = secs(sn) / 1.1
+        local steps = { { 0, s, 1.1, 1.1, 7 } }
+        local gn = pick(v.gasp)
+        local g = gn and clip(gn)
+        if g then steps[2] = { L + 0.05, g, 1.12, 0.8 } end
+        return steps, L + (g and 0.05 + secs(gn) / 1.12 or 0)
+    end
+    -- breaths coming faster and higher, into a scream
+    function R.hyper(v)
+        local gn = pick(v.gasp)
+        local g = gn and clip(gn)
+        local sn = pick(v.scream) or pick(v.no)
+        local s = sn and clip(sn)
+        if not g or not s then return nil end
+        local d = math.min(0.26, secs(gn) * 0.7)
+        return { { 0, g, 1.0, 0.8, nil, d }, { d, g, 1.08, 0.85, nil, d }, { 2 * d, g, 1.16, 0.9, nil, d },
+                 { 3 * d, s, 1.08, 1.1 } }, 3 * d + secs(sn) / 1.08
+    end
+    -- a whimper to fill a short gap: two quick breaths, shaking
+    function R.whimper(v)
+        local gn = pick(v.gasp) or pick(v.startle)
+        local g = gn and clip(gn)
+        if not g then return nil end
+        local d = math.min(0.3, secs(gn))
+        return { { 0, g, 1.1, 0.7, 9, d }, { d + 0.1, g, 1.16, 0.75, 9, d } }, 2 * d + 0.1
+    end
+    -- the long "Nooo" (or a scream) high: the raise
+    function R.wail(v, _, noNo)
+        local sn = (not noNo and pick(v.no)) or pick(v.scream) or pick(v.no)
+        local s = sn and clip(sn)
+        if not s then return nil end
+        return { { 0, s, 1.12, 1.1 } }, secs(sn) / 1.12
+    end
+    local FIRST = { "plea", "plea", "again" }                    -- the first line is a real plea when the bank has one
+    local PLEAD = { "plea", "again", "stutter", "sob", "nonono" }
+    local RAISE = { "nonono", "hyper", "wail" }
+
+    -- ---- the show: called from the execution
+    local V = {}  -- voices playing { id, base, trem, at, stopAt }
+
+    local function stopAll(fade)
+        for i = #V, 1, -1 do
+            local p = V[i]
+            if fade then pcall(wum.audio.set, p.id, { volume = 0 }); p.kill = os.clock() + 0.04
+            else stopVoice(p.id); table.remove(V, i) end
+        end
+    end
+    Beg.stopAll = stopAll
+
+    local function queue(e, steps, t0)
+        for i = 1, #steps do
+            local s = steps[i]
+            e.beg.q[#e.beg.q + 1] = { at = t0 + s[1], h = s[2], pitch = s[3], vol = s[4], trem = s[5], len = s[6] }
+        end
+    end
+
+    -- the next line of `pool` that can be built from this bank (nil: none)
+    -- (never the kind just played, and never longer than `room` seconds)
+    local USES_NO = { stutter = true, nonono = true }
+    local function line(e, pool, room, bare)
+        local b = e.beg
+        for n = 1, #pool * 4 + 1 do
+            local k = pool[random(1, #pool)]
+            if n > #pool * 3 then b.last = nil end           -- nothing new fits: the same kind again, or a whimper
+            if n == #pool * 4 + 1 then k = "whimper" end
+            if (k ~= b.last or #pool == 1) and not (b.saidNo and USES_NO[k] and #pool > 1) then
+                local steps, len = R[k](b.v, bare, b.saidNo)
+                if steps and len <= room then
+                    b.last = k
+                    if USES_NO[k] then b.saidNo = true end
+                    return steps, len, k
+                end
+            end
+        end
+        return nil
+    end
+
+    function Beg.start(e)
+        if not api() or cfg("beg", true) == false or S.sounds <= 0.001 then return end
+        local bank = bankOf(e.v)
+        useBank(bank)
+        e.beg = { v = VOICES[bank], q = {}, plead = e.posed and 1.45 or 0.9, raise = e.posed and 4.4 or (e.chop - 1.0),
+                  hit = false, down = false }
+    end
+
+    -- Every frame of the execution, with its clock T.
+    function Beg.frame(e, T, t)
+        local b = e.beg
+        for i = #V, 1, -1 do
+            local p = V[i]
+            if p.kill and t >= p.kill then stopVoice(p.id); table.remove(V, i)
+            elseif not p.kill then
+                if p.stopAt and t >= p.stopAt then pcall(wum.audio.set, p.id, { volume = 0 }); p.kill = t + 0.03
+                elseif p.trem then
+                    pcall(wum.audio.set, p.id, { volume = p.base * (0.7 + 0.3 * sin((t - p.at) * p.trem * 2 * pi)) })
+                end
+            end
+        end
+        if not b or b.done then return end
+        -- the chop (or the show ending, or the sim taking it back) ends it mid-word
+        if e.chopped or e.ending then
+            b.done = true
+            b.q = {}
+            stopAll(true)
+            return
+        end
+        local v = b.v
+        if not b.hit and T >= 0.25 then
+            b.hit = true
+            local n = pick(v.startle) or pick(v.gasp)
+            local h = n and clip(n)
+            if h then queue(e, { { 0, h, 1.05, 0.9, nil, 0.7 } }, T) end     -- (a long one is cut: it is a start)
+        end
+        if not b.down and T >= (e.posed and 1.2 or 0.6) then
+            b.down = true
+            local n = pick(v.gasp)
+            local h = n and clip(n)
+            if h then queue(e, { { 0, h, 0.98, 0.9, nil, 0.6 } }, T) end
+        end
+        -- pleading while the blade is on its chest, line after line until the raise
+        if T >= b.plead and T < b.raise - 0.6 and (b.free or 0) <= T then
+            local room = b.raise + 0.35 - T
+            local steps, len = nil, nil
+            if not b.first then steps, len = line(e, FIRST, room, true) end
+            b.first = true
+            if not steps then steps, len = line(e, PLEAD, room) end
+            if steps then
+                queue(e, steps, T)
+                b.free = T + len + rnd(0.12, 0.25)
+            else
+                b.free = T + 0.2
+            end
+        end
+        -- the raise: the last scream, and more of it until the blade comes down
+        if T >= b.raise and (b.free2 or 0) <= T then
+            local steps, len = line(e, b.raised and { "wail", "hyper" } or RAISE, 99)
+            b.raised = true
+            if steps then queue(e, steps, max(T, b.free or T)); b.free2 = max(T, b.free or T) + len + 0.05
+            else b.free2 = T + 0.5 end
+        end
+        for i = #b.q, 1, -1 do
+            local s = b.q[i]
+            if T >= s.at then
+                table.remove(b.q, i)
+                local vol = clamp(s.vol * S.sounds * 1.25, 0, 2)
+                local ok, id = pcall(wum.audio.play, s.h, { volume = vol, pitch = s.pitch * rnd(0.985, 1.015),
+                                                          pos = { e.vx, e.vy + 10, e.vz, x = e.vx, y = e.vy + 10, z = e.vz } })
+                if ok and id then
+                    V[#V + 1] = { id = id, base = vol, trem = s.trem, at = t, stopAt = s.len and (t + s.len / s.pitch) or nil }
+                end
+            end
+        end
+    end
+end
+
 -- ---------------------------------------------------------------- post-FX
 -- Values go through wum.postfx.setTransient (neither saved nor logged by Melange) and one is only sent when it differs from
 -- the last value sent to that effect. Only switching an effect on or off is saved, so that is only sent when it changes.
@@ -3025,6 +3363,8 @@ local SPADE = (function()
         GS.w[a] = e.st
         GS.ex = e
         play("exec_sting", 1.0)
+        local okB, errB = pcall(Beg.start, e)
+        if not okB then logErr("beg", errB) end
         play("spade_ring", 0.9, e.vx, e.vy + CENTRE_Y, e.vz)
         SpadeFX.shake(2.0, 0.35)
         if S.preset and S.melee then startFlash(e.vx, e.vy + CENTRE_Y, e.vz, 60, v) end
@@ -3772,6 +4112,10 @@ local SPADE = (function()
                 end
             end
         end
+        if e.beg then
+            local okB, errB = pcall(Beg.frame, e, T, t)
+            if not okB then logErr("beg", errB) end
+        end
         exCamera(e, T, dt, t)
         e.Tnow = T
         if e.ending and t - e.ending > 0.85 then
@@ -3781,6 +4125,7 @@ local SPADE = (function()
             if e.chopped and not e.aborted and not e.preview then emitExec({ phase = "end", slot = e.v }) end
             -- a body still drawn (its throes outlast the show) keeps its stump and stays down until it is gone
             if e.chopped and not e.aborted and e.vFinal then GS.linger = { slot = e.v, spec = e.vFinal, untilT = t + 6, seen = t } end
+            Beg.stopAll(false)
             GS.ex = nil
         end
     end
