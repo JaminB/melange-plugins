@@ -243,7 +243,9 @@ do
                 local w = ws[i]
                 if type(w) == "table" and w.slot == slot then
                     team = w.team
-                    if type(w.voice) == "string" and VOICES[w.voice:lower()] then return w.voice:lower() end
+                    if type(w.voice) == "string" and w.voice ~= "" then
+                        return VOICES[w.voice:lower()] and w.voice:lower() or "voclassi"
+                    end
                 end
             end
         end
@@ -414,9 +416,11 @@ do
     Beg.stopAll = stopAll
 
     local function queue(e, steps, t0)
+        e.beg.n = (e.beg.n or 0) + 1
         for i = 1, #steps do
             local s = steps[i]
-            e.beg.q[#e.beg.q + 1] = { at = t0 + s[1], h = s[2], pitch = s[3], vol = s[4], trem = s[5], len = s[6] }
+            e.beg.q[#e.beg.q + 1] = { at = t0 + s[1], h = s[2], pitch = s[3], vol = s[4], trem = s[5], len = s[6],
+                                      line = e.beg.n }
         end
     end
 
@@ -504,9 +508,17 @@ do
             if steps then queue(e, steps, max(T, b.free or T)); b.free2 = max(T, b.free or T) + len + 0.05
             else b.free2 = T + 0.5 end
         end
+        -- a hitch can make several steps of one line due at once: only the latest of them plays (the others are past)
+        local due = {}
+        for i = 1, #b.q do
+            local s = b.q[i]
+            if T >= s.at and (not due[s.line] or s.at > due[s.line]) then due[s.line] = s.at end
+        end
         for i = #b.q, 1, -1 do
             local s = b.q[i]
-            if T >= s.at then
+            if T >= s.at and s.at < due[s.line] then
+                table.remove(b.q, i)
+            elseif T >= s.at then
                 table.remove(b.q, i)
                 local vol = clamp(s.vol * S.sounds * 1.25, 0, 2)
                 local ok, id = pcall(wum.audio.play, s.h, { volume = vol, pitch = s.pitch * rnd(0.985, 1.015),
@@ -4182,6 +4194,7 @@ local SPADE = (function()
             if not ok then
                 logErr("spade execution", err)
                 pcall(wum.render.cameraOverride, nil)
+                Beg.stopAll(false)
                 GS.ex = nil
             end
         end
@@ -4250,7 +4263,7 @@ local SPADE = (function()
         elseif kind == "h" and n >= 2 then
             GS.onHit(v[1], v[2])
         elseif kind == "x" and n >= 12 then
-            if GS.ex then GS.exEnd(true) GS.ex = nil end
+            if GS.ex then GS.exEnd(true) Beg.stopAll(false) GS.ex = nil end
             GS.exStart(v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], false)
         elseif kind == "c" and n >= 2 then
             if GS.ex and GS.ex.v == v[2] then GS.ex.killed = true end
@@ -4276,6 +4289,7 @@ local SPADE = (function()
     function GS.reset()
         if GS.ex then
             if GS.ex.camSet then pcall(wum.render.cameraOverride, nil) end
+            Beg.stopAll(false)
             GS.ex = nil
         end
         for slot in pairs(GS.w) do clearPose(slot) end
