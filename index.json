@@ -685,6 +685,24 @@
       "screenshots": [],
       "versions": [
         {
+          "version": "1.4.0",
+          "released": "2026-11-19",
+          "melange": ">=0.16.0",
+          "kind": "content",
+          "permissions": {
+            "unsafe": false,
+            "filesystem": "own-folder"
+          },
+          "dependencies": [],
+          "conflicts": [],
+          "url": "https://github.com/JaminB/melange-plugins/releases/download/kindjal-v1.4.0/kindjal-1.4.0.zip",
+          "sha256": "c8bc37343e3235b9ef8d2c34f781f49f9a79b93520c04b502bd552b1fc2b662a",
+          "size": 7165782,
+          "unpackedSize": 18925528,
+          "files": 158,
+          "changelog": "The Grave Spade, a new weapon. Needs Melange 0.16.0.\n\n- It takes the Binoculars' panel cell (41): the Binoculars are not on the panel while Kindjal is on. The Nail Bat is unchanged.\n\n- A tool first: tap fire to dig a scoop along your aim, hold it to keep digging. It cuts any land or building the game can destroy; water is never touched. A worm can dig itself a cave in one turn. Digging never ends the turn, and a worm that falls or jumps stops digging.\n- A press with a worm in reach is a strike, and ends the turn at once.\n- The first spade strike in the match is an execution, whatever the victim's health. The camera circles the pair, the victim falls on its back, the attacker climbs on top of it, sets the blade on its chest, raises the spade and takes its head off, and the head rolls away while the body lies there for its throes. After that a strike does exactly what the Shiv does.\n- With Bloodsand 1.6 it is the goriest thing in the game (pumping neck jets, gibs, pools, a blood trail behind the head); without it the head comes off in dust and sand.\n- The worm's hands follow the spade through every scoop and strike (Melange 0.16 worm poses). New icon, model, severed-head model, dirt and dust sprites, and ten sounds.\n- New setting: Grave Spade execution camera. New previews in the Lua menu.\n- Net safe: every dig, the kill and the once-a-match flag are decided in the sim; everything shown is local. The head comes off only when the sim's kill does: a victim that dies first (drowned, eaten by the sands) keeps its head.\n- The execution frees only the worms it pinned and the turn hold it armed, so Sandtide's curse and tour are untouched.\n- On a map's flat height-field ground the spade digs pits and trenches; caves are dug in voxel land and buildings."
+        },
+        {
           "version": "1.3.1",
           "released": "2026-10-18",
           "melange": ">=0.9.0",
