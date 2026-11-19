@@ -12,6 +12,24 @@
   "screenshots": [],
   "versions": [
     {
+      "version": "1.4.1",
+      "released": "2026-11-19",
+      "melange": ">=0.16.0",
+      "kind": "content",
+      "permissions": {
+        "unsafe": false,
+        "filesystem": "own-folder"
+      },
+      "dependencies": [],
+      "conflicts": [],
+      "url": "https://github.com/JaminB/melange-plugins/releases/download/kindjal-v1.4.1/kindjal-1.4.1.zip",
+      "sha256": "92fe71618f181d5b5addfdfd9429d09d61a11c70e22a79792647360edfb72fa7",
+      "size": 7165882,
+      "unpackedSize": 18925846,
+      "files": 158,
+      "changelog": "- Every team gets its own Grave Spade execution: each team's first spade strike on a worm in a match is the one-shot execution (the cinematic, the kill and the gore), instead of only the first strike in the whole match. In a four-team match there can be four. After a team's execution its strikes do what the Shiv does. Still decided in the sim, so every online player sees the same."
+    },
+    {
       "version": "1.4.0",
       "released": "2026-11-19",
       "melange": ">=0.16.0",
