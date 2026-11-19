@@ -2206,12 +2206,9 @@ local SPADE = (function()
         WORM_R = 17, WORM_TOP = 32,     -- the camera keeps this far from a worm's axis, up to this height over its feet
         OCCLUDE_R = 12,                 -- a sight line this close to a worm's axis is blocked by it
         HEAD_R = 10,                    -- the camera keeps this far from the severed head's middle
-        HEAD_FOLLOW = 130,              -- the camera follows the head while it is this close to the pair
-        CAM_MIN = 58,                   -- the closest the execution's orbit comes (the blade on the chest, the chop)
+        HEAD_FOLLOW = 130,              -- the camera leans toward the head while it is this close to the pair
+        HEAD_AWAY = 0.5,                -- the head flies at least this much (of its speed) away from the eye
         CAM_FLOOR = 30,                 -- land between the pair and the eye pulls it in, but not nearer than this
-        CAM_SECTORS = 12,               -- the ring of orbit angles scored for a clear view
-        CAM_KEEP = 0.6,                 -- seconds a sector's score is kept before it is probed again
-        CAM_SWING = 1.4,                -- rad/s the orbit swings round to a clearer sector
         TICK = 50,
         on = false, mesh = nil, tex = nil, head = nil, headTex = nil, headClean = nil, loadedAt = -100,
         material = "soil", aimSign = 1,
@@ -2389,9 +2386,11 @@ local SPADE = (function()
     end
 
     -- ------------------------------------------------------------ poses
-    -- One call a frame per posed worm, frames = 4 so a hitch does not drop it. A refusal ("busy": another mod poses that
-    -- worm) or a status that is still not "ok" two seconds after the first pose turns the hands off for the match; the
-    -- spade, the camera and the effects go on without them.
+    -- One call a frame per posed worm, frames = 4 so a hitch does not drop it. A status of "unsupported" or "disabled",
+    -- a run of "unavailable" refusals inside a live match, or a status still not "ok" eight seconds after the first pose
+    -- turns the poses off until the next match starts (GS.matchStart); the spade, the camera and the effects go on
+    -- without them. A single "unavailable" (a call while a match is torn down) or "busy" (another mod poses that worm)
+    -- only skips that pose.
     local function poseOk()
         if GS.pose.bad or not wum.render.wormPose then return false end
         if not GS.pose.checked and wum.render.wormPoseStatus then
@@ -2435,19 +2434,30 @@ local SPADE = (function()
             return false
         end
         if r ~= true then
+            -- "unavailable" also answers a call made outside a match or while one is torn down (the attract demo's end):
+            -- only a run of them inside a live match turns the poses off, and only until the next match starts
             if why == "unavailable" then
-                GS.pose.bad = true
-                log("kindjal: worm poses unavailable: the spade is held in the fists and the execution is staged upright")
+                local okM, inM = pcall(wum.game.inMatch)
+                local now2 = os.clock()
+                if okM and inM then
+                    GS.pose.fails = (GS.pose.fails or 0) + 1
+                    GS.pose.failSince = GS.pose.failSince or now2
+                    if GS.pose.fails >= 30 and now2 - GS.pose.failSince > 3 then
+                        GS.pose.bad = true
+                        log("kindjal: worm poses unavailable in this match: the spade is held in the fists and the execution is staged upright")
+                    end
+                end
             end
             return false
         end
+        GS.pose.fails, GS.pose.failSince = 0, nil
         local now2 = os.clock()
         GS.pose.since = GS.pose.since or now2
         if not GS.pose.status and now2 - GS.pose.since > 2 and wum.render.wormPoseStatus then
             local okS, st = pcall(wum.render.wormPoseStatus)
             if okS and st == "ok" then
                 GS.pose.status = "ok"
-            elseif okS and st ~= "untested" and st ~= "no skinned worm drawn yet" then
+            elseif okS and (st == "unsupported" or st == "disabled") then
                 GS.pose.bad = true
                 log("kindjal: worm poses unavailable (" .. tostring(st) .. "): the spade is drawn without the hands")
             elseif now2 - GS.pose.since > 8 then
@@ -2968,8 +2978,19 @@ local SPADE = (function()
         local e = { a = a, v = v, t0 = t0, at = os.clock(), chop = chop / GS.TICK, throes = throes / GS.TICK,
                     endT = endT, fin = endT / GS.TICK, preview = preview, gore = GS.goreMode(), an = nameOf(a), vn = nameOf(v) }
         local sa, sv = W[a], W[v]
-        e.ax, e.ay, e.az = (sa and sa.px) or ax, (sa and sa.py) or ay, (sa and sa.pz) or az
-        e.vx, e.vy, e.vz = (sv and sv.px) or vx, (sv and sv.py) or vy, (sv and sv.pz) or vz
+        -- where the strike put the pair: the drawn (tracked) position, unless it is more than 6 units off the sim's. After
+        -- a long frame gap the sim runs the strike before this frame's tracking, and the tracked attacker is still where
+        -- it was mid-walk.
+        local function fresh(s, x, y, z)
+            if not s or not s.px then return false end
+            if not x then return true end
+            local ddx, ddy, ddz = s.px - x, s.py - y, s.pz - z
+            return ddx * ddx + ddy * ddy + ddz * ddz < 36
+        end
+        if fresh(sa, ax, ay, az) then e.ax, e.ay, e.az = sa.px, sa.py, sa.pz else e.ax, e.ay, e.az = ax, ay, az end
+        if fresh(sv, vx, vy, vz) then e.vx, e.vy, e.vz = sv.px, sv.py, sv.pz else e.vx, e.vy, e.vz = vx, vy, vz end
+        e.ax, e.ay, e.az = e.ax or 0, e.ay or 0, e.az or 0
+        e.vx, e.vy, e.vz = e.vx or 0, e.vy or 0, e.vz or 0
         local dx, _, dz, l = norm3(e.vx - e.ax, 0, e.vz - e.az)
         if l < 3 then
             local yaw = (sa and sa.yaw) or 0
@@ -3032,8 +3053,31 @@ local SPADE = (function()
     end
 
     -- The severed head: thrown from the neck along the victim's head direction, rolling on the land (one ray a frame).
+    -- It never comes at the lens: the part of its direction toward the eye is taken off until it leaves at least HEAD_AWAY
+    -- away from it (seen from the eye, it flies off along the body and away, never into the camera).
+    local function headDir(e, nx, nz)
+        local dx, dz = e.dx, e.dz
+        local p = e.camPos
+        local cx, cz
+        if p then cx, cz = p[1] - nx, p[3] - nz
+        elseif e.orbit and e.orbit.th then cx, cz = sin(e.orbit.th), cos(e.orbit.th) end
+        if cx then
+            local l = sqrt(cx * cx + cz * cz)
+            if l > 1e-3 then
+                cx, cz = cx / l, cz / l
+                local k = dx * cx + dz * cz
+                if k > -GS.HEAD_AWAY then
+                    dx, dz = dx - cx * (k + GS.HEAD_AWAY), dz - cz * (k + GS.HEAD_AWAY)
+                    local m = sqrt(dx * dx + dz * dz)
+                    if m < 1e-3 then dx, dz = -cx, -cz else dx, dz = dx / m, dz / m end
+                end
+            end
+        end
+        return dx, dz
+    end
     local function launchHead(e, nx, ny, nz)
-        local h = { slot = e.v, x = nx, y = ny + 5, z = nz, floorY = e.vy, vx = e.dx * rnd(55, 75), vy = rnd(70, 95), vz = e.dz * rnd(55, 75),
+        local hdx, hdz = headDir(e, nx, nz)
+        local h = { slot = e.v, x = nx, y = ny + 5, z = nz, floorY = e.vy, vx = hdx * rnd(55, 75), vy = rnd(70, 95), vz = hdz * rnd(55, 75),
                     R = IDENT, born = os.clock(), copy = e.posed, gore = e.gore, yaw = e.vYaw or 0, rolled = 0, bounces = 0,
                     preview = e.preview }
         if e.posed and e.vUp then
@@ -3190,86 +3234,6 @@ local SPADE = (function()
         return cy >= wy - 2 and cy <= wy + GS.WORM_TOP
     end
 
-    -- How good a view orbit sector k gives: the land's free share of the ray from the pair to the eye (squared), times a
-    -- penalty when one worm stands between the eye and the other, times a small bonus for a side-on view of the pair.
-    -- One land ray per probe; a score is kept CAM_KEEP seconds.
-    local function sectorScore(e, o, k, r, el, t)
-        local sc = e.sectors[k]
-        if sc and t - sc.at < GS.CAM_KEEP then return sc.v end
-        local th = (k - 1) / GS.CAM_SECTORS * 2 * pi
-        local ex, ey, ez = sin(th) * cos(el), sin(el), cos(th) * cos(el)
-        local cx = o.cx or (e.focus and e.focus[1]) or (e.ax + e.vx) * 0.5
-        local cy = o.cy or (e.focus and e.focus[2]) or (e.ay + e.vy) * 0.5 + 10
-        local cz = o.cz or (e.focus and e.focus[3]) or (e.az + e.vz) * 0.5
-        local px, py, pz = cx + ex * r, cy + ey * r, cz + ez * r
-        local hit, why = castRay(cx, cy, cz, px, py, pz)
-        if hit == nil and why == "budget" then return sc and sc.v or nil end
-        local free = hit or 1
-        local v = free * free
-        if e.capA and e.neck then
-            -- posed: the neck (where the blade goes) must be in sight past the attacker leaning over it
-            if MT.blocks({ px, py, pz }, e.neck, e.capA[1], e.capA[2], GS.OCCLUDE_R) then v = v * 0.4 end
-        else
-            if segThroughWorm(px, py, pz, e.vx, e.vy + CENTRE_Y, e.vz, e.ax, e.ay, e.az) then v = v * 0.3 end
-            if segThroughWorm(px, py, pz, e.ax, e.ay + CENTRE_Y, e.az, e.vx, e.vy, e.vz) then v = v * 0.6 end
-        end
-        local dot = abs(sin(th) * e.dx + cos(th) * e.dz)
-        if e.capV and e.capA then
-            -- posed: the victim lies along the pair's line, so a view along it sees only its head or its tail
-            v = v * (1 - 0.75 * dot)
-            -- where the land would pull the eye in must not be inside a worm: such a sector is poor, and the orbit goes
-            -- round to another instead of pulling in past the worm
-            local pull = max(min(r, GS.CAM_FLOOR), r * free * 0.85)
-            local qx, qy, qz = cx + ex * pull, cy + ey * pull, cz + ez * pull
-            local R2 = GS.WORM_R * GS.WORM_R
-            if MT.pointSeg2(qx, qy, qz, e.capV[1], e.capV[2]) < R2 or MT.pointSeg2(qx, qy, qz, e.capA[1], e.capA[2]) < R2 then
-                v = v * 0.2
-            end
-        else
-            v = v * (1 - 0.35 * dot)
-        end
-        -- from the raise to just after the chop, a side-on view (within 25 degrees of square to the pair) counts thrice
-        local T = e.Tnow or 0
-        if T >= 4.4 and T < 6.0 and dot < 0.42 then v = v * 3 end
-        e.sectors[k] = { v = v, at = t }
-        return v
-    end
-    local function wrapPi(a)
-        a = (a + pi) % (2 * pi)
-        return a - pi
-    end
-    -- Steers the orbit away from a poor view: scores the sector it is in and the next one in its direction (and one
-    -- more round the ring each frame), turns back when the next one is blocked, and swings toward the best known sector
-    -- while the current one is poor. A swing far round the ring has to be clearly better to be taken.
-    local function steerOrbit(e, o, r, el, speed, dt, t)
-        e.sectors = e.sectors or {}
-        local N = GS.CAM_SECTORS
-        local cur = floor(((o.th % (2 * pi)) / (2 * pi)) * N + 0.5) % N + 1
-        o.dir = o.dir or 1
-        local ahead = (cur - 1 + o.dir) % N + 1
-        local sCur = sectorScore(e, o, cur, r, el, t) or 1
-        local sAhead = sectorScore(e, o, ahead, r, el, t) or 1
-        e.probe = (e.probe or 0) % N + 1
-        sectorScore(e, o, e.probe, r, el, t)
-        if sAhead < 0.35 and sCur >= sAhead then o.dir = -o.dir end
-        local best, bestV = cur, sCur
-        for k = 1, N do
-            local sc = e.sectors[k]
-            if sc and k ~= cur then
-                local steps = abs(wrapPi((k - cur) / N * 2 * pi)) / (2 * pi / N)
-                local v = sc.v - 0.04 * steps
-                if v > bestV + 0.15 then best, bestV = k, v end
-            end
-        end
-        if sCur < 0.55 and best ~= cur then
-            local d = wrapPi((best - 1) / N * 2 * pi - o.th)
-            local step = GS.CAM_SWING * dt
-            o.th = o.th + clamp(d, -step, step)
-        else
-            o.th = o.th + speed * o.dir * dt
-        end
-    end
-
     -- The head is worth following while it is still in the air or rolling near the pair, above the ground they stand on;
     -- a head lost, gone over an edge or far away is let go and the camera comes back to the pair.
     local function headFollowable(e, h, cx, cz)
@@ -3280,51 +3244,368 @@ local SPADE = (function()
         return dx * dx + dz * dz < GS.HEAD_FOLLOW * GS.HEAD_FOLLOW
     end
 
-    -- The camera: an orbit about the pair, closing in for the blade and the chop, held still for a beat at the chop, then
-    -- following the head while it is near and pulling out. The target never goes through the land (a ray from the pair
-    -- to it) and the eye stays out of the land (a ray from the target to the eye) and out of the worms.
+    -- ------------------------------------------------------------ the execution camera
+    -- A small set of shots round the pair, picked by line of sight. The shots stand on either side of the victim's body
+    -- axis (the pair's line d: the victim lies along it), square to it or turned up to 0.6 rad off, 2-3 worm lengths out
+    -- (XC.RS), at two heights. A shot is seen through land rays from its eye to the victim's neck, the victim's head and
+    -- the attacker's head; a sight line that a worm's body crosses counts as blocked too. A shot whose eye is inside a
+    -- worm or near a fresh blast (a poison drum's gas cloud) is rejected; one with its eye in the land sees nothing (every
+    -- ray starts inside it) and drops out by itself. The land ray does not see level props, so every shot stays above
+    -- the pair. A few shots are scored a frame and the one in use is checked every frame where it really is (orbiting):
+    -- blocked twice running, it moves in along its own line (a nearer shot of the same direction), else cuts to the best
+    -- other shot, its own side first. From the raise through the chop only shots within 0.3 rad of square are taken.
+    -- After the chop the target leans after the rolling head for a moment, then a wide shot from above holds the
+    -- aftermath (the headless body, the attacker, the spade, the grave, the head) until the hold ends.
+    local XC = { OFFS = { 0, 0.3, -0.3, 0.6, -0.6 }, ELS = { 0.36, 0.6 }, RS = { 96, 76, 56 },
+                 AOFFS = { 0, 0.45, -0.45, 0.9, -0.9 }, AELS = { 0.62, 0.86 },
+                 RAYS = 44,              -- the land rays this mod may cast a frame during an execution
+                 KEEP = 0.8,             -- seconds a shot's score is kept before it is looked at again
+                 BLAST_R = 90, BLAST_T = 15,     -- no eye this close to a blast of the last BLAST_T seconds (its gas)
+                 SIDE = 0.31,            -- the most a shot may be off square from the raise through the chop
+                 AFTER = 1.5,            -- seconds after the chop the aftermath shot takes over
+                 LEAN = 0.5 }            -- how far the target leans toward the rolling head
+    GS.blasts = {}
+    -- Explosions (an oil drum the strike set off): their gas hangs where they went off, so the camera keeps out of it.
+    function GS.noteBlast(p)
+        if type(p) ~= "table" then return end
+        local x, y, z = vec(p.damageEpicentre)
+        if not x then return end
+        local t = os.clock()
+        for i = #GS.blasts, 1, -1 do
+            if t - GS.blasts[i].t > XC.BLAST_T then table.remove(GS.blasts, i) end
+        end
+        GS.blasts[#GS.blasts + 1] = { x = x, y = y, z = z, t = t }
+        local e = GS.ex
+        if e and e.xc then e.xc.stale = true end        -- every score again: some eyes are in the gas now
+    end
+
+    -- The middle of the scene the shots look at: the lying victim reaches from 12 behind its feet to 22 past them along
+    -- d, the attacker sits on its lower body; upright, the pair's midpoint.
+    function XC.focusOf(e)
+        if e.posed then return { e.vx + e.dx * 4, e.vy + 10, e.vz + e.dz * 4 } end
+        return { (e.ax + e.vx) * 0.5, (e.ay + e.vy) * 0.5 + 12, (e.az + e.vz) * 0.5 }
+    end
+    -- The points a shot must see before the chop, {point, weight, whose}: the neck, the victim's head, the attacker's
+    -- head; from the posed bones once the victim is down and the attacker on it, before that where they will be.
+    function XC.points(e)
+        local d, T = { e.dx, 0, e.dz }, e.Tnow or 0
+        local nk, vh, ah
+        if e.posed then
+            if e.neck and T > 1.2 then
+                nk = e.neck
+                local u = e.vUp or d
+                vh = { nk[1] + u[1] * MT.HEAD_C, nk[2] + u[2] * MT.HEAD_C + 2, nk[3] + u[3] * MT.HEAD_C }
+            else
+                local by = e.vy + 3 + MT.LIFT + 4
+                nk = { e.vx + d[1] * 19, by, e.vz + d[3] * 19 }
+                vh = { e.vx + d[1] * 28, by + 2, e.vz + d[3] * 28 }
+            end
+            if e.capA and T > 2.0 then ah = e.capA[2]
+            else ah = { e.vx - d[1] * 6, e.vy + MT.UP + 24, e.vz - d[3] * 6 } end
+        else
+            nk = { e.vx, e.vy + GS.NECK_Y, e.vz }
+            vh = { e.vx, e.vy + GS.NECK_Y + 5, e.vz }
+            ah = { e.ax, e.ay + GS.NECK_Y + 5, e.az }
+        end
+        return { { nk, 3, "v" }, { vh, 2, "v" }, { ah, 2, "a" } }
+    end
+    -- After the chop: the body, the attacker's head, the severed head (while it is near) and the spade.
+    function XC.aftPoints(e)
+        local body = e.posed and { e.vx + e.dx * 6, e.vy + 7, e.vz + e.dz * 6 } or { e.vx, e.vy + 8, e.vz }
+        local ah = (e.posed and e.capA) and e.capA[2] or { e.ax, e.ay + GS.NECK_Y + 5, e.az }
+        local pts = { { body, 3, "v" }, { ah, 2, "a" } }
+        local h = e.headRef
+        if h and not h.dead and (h.x - e.vx) ^ 2 + (h.z - e.vz) ^ 2 < 160 * 160 and h.y > min(e.vy, e.ay) - 30 then
+            pts[#pts + 1] = { { h.x, h.y, h.z }, 2, "h" }
+        end
+        if e.st and e.st.gx then pts[#pts + 1] = { { e.st.gx, e.st.gy, e.st.gz }, 1, "a" } end
+        return pts
+    end
+    -- The aftermath frame: the middle of its points and the distance that fits them all at its field of view.
+    function XC.aftFrame(e)
+        local pts = XC.aftPoints(e)
+        local lo, hi = { 1e9, 1e9, 1e9 }, { -1e9, -1e9, -1e9 }
+        for _, q in ipairs(pts) do
+            for i = 1, 3 do lo[i], hi[i] = min(lo[i], q[1][i]), max(hi[i], q[1][i]) end
+        end
+        local c = { (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5 + 4, (lo[3] + hi[3]) * 0.5 }
+        local R = 20
+        for _, q in ipairs(pts) do
+            R = max(R, sqrt((q[1][1] - c[1]) ^ 2 + (q[1][2] - c[2]) ^ 2 + (q[1][3] - c[3]) ^ 2))
+        end
+        return { c = c, dist = clamp(R / math.tan(27 / DEG) * 1.35, 105, 190), fov = 54 }
+    end
+
+    -- Is q in sight from p? No land on the segment short of q and no worm's body across it. `who` says whose point it is
+    -- ("v" victim, "a" attacker): a worm's own body does not hide it. nil when the ray budget is spent this frame.
+    function XC.sees(e, p, q, who)
+        local dx, dy, dz = q[1] - p[1], q[2] - p[2], q[3] - p[3]
+        local len = sqrt(dx * dx + dy * dy + dz * dz)
+        if len < 1 then return true end
+        local hit, why = castRay(p[1], p[2], p[3], q[1], q[2], q[3])
+        if hit == nil and why == "budget" then return nil end
+        if hit and hit * len < len - 4 then return false end
+        if e.capA then
+            if who ~= "a" and MT.blocks(p, q, e.capA[1], e.capA[2], GS.OCCLUDE_R) then return false end
+        else
+            if who ~= "a" and segThroughWorm(p[1], p[2], p[3], q[1], q[2], q[3], e.ax, e.ay, e.az) then return false end
+            if who ~= "v" and segThroughWorm(p[1], p[2], p[3], q[1], q[2], q[3], e.vx, e.vy, e.vz) then return false end
+        end
+        for slot, s in pairs(W) do
+            if slot ~= e.a and slot ~= e.v and s.seen == FR.n and s.alive
+               and segThroughWorm(p[1], p[2], p[3], q[1], q[2], q[3], s.px, s.py, s.pz) then
+                return false
+            end
+        end
+        return true
+    end
+    -- May an eye stand at p? Not inside a worm, not in a fresh blast's gas.
+    function XC.eyeOk(e, p)
+        local R2 = GS.WORM_R * GS.WORM_R
+        if e.capV and MT.pointSeg2(p[1], p[2], p[3], e.capV[1], e.capV[2]) < R2 then return false end
+        if e.capA and MT.pointSeg2(p[1], p[2], p[3], e.capA[1], e.capA[2]) < R2 then return false end
+        local function inWorm(x, y, z)
+            return p[2] > y - 4 and p[2] < y + GS.WORM_TOP and (p[1] - x) ^ 2 + (p[3] - z) ^ 2 < R2
+        end
+        if not e.capA and (inWorm(e.ax, e.ay, e.az) or inWorm(e.vx, e.vy, e.vz)) then return false end
+        for slot, s in pairs(W) do
+            if slot ~= e.a and slot ~= e.v and s.seen == FR.n and s.alive and inWorm(s.px, s.py, s.pz) then return false end
+        end
+        local t = os.clock()
+        for _, b in ipairs(GS.blasts) do
+            if t - b.t < XC.BLAST_T and (p[1] - b.x) ^ 2 + (p[2] - b.y) ^ 2 + (p[3] - b.z) ^ 2 < XC.BLAST_R * XC.BLAST_R then
+                return false
+            end
+        end
+        return true
+    end
+    -- How well the eye at angle th, height el, distance r from F sees the points: the summed weight of the points in
+    -- sight (less 2 for a blast's gas across the view), whether that is good enough (the first point, the neck or the
+    -- body, in sight and at least 5 of 7), and the eye. nil when the rays ran out this frame.
+    function XC.eval(e, th, el, r, F, pts)
+        local ce = cos(el)
+        local p = { F[1] + sin(th) * ce * r, F[2] + sin(el) * r, F[3] + cos(th) * ce * r }
+        if not XC.eyeOk(e, p) then return -1, false, p end
+        if RAY.used > RAY.cap - #pts - 2 then return nil end
+        local w, first = 0, false
+        for i, q in ipairs(pts) do
+            local s = XC.sees(e, p, q[1], q[3])
+            if s == nil then return nil end
+            if s then
+                w = w + q[2]
+                if i == 1 then first = true end
+            end
+        end
+        local t = os.clock()
+        local q = { F[1] + (p[1] - F[1]) * 0.25, F[2] + (p[2] - F[2]) * 0.25, F[3] + (p[3] - F[3]) * 0.25 }
+        for _, b in ipairs(GS.blasts) do
+            if t - b.t < XC.BLAST_T and MT.pointSeg2(b.x, b.y, b.z, p, q) < 40 * 40 then w = w - 2 end
+        end
+        return w, first and w >= 5, p
+    end
+    -- The shot set: before the chop each direction at three distances; for the aftermath one distance (aftFrame's).
+    function XC.build(e, after)
+        local list = {}
+        local offs, els = after and XC.AOFFS or XC.OFFS, after and XC.AELS or XC.ELS
+        for _, side in ipairs({ 1, -1 }) do
+            local base = math.atan(-e.dz * side, e.dx * side)
+            for _, off in ipairs(offs) do
+                for j, el in ipairs(els) do
+                    if after then
+                        list[#list + 1] = { side = side, off = off, el = el, r = 0, th = base + off, at = -100,
+                                            rank = abs(off) * 4 + (j - 1) * 1.5 }
+                    else
+                        for k, r in ipairs(XC.RS) do
+                            list[#list + 1] = { side = side, off = off, el = el, r = r, th = base + off, at = -100,
+                                                rank = abs(off) * 6 + (j - 1) + (k - 1) * 1.5 }
+                        end
+                    end
+                end
+            end
+        end
+        return list
+    end
+    function XC.score(e, s, F, pts, r, t)
+        local w, good = XC.eval(e, s.th, s.el, r or s.r, F, pts)
+        if w == nil then return false end
+        s.v, s.good, s.at = w * 10 - s.rank, good, t
+        return true
+    end
+    -- Scores the shots whose score is older than KEEP, round the list, while the rays last.
+    function XC.refresh(e, c, list, F, pts, r, t)
+        if c.stale then
+            for _, s in ipairs(list) do s.at = -100 end
+        end
+        local n = #list
+        for _ = 1, n do
+            c.idx = c.idx % n + 1
+            local s = list[c.idx]
+            if t - s.at >= XC.KEEP then
+                if not XC.score(e, s, F, pts, r, t) then
+                    c.idx = c.idx - 1
+                    return
+                end
+            end
+        end
+    end
+    -- The best good shot (within SIDE of square when sideOnly), a bonus for the side the camera is on.
+    function XC.best(list, sideOnly, side, except)
+        local b, bv
+        for _, s in ipairs(list) do
+            if s.good and s ~= except and (not sideOnly or abs(s.off) <= XC.SIDE) then
+                local v = s.v + ((side and s.side == side) and 6 or 0)
+                if not bv or v > bv then b, bv = s, v end
+            end
+        end
+        return b
+    end
+
+    -- The camera for one frame. `c` (e.xc) holds the shot in use (cur), the eye and target as drawn, and the shot sets.
     local function exCamera(e, T, dt, t)
         if not e.cam or e.camOff then return end
-        local o = e.orbit
-        local cx, cy, cz = (e.ax + e.vx) * 0.5, (e.ay + e.vy) * 0.5 + 10, (e.az + e.vz) * 0.5
-        if e.focus then cx, cy, cz = e.focus[1], e.focus[2], e.focus[3] end
-        -- the close shots stay CAM_MIN out or more: nearer, the eye ends up in a worm's head or helmet. The land ray
-        -- does not see level props (a giant onion, leaves, fences' posts): those stand on the ground round the pair, so
-        -- every shot is close and looks down on the pair from well above them rather than across the ground
-        local speed, r, el, fov = 0.5, 88, 0.62, 52
-        if T < 1.3 then speed, r, el, fov = 0.55, 86, 0.66, 52
-        elseif T < 2.9 then speed, r, el, fov = 0.42, 72, 0.58, 48
-        elseif T < 4.4 then speed, r, el, fov = 0.2, 62, 0.5, 44
-        elseif T < e.chop then speed, r, el, fov = 0.12, GS.CAM_MIN, 0.44, 42
-        elseif T < e.chop + 0.45 then speed, r, el, fov = 0.0, GS.CAM_MIN + 4, 0.46, 44
-        else speed, r, el, fov = 0.15, 66, 0.56, 48 end
-        -- the mounted pair is low on the ground: look down on it a little more
-        if e.posed and T > 1.3 then el = min(el * 1.25, 0.8) end
-        local mx, my, mz = cx, cy, cz
-        local want = 0
-        if T >= e.chop and e.headRef and headFollowable(e, e.headRef, mx, mz) then
-            want = smooth(seg(T, e.chop + 0.15, e.chop + 0.9)) * 0.8
+        local c = e.xc
+        if not c then
+            c = { idx = 0, bad = 0, drift = 0 }
+            c.F = XC.focusOf(e)
+            c.list = XC.build(e, false)
+            e.xc = c
         end
-        -- the follow weight eases both ways, so letting the head go is a glide back, not a cut
-        e.headK = (e.headK or 0) + (want - (e.headK or 0)) * (1 - exp(-dt * 3))
-        if e.headK > 0.002 and e.headRef then
-            local h, k = e.headRef, e.headK
-            cx, cy, cz = lerp(cx, h.x, k), lerp(cy, max(h.y, my - 6), k), lerp(cz, h.z, k)
-            local hit = castRay(mx, my, mz, cx, cy, cz)
-            if hit then cx, cy, cz = lerp(mx, cx, hit * 0.8), lerp(my, cy, hit * 0.8), lerp(mz, cz, hit * 0.8) end
+        local raise = T >= e.chop - 1.6 and T < e.chop + 0.5         -- the raise, the chop, its beat: side-on only
+        local aftermath = e.chopped and T >= e.chop + XC.AFTER
+        local cut = false
+        -- the aftermath set: framed and scored from just after the chop, so it is ready when it takes over
+        if e.chopped and not c.alist and T >= e.chop + 0.15 then
+            c.aft = XC.aftFrame(e)
+            c.alist = XC.build(e, true)
         end
-        local kf = 1 - exp(-dt * 2.2)
-        steerOrbit(e, o, r, el, speed, dt, t)
-        o.r, o.el, o.fov = o.r + (r - o.r) * kf, o.el + (el - o.el) * kf, o.fov + (fov - o.fov) * kf
-        if not o.cx then o.cx, o.cy, o.cz = cx, cy, cz end
-        o.cx, o.cy, o.cz = o.cx + (cx - o.cx) * kf, o.cy + (cy - o.cy) * kf, o.cz + (cz - o.cz) * kf
-        local ex, ey, ez = sin(o.th) * cos(o.el), sin(o.el), cos(o.th) * cos(o.el)
-        want = o.r
-        local hit = castRay(o.cx, o.cy, o.cz, o.cx + ex * want, o.cy + ey * want, o.cz + ez * want)
-        if hit then want = max(min(want, GS.CAM_FLOOR), want * hit * 0.85) end
-        o.reff = o.reff and (want < o.reff and want or o.reff + (want - o.reff) * (1 - exp(-dt * 1.5))) or want
-        local spec = { pos = { o.cx + ex * o.reff, o.cy + ey * o.reff, o.cz + ez * o.reff }, target = { o.cx, o.cy, o.cz },
-                       fov = o.fov, frames = 4 }
+        local pts = XC.points(e)
+        if c.alist then
+            c.ast = c.ast or { idx = 0 }
+            c.ast.stale = c.stale
+            XC.refresh(e, c.ast, c.alist, c.aft.c, XC.aftPoints(e), c.aft.dist, t)
+            c.ast.stale = nil
+        end
+        if not aftermath then XC.refresh(e, c, c.list, c.F, pts, nil, t) end
+        c.stale = nil
+        if not aftermath then
+            -- before the chop's beat: pick, check where the eye really is, move in or cut when it is blocked
+            if not c.cur or (T < 0.5 and not c.locked) then
+                local b = XC.best(c.list, false, c.cur and c.cur.side)
+                if b and b ~= c.cur then c.cur, c.drift, cut = b, 0, true end
+            end
+            if T >= 0.5 then c.locked = true end
+            if c.cur then
+                if raise and abs(c.cur.off) > XC.SIDE and not c.squared then
+                    -- into the raise: a cut to a square shot (the same side when it is clear)
+                    c.squared = true
+                    local b = XC.best(c.list, true, c.cur.side)
+                    if b then c.cur, c.drift, cut = b, 0, true end
+                end
+                local s = c.cur
+                local w, good = XC.eval(e, s.th + c.drift, s.el, s.r, c.F, pts)
+                if w ~= nil then c.bad = good and 0 or c.bad + 1 end
+                if c.bad >= 2 then
+                    c.bad = 0
+                    -- nearer along the same line first (a glide), else the best other shot (a cut)
+                    local nb
+                    for _, q in ipairs(c.list) do
+                        if q.good and q.th == s.th and q.el == s.el and q.r < s.r and (not nb or q.r > nb.r) then nb = q end
+                    end
+                    if nb then
+                        c.cur = nb
+                    else
+                        local b = XC.best(c.list, raise, s.side, s) or XC.best(c.list, false, s.side, s)
+                        if b then c.cur, c.drift, cut = b, 0, true end
+                    end
+                end
+                -- the orbit: a slow drift toward square, still from the raise through the chop's beat
+                if not raise then
+                    local o = c.cur.off
+                    if o == 0 then c.drift = 0.07 * sin(T * 0.5)
+                    else c.drift = clamp(c.drift - (o > 0 and 1 or -1) * 0.035 * dt, -abs(o) * 0.5, abs(o) * 0.5) end
+                end
+            end
+        else
+            -- the aftermath: the best wide shot, glided to when it is on the same side and the way there is clear
+            if not c.acur then
+                local b = XC.best(c.alist, false, c.cur and c.cur.side)
+                if b then
+                    c.acur = b
+                    local F, ce, r = c.aft.c, cos(b.el), c.aft.dist
+                    local np = { F[1] + sin(b.th) * ce * r, F[2] + sin(b.el) * r, F[3] + cos(b.th) * ce * r }
+                    local hit = c.pos and castRay(c.pos[1], c.pos[2], c.pos[3], np[1], np[2], np[3])
+                    if c.cur and b.side == c.cur.side and not hit then c.glide = { from = c.pos, at = t } else cut = true end
+                end
+                c.bad = 0
+            else
+                local s = c.acur
+                local w, good = XC.eval(e, s.th, s.el, c.aft.dist, c.aft.c, XC.aftPoints(e))
+                if w ~= nil then c.bad = good and 0 or c.bad + 1 end
+                if c.bad >= 2 then
+                    c.bad = 0
+                    local b = XC.best(c.alist, false, s.side, s)
+                    if b then c.acur, c.glide, cut = b, nil, true end
+                end
+            end
+        end
+        -- where the eye and the target want to be
+        local pos, tgt, fov
+        if aftermath and c.acur then
+            local s = c.acur
+            local ce = cos(s.el)
+            local F = c.aft.c
+            pos = { F[1] + sin(s.th) * ce * c.aft.dist, F[2] + sin(s.el) * c.aft.dist, F[3] + cos(s.th) * ce * c.aft.dist }
+            tgt, fov = { F[1], F[2], F[3] }, c.aft.fov
+        else
+            local s = c.cur or { th = e.orbit.th, el = 0.6, r = XC.RS[1] }
+            local ce, th = cos(s.el), s.th + (c.cur and c.drift or 0)
+            local F = c.F
+            pos = { F[1] + sin(th) * ce * s.r, F[2] + sin(s.el) * s.r, F[3] + cos(th) * ce * s.r }
+            if not c.cur then
+                -- nothing scored yet (no rays): the land between the pair and the eye pulls it in
+                local hit = castRay(F[1], F[2], F[3], pos[1], pos[2], pos[3])
+                if hit then
+                    local k = max(GS.CAM_FLOOR / s.r, hit * 0.85)
+                    pos = { lerp(F[1], pos[1], k), lerp(F[2], pos[2], k), lerp(F[3], pos[3], k) }
+                end
+            end
+            tgt, fov = { F[1], F[2], F[3] }, 48
+            -- in on the neck for the blade, the raise and the chop
+            local k = smooth(seg(T, 2.2, 3.0)) * 0.35
+            if e.neck and k > 0 then tgt = { lerp(F[1], e.neck[1], k), lerp(F[2], e.neck[2], k), lerp(F[3], e.neck[3], k) } end
+            fov = lerp(48, 42, smooth(seg(T, 2.2, 4.4)))
+            if e.chopped then
+                -- the rolling head: the target leans after it (the stump and the attacker stay in the frame)
+                local h = e.headRef
+                local want = 0
+                if h and headFollowable(e, h, c.F[1], c.F[3]) then
+                    want = XC.LEAN * smooth(seg(T, e.chop + 0.15, e.chop + 0.6))
+                end
+                c.headK = (c.headK or 0) + (want - (c.headK or 0)) * (1 - exp(-dt * 4))
+                if h and c.headK > 0.002 then
+                    tgt = { lerp(tgt[1], h.x, c.headK), lerp(tgt[2], max(h.y, c.F[2] - 6), c.headK), lerp(tgt[3], h.z, c.headK) }
+                end
+                fov = lerp(42, 50, smooth(seg(T, e.chop, e.chop + 0.8)))
+            end
+        end
+        -- drawn: a cut jumps, a glide eases over 1.2 s, otherwise both follow smoothly
+        if cut or not c.pos then
+            c.pos, c.tgt, c.fov, c.glide = pos, tgt, fov, nil
+        elseif c.glide then
+            local u = smooth((t - c.glide.at) / 1.2)
+            local f = c.glide.from
+            c.pos = { lerp(f[1], pos[1], u), lerp(f[2], pos[2], u), lerp(f[3], pos[3], u) }
+            if u >= 1 then c.glide = nil end
+        else
+            local k = 1 - exp(-dt * 5)
+            c.pos = { lerp(c.pos[1], pos[1], k), lerp(c.pos[2], pos[2], k), lerp(c.pos[3], pos[3], k) }
+        end
+        if not cut and c.tgt then
+            local k = 1 - exp(-dt * 4)
+            c.tgt = { lerp(c.tgt[1], tgt[1], k), lerp(c.tgt[2], tgt[2], k), lerp(c.tgt[3], tgt[3], k) }
+            c.fov = lerp(c.fov, fov, k)
+        end
+        local spec = { pos = { c.pos[1], c.pos[2], c.pos[3] }, target = { c.tgt[1], c.tgt[2], c.tgt[3] }, fov = c.fov, frames = 4 }
         SpadeFX.shakeCam(spec)
         -- in from the game's camera over the first half second, and back to it at the end
         local blend = smooth(T / 0.5)
@@ -3342,7 +3623,7 @@ local SPADE = (function()
                 end
             end
         end
-        -- last: out of the worms (the close shots orbit inside the pair's reach), then once more out of the land
+        -- last: out of the worms and the severed head, then once more out of the land
         local px, py, pz = outOfWorms(e, spec.pos[1], spec.pos[2], spec.pos[3], spec.target[1], spec.target[3])
         if px ~= spec.pos[1] or pz ~= spec.pos[3] then
             local tx, ty, tz = spec.target[1], spec.target[2], spec.target[3]
@@ -3353,6 +3634,8 @@ local SPADE = (function()
         local ok, res = pcall(wum.render.cameraOverride, spec)
         if not ok or res ~= true then e.camOff = true end
         e.camSet = true
+        e.camPos = spec.pos
+        e.camShot = (aftermath and c.acur and "after") or (c.cur and string.format("%d/%.1f/%.2f/%d", c.cur.side, c.cur.off, c.cur.el, c.cur.r)) or "none"
     end
 
     -- The execution without poses: both worms stay upright where they are pinned. The spade turns in the attacker's fists:
@@ -3530,6 +3813,9 @@ local SPADE = (function()
     function GS.frame(dt)
         if not wum.render then return end
         local t = os.clock()
+        -- the execution camera's shots are picked by land rays: more of them while it runs
+        RAY.base = RAY.base or RAY.cap
+        RAY.cap = GS.ex and (GS.ex.xc and XC.RAYS or 120) or RAY.base     -- the first frame scores the whole shot set
         ensureAssets()
         local e = GS.ex
         local busy = {}
@@ -3617,6 +3903,11 @@ local SPADE = (function()
     end
 
     function GS.matchStart()
+        -- the poses are looked at again in every match: a refusal in the last one (the attract demo torn down) says
+        -- nothing about this one
+        GS.pose.bad, GS.pose.checked, GS.pose.status, GS.pose.since = false, false, nil, nil
+        GS.pose.fails, GS.pose.failSince = 0, nil
+        GS.blasts = {}
         local ok, th = pcall(wum.game.theme)
         GS.material = (ok and THEME[tostring(th)]) or "soil"
         GS.aimSign = 1
@@ -3785,6 +4076,7 @@ subscribe("Kindjal.Spade", SPADE.onMessage)
 subscribe("mod.bloodsand.state", SPADE.hearBloodsand)
 subscribe("melange.match.start", SPADE.matchStart)
 subscribe("Explosion", onExplosion)
+subscribe("Explosion", SPADE.noteBlast)
 subscribe("Weapon.Fired", onFired)
 subscribe("Worm.Damaged", onDamaged)
 subscribe("Payload.BigJump", function()
